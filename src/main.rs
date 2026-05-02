@@ -12,8 +12,8 @@ use limine::request::FramebufferRequest;
 
 #[used]
 #[unsafe(no_mangle)]
-#[unsafe(link_section = ".base_revision")]
-static BASE_REVISION: BaseRevision = BaseRevision::new();
+#[unsafe(link_section = ".requests")]
+static BASE_REVISION: BaseRevision = BaseRevision::with_revision(6 as u64);
 
 #[used]
 #[unsafe(no_mangle)]

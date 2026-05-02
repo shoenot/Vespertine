@@ -21,7 +21,8 @@ run: edk2-ovmf $(IMAGE_NAME).iso
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom $(IMAGE_NAME).iso \
-		$(QEMUFLAGS)
+		$(QEMUFLAGS) \
+		-serial stdio 
 
 .PHONY: run-bios
 run-bios: $(IMAGE_NAME).iso
@@ -63,7 +64,8 @@ $(IMAGE_NAME).iso: limine/limine kernel
 # External Dependencies (Limine and OVMF)
 limine/limine:
 	rm -rf limine
-	git clone https://github.com/limine-bootloader/limine.git --branch=v10.x-binary --depth=1
+	mkdir -p limine
+	curl -sL https://github.com/limine-bootloader/limine/releases/latest/download/limine-binary.tar.gz | tar -xz --strip-components=1 -C limine
 	$(MAKE) -C limine
 
 edk2-ovmf:

@@ -3,6 +3,7 @@
 ENTRY(kmain)
 
 PHDRS {
+    limine_requests  PT_LOAD FLAGS((1 << 1) | (1 << 2));
     text    PT_LOAD FLAGS((1 << 0) | (1 << 2));
     rodata  PT_LOAD FLAGS((1 << 2));
     data    PT_LOAD FLAGS((1 << 1) | (1 << 2));
@@ -10,6 +11,14 @@ PHDRS {
 
 SECTIONS {
     . = 0xffffffff80000000;
+
+    .limine_requests : {
+        KEEP(*(.requests_start));
+        KEEP(*(.requests));
+        KEEP(*(.requests_end));
+    } :limine_requests
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
 
     .text : {
         TEXT_BEGIN = .;
@@ -29,11 +38,6 @@ SECTIONS {
 
     .data : {
         DATA_BEGIN = .;
-
-        . = ALIGN(8);
-        KEEP(*(.kernel_reqs));
-        . = ALIGN(8);
-
         *(.data .data.*)
     } :data
 
@@ -47,6 +51,4 @@ SECTIONS {
         *(.eh_frame*)
         *(.note .note.*)
     }
-
-    KERNEL_SIZE = . - 0xffffffff80000000;
 }
