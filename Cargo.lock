@@ -23,7 +23,14 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "limine",
+ "simple-psf",
 ]
+
+[[package]]
+name = "simple-psf"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dfb5d24f130ce16dd7e608140773454eb92d69191c258e8af9d811bcab03f1d"
 
 [[package]]
 name = "spin"

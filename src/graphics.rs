@@ -1,4 +1,7 @@
 use limine::framebuffer::Framebuffer;
+use simple_psf::Psf;
+
+use crate::serial::{log_to_serial, log_u32_to_serial};
 
 pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
     let pixels_per_row = fb.pitch / 4;
@@ -16,4 +19,18 @@ pub fn draw_diagonal(fb: &Framebuffer) {
     for i in 0..fb.height {
         putpixel(i as u32, i as u32, 0xFF0000, fb);
     }
+}
+
+pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
+    let x = x * 8;
+    let y = y * 16;
+    let Some(pixels) = font.get_glyph_pixels(c as usize) else { return };
+    pixels.enumerate()
+        .for_each(|(i, p)| {
+            let x = x + (i as u32 % 8);
+            let y = y + (i as u32 / 8);
+            if p {
+                putpixel(x, y, 0xFFFFFF, &fb);
+            } else {};
+        });
 }

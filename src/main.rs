@@ -2,6 +2,8 @@
 #![no_main]
 use core::panic::PanicInfo; 
 use core::arch::asm;
+use simple_psf::Psf;
+use simple_psf::ParseError;
 
 mod serial;
 use serial::{
@@ -60,6 +62,8 @@ fn hcf() -> ! {
     }
 }
 
+const FONT_DATA: &[u8] = include_bytes!("../zap-ext-light16.psf");
+
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     if !BASE_REVISION.is_supported() {
@@ -76,9 +80,30 @@ pub extern "C" fn kmain() -> ! {
         log_to_serial("hello, world!\n");
     }
 
+    let font = match Psf::parse(FONT_DATA) {
+        Ok(f) => f,
+        Err(ParseError::HeaderMissing) => { log_to_serial("FONT LOAD FAILED: HEADER MISSING"); hcf() },
+        Err(ParseError::InvalidMagicBytes) => { log_to_serial("FONT LOAD FAILED: INVALID MAGIC BYTES"); hcf() },
+        Err(ParseError::UnknownVersion(_)) => { log_to_serial("FONT LOAD FAILED: UNKNOWN VERSION"); hcf() },
+        Err(ParseError::GlyphTableTruncated {..}) => { log_to_serial("FONT LOAD FAILED: GLYPH TABLE TRUNCATED"); hcf() },
+    };
+    log_to_serial("FONT LOADED\n");
+
     if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
         if let Some(fb) = fb_response.framebuffers().first() {
-            draw_diagonal(fb);
+            putchar('h', 0, 0, &font, fb);
+            putchar('e', 1, 0, &font, fb);
+            putchar('l', 2, 0, &font, fb);
+            putchar('l', 3, 0, &font, fb);
+            putchar('o', 4, 0, &font, fb);
+            putchar(',', 5, 0, &font, fb);
+            putchar(' ', 6, 0, &font, fb);
+            putchar('w', 7, 0, &font, fb);
+            putchar('o', 8, 0, &font, fb);
+            putchar('r', 9, 0, &font, fb);
+            putchar('l', 10, 0, &font, fb);
+            putchar('d', 11, 0, &font, fb);
+            putchar('!', 12, 0, &font, fb);
         }
     }
 
