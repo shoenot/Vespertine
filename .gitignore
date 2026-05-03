@@ -34,3 +34,4 @@ target
 
 /edk2-ovmf
 /limine
+*.iso

@@ -10,6 +10,9 @@ use serial::{
     log_u32_to_serial,
 };
 
+mod gdt;
+use gdt::init_gdt;
+
 use limine::{
     BaseRevision,
     RequestsStartMarker,
@@ -57,6 +60,13 @@ pub extern "C" fn kmain() -> ! {
         hcf();
     }
 
+    unsafe {
+        init_serial();
+        log_to_serial("hello, world!");
+        log_u32_to_serial(232839);
+        init_gdt();
+    }
+
     if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
         if let Some(fb) = fb_response.framebuffers().first() {
             let pixels_per_row = fb.pitch / 4;
@@ -70,11 +80,6 @@ pub extern "C" fn kmain() -> ! {
                 }
             }
         }
-    }
-    unsafe {
-        init_serial();
-        log_to_serial("hello, world!");
-        log_u32_to_serial(232839);
     }
 
     hcf();
