@@ -62,3 +62,16 @@ pub fn log_u32_to_serial(mut n: u32) {
     log_to_serial(&numstr);
 }
 
+pub fn log_u64_to_serial(mut n: u64) {
+    let mut buffer = [0u8; 24];
+
+    let mut i = buffer.len();
+    while n > 0 && i > 0 {
+        i -= 1;
+        buffer[i] = (n % 10) as u8 + b'0';
+        n /= 10;
+    }
+    
+    let numstr = core::str::from_utf8(&buffer[i..]).unwrap();
+    log_to_serial(&numstr);
+}

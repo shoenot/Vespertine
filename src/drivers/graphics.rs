@@ -29,10 +29,24 @@ pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
         });
 }
 
-pub fn writeline(s: &str, y: u32, font: &Psf, fb: &Framebuffer) {
-    let mut i = 0;
+pub fn writeline(s: &str, y: u32, offset: u32, font: &Psf, fb: &Framebuffer) {
+    let mut i = offset;
     for c in s.chars() {
         putchar(c, i, y, font, fb);
         i += 1;
     }
+}
+
+pub fn writenumber(mut n: u64, y: u32, offset: u32, font: &Psf, fb: &Framebuffer) {
+    let mut buffer = [0u8; 24];
+
+    let mut i = buffer.len();
+    while n > 0 && i > 0 {
+        i -= 1;
+        buffer[i] = (n % 10) as u8 + b'0';
+        n /= 10;
+    }
+    
+    let numstr = core::str::from_utf8(&buffer[i..]).unwrap();
+    writeline(numstr, y, offset, font, fb);
 }

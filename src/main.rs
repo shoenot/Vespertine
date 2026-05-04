@@ -12,8 +12,9 @@ mod kernel;
 use drivers::serial::{
     init_serial, 
     log_to_serial,
-    log_u32_to_serial,
 };
+
+use kernel::pmm::*;
 
 use arch::x86_64::interrupts::gdt::init_gdt;
 use arch::x86_64::interrupts::idt::init_idt;
@@ -25,7 +26,12 @@ use limine::{
     RequestsStartMarker,
     RequestsEndMarker,
 };
-use limine::request::FramebufferRequest;
+
+use limine::request::{
+    FramebufferRequest,
+    MemmapRequest,
+    HhdmRequest,
+};
 
 #[used]
 #[unsafe(no_mangle)]
@@ -39,6 +45,16 @@ static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 #[used]
 #[unsafe(no_mangle)]
+#[unsafe(link_section = ".requests")]
+pub static MEMMAP_REQUEST: MemmapRequest = MemmapRequest::new();
+
+#[used]
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".requests")]
+pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
+
+#[used]
+#[unsafe(no_mangle)]
 #[unsafe(link_section = ".requests_start")]
 static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 
@@ -48,8 +64,15 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &PanicInfo) -> ! {
+    if let Some(text) = info.message().as_str() {
+        log_to_serial("!!! KERNEL PANIC : ");
+        log_to_serial(text);
+        log_to_serial(" !!!");
+    } else {
+        log_to_serial("!!! KERNEL PANIC !!!");
+    }
+    hcf();
 }
 
 fn hcf() -> ! {
@@ -81,20 +104,25 @@ pub extern "C" fn kmain() -> ! {
 
     let font = match Psf::parse(FONT_DATA) {
         Ok(f) => f,
-        Err(ParseError::HeaderMissing) => { log_to_serial("FONT LOAD FAILED: HEADER MISSING"); hcf() },
-        Err(ParseError::InvalidMagicBytes) => { log_to_serial("FONT LOAD FAILED: INVALID MAGIC BYTES"); hcf() },
-        Err(ParseError::UnknownVersion(_)) => { log_to_serial("FONT LOAD FAILED: UNKNOWN VERSION"); hcf() },
-        Err(ParseError::GlyphTableTruncated {..}) => { log_to_serial("FONT LOAD FAILED: GLYPH TABLE TRUNCATED"); hcf() },
+        Err(ParseError::HeaderMissing) => { panic!("FONT LOAD FAILED: HEADER MISSING") },
+        Err(ParseError::InvalidMagicBytes) => { panic!("FONT LOAD FAILED: INVALID MAGIC BYTES") },
+        Err(ParseError::UnknownVersion(_)) => { panic!("FONT LOAD FAILED: UNKNOWN VERSION") },
+        Err(ParseError::GlyphTableTruncated {..}) => { panic!("FONT LOAD FAILED: GLYPH TABLE TRUNCATED") },
     };
     log_to_serial("FONT LOADED\n");
 
     let fb = if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
         if let Some(fb) = fb_response.framebuffers().first() {
             fb
-        } else { log_to_serial("Cannot get framebuffer"); hcf() }
-    } else { log_to_serial("Cannot get framebuffer"); hcf() };
+        } else { panic!("Cannot get framebuffer") }
+    } else { panic!("Cannot get framebuffer") };
 
-    writeline("Hello, world!", 0, &font, fb);
+    writeline("Hello, world!", 0, 0, &font, fb);
 
+    writeline("Initiating PMM... ", 1, 0, &font, fb);
+    let memory_bitmap = BitmapPMM::init();
+
+    writeline("Physical Memory Bitmap stored at: ", 1, 19, &font, fb);
+    writenumber(memory_bitmap.get_bitmap_addr(), 1, 54, &font, fb);
     hcf();
 }
