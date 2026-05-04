@@ -9,5 +9,6 @@ target
 .idea/
 
 /target
-/build_deps
+/build_deps/limine
+/build_deps/edk2-ovmf
 /build
