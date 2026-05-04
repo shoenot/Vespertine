@@ -7,7 +7,7 @@ build-std-features = ["compiler-builtins-mem"]
 
 [target.x86_64-unknown-none]
 rustflags = [
-    "-C", "link-arg=-Tsrc/linker.ld",
+    "-C", "link-arg=-Tscripts/linker.ld",
     "-C", "link-arg=build/idt.o",
     "-C", "no-redzone=yes",
     "-C", "target-feature=-sse,-sse2,-sse3,-sse4.1,-sse4.2,-avx,-avx2",

@@ -1,7 +1,7 @@
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
-use crate::serial::{log_to_serial, log_u32_to_serial};
+use crate::drivers::serial::{log_to_serial, log_u32_to_serial};
 
 pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
     let pixels_per_row = fb.pitch / 4;
@@ -13,12 +13,6 @@ pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
         ptr.add((y * pixels_per_row as u32 + x) as usize).write_volatile(color);
     }
     Some(color)
-}
-
-pub fn draw_diagonal(fb: &Framebuffer) {
-    for i in 0..fb.height {
-        putpixel(i as u32, i as u32, 0xFF0000, fb);
-    }
 }
 
 pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
@@ -33,4 +27,12 @@ pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
                 putpixel(x, y, 0xFFFFFF, &fb);
             } else {};
         });
+}
+
+pub fn writeline(s: &str, y: u32, font: &Psf, fb: &Framebuffer) {
+    let mut i = 0;
+    for c in s.chars() {
+        putchar(c, i, y, font, fb);
+        i += 1;
+    }
 }

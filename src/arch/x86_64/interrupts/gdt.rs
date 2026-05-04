@@ -2,7 +2,7 @@ use core::arch::asm;
 use core::ptr::addr_of;
 use core::mem::size_of_val;
 use lazy_static::lazy_static;
-use crate::serial::log_to_serial;
+use crate::drivers::serial::log_to_serial;
 
 #[repr(C, packed)]
 struct GDTEntry {

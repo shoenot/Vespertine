@@ -5,21 +5,20 @@ use core::arch::asm;
 use simple_psf::Psf;
 use simple_psf::ParseError;
 
-mod serial;
-use serial::{
+mod arch;
+mod drivers;
+mod kernel;
+
+use drivers::serial::{
     init_serial, 
     log_to_serial,
     log_u32_to_serial,
 };
 
-mod gdt;
-use gdt::init_gdt;
+use arch::x86_64::interrupts::gdt::init_gdt;
+use arch::x86_64::interrupts::idt::init_idt;
 
-mod idt;
-use idt::*;
-
-mod graphics;
-use graphics::*;
+use drivers::graphics::*;
 
 use limine::{
     BaseRevision,
@@ -89,23 +88,13 @@ pub extern "C" fn kmain() -> ! {
     };
     log_to_serial("FONT LOADED\n");
 
-    if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
+    let fb = if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
         if let Some(fb) = fb_response.framebuffers().first() {
-            putchar('h', 0, 0, &font, fb);
-            putchar('e', 1, 0, &font, fb);
-            putchar('l', 2, 0, &font, fb);
-            putchar('l', 3, 0, &font, fb);
-            putchar('o', 4, 0, &font, fb);
-            putchar(',', 5, 0, &font, fb);
-            putchar(' ', 6, 0, &font, fb);
-            putchar('w', 7, 0, &font, fb);
-            putchar('o', 8, 0, &font, fb);
-            putchar('r', 9, 0, &font, fb);
-            putchar('l', 10, 0, &font, fb);
-            putchar('d', 11, 0, &font, fb);
-            putchar('!', 12, 0, &font, fb);
-        }
-    }
+            fb
+        } else { log_to_serial("Cannot get framebuffer"); hcf() }
+    } else { log_to_serial("Cannot get framebuffer"); hcf() };
+
+    writeline("Hello, world!", 0, &font, fb);
 
     hcf();
 }

@@ -1,6 +1,6 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
-use crate::serial::log_to_serial;
+use crate::drivers::serial::log_to_serial;
 use crate::hcf;
 
 #[repr(C, packed)]

@@ -36,9 +36,9 @@ run-bios: $(IMAGE_NAME).iso
 		$(QEMUFLAGS)
 
 # --- Assembly Build Step ---
-build/idt.o: src/idt.S
+build/idt.o: src/arch/x86_64/interrupts/idt.S
 	@mkdir -p build
-	$(AS) src/idt.S -o build/idt.o
+	$(AS) src/arch/x86_64/interrupts/idt.S -o build/idt.o
 
 .PHONY: kernel
 kernel: build/idt.o
