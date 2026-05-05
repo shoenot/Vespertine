@@ -20,6 +20,7 @@ pub struct PhysFrame {
 pub struct BitmapPMM {
     pub bitmap: &'static mut [u8],
     pub total_frames: usize,
+    pub max_addr: usize,
 }
 
 impl BitmapPMM {
@@ -33,6 +34,8 @@ impl BitmapPMM {
             let top = entry.base + entry.length;
             if top as usize > highest_addr { highest_addr = top as usize; }
         }
+
+        let highest_addr = (highest_addr + 4095) & !4095;
 
         let total_frames = highest_addr / PAGE_SIZE;
         let bitmap_size_bytes = total_frames.div_ceil(8);
@@ -55,6 +58,7 @@ impl BitmapPMM {
         let mut pmm = BitmapPMM {
             bitmap: bitmap_slice,
             total_frames,
+            max_addr: highest_addr,
         };
 
         for entry in mem_map {
@@ -73,8 +77,9 @@ impl BitmapPMM {
             }
         }
 
-        log_to_serial("Physical Memory Bitmap stored at ");
+        log_to_serial("Init Bitmap stored at ");
         log_u64_to_serial(bitmap_virt_addr as u64);
+        log_to_serial("\n");
         pmm
     }
 

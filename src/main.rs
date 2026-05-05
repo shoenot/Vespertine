@@ -14,7 +14,7 @@ use drivers::serial::{
     log_to_serial,
 };
 
-use kernel::init_pmm::*;
+use kernel::memory::pmm::Allocator;
 
 use arch::x86_64::interrupts::gdt::init_gdt;
 use arch::x86_64::interrupts::idt::init_idt;
@@ -120,9 +120,11 @@ pub extern "C" fn kmain() -> ! {
     writeline("Hello, world!", 0, 0, &font, fb);
 
     writeline("Initiating PMM... ", 1, 0, &font, fb);
-    let init_allocator = BitmapPMM::init();
+    let allocator = Allocator::init();
 
-    writeline("Physical Memory Bitmap stored at: ", 1, 19, &font, fb);
-    writenumber(init_allocator.get_bitmap_addr(), 1, 54, &font, fb);
+    writeline("Physical Memory Allocator initiated. Metatdata stored at: ", 2, 0, &font, fb);
+    writenumber(allocator.metadata_phys_addr as u64, 2, 60, &font, fb);
+
+    writeline("test", 3, 0, &font, fb);
     hcf();
 }
