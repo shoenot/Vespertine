@@ -111,7 +111,10 @@ pub struct InterruptStackFrame {
 #[unsafe(no_mangle)]
 pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
     match frame.interrupt_number {
-        13 => log_to_serial("general protection fault.\n"),
+        13 => {
+            log_to_serial("general protection fault.\n");
+            gpf_handler(&frame);
+        },
         14 => {
             let pfaddr = page_fault_address();
             let error_code = frame.error_code;
@@ -123,6 +126,14 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         15 => log_to_serial("unexpected interrupt.\n"),
         _ => {},
     }
+    hcf();
+}
+
+fn gpf_handler(frame: &InterruptStackFrame) {
+    log_to_serial("Error Code: ");
+    log_u64_to_serial(frame.error_code);
+    log_to_serial(" Instruction Pointer: ");
+    log_u64_to_serial(frame.instruction_pointer);
     hcf();
 }
 

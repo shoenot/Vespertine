@@ -28,6 +28,16 @@ run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
 		$(QEMUFLAGS) \
 		-serial stdio 
 
+.PHONY: run-debug
+run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
+	qemu-system-x86_64 \
+		-M q35 \
+		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
+		-cdrom build/$(IMAGE_NAME).iso \
+		-accel kvm \
+		$(QEMUFLAGS) -d int -no-reboot -M smm=off \
+		-serial stdio 
+
 .PHONY: run-bios
 run-bios: build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
