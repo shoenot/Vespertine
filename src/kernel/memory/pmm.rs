@@ -11,8 +11,8 @@ lazy_static!(
     } else { panic!("COULD NOT GET HHDM OFFSET FROM LIMINE") };
 );
 
-static HUGE_PAGE_SIZE: usize = 0x20_0000;
-static NORMAL_PAGE_SIZE: usize = 0x1000;
+pub static HUGE_PAGE_SIZE: usize = 0x20_0000;
+pub static NORMAL_PAGE_SIZE: usize = 0x1000;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum BlockSize {

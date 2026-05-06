@@ -5,7 +5,6 @@ use crate::kernel::memory::pmm::*;
 
 type PhysAlloc = TicketLock<Allocator>;
 
-
 // structs 
 
 #[repr(C, align(4096))]
@@ -46,7 +45,7 @@ fn get_or_create_next(entry: &mut PageTableEntry, phys_offset: u64, allocator: &
     Some((entry.get_addr() + phys_offset) as *mut PageTable)
 }
 
-fn get_flags(
+pub fn get_flags(
     present: bool, writable: bool, 
     user_access: bool, writethru: bool, 
     no_cache: bool, accessed: bool, 
