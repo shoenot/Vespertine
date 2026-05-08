@@ -8,6 +8,7 @@ use limine::request::{
     FramebufferRequest,
     MemmapRequest,
     HhdmRequest,
+    RsdpRequest,
 };
 
 
@@ -30,6 +31,11 @@ pub static MEMMAP_REQUEST: MemmapRequest = MemmapRequest::new();
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".requests")]
 pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
+
+#[used]
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".requests")]
+pub static RSDP_REQUEST: RsdpRequest = RsdpRequest::new();
 
 #[used]
 #[unsafe(no_mangle)]

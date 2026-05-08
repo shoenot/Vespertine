@@ -118,6 +118,7 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
             gpf_handler(&frame);
         },
         14 => {
+            log_to_serial("\npage fault.\n");
             page_fault_handler(&frame);
         },
         15 => log_to_serial("unexpected interrupt.\n"),

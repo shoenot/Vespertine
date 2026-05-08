@@ -23,10 +23,13 @@ use arch::x86_64::interrupts::gdt::init_gdt;
 use arch::x86_64::interrupts::idt::init_idt;
 
 use kernel::lock::TicketLock;
+
 use kernel::memory::pmm::*;
 use kernel::memory::paging::*;
 use kernel::memory::vmm::*;
 use kernel::memory::heap::KernelAllocator;
+
+use kernel::acpi;
 
 use tests::memory_tests::*;
 
