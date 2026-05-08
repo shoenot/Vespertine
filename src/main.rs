@@ -21,6 +21,7 @@ use drivers::graphics::*;
 
 use arch::x86_64::interrupts::gdt::init_gdt;
 use arch::x86_64::interrupts::idt::init_idt;
+use arch::x86_64::apic::lapic::{Local_APIC, get_apic_base};
 
 use kernel::lock::TicketLock;
 
@@ -142,6 +143,18 @@ pub extern "C" fn kmain() -> ! {
     test_collections(&mut logger);
 
     write!(&mut logger, "TESTS COMPLETE!\n").unwrap();
+    
+    unsafe {
+        let apic_phys = get_apic_base() as u64;
+        let apic_virt = apic_phys + *HHDMOFFSET as u64;
+        let mut pager = PAGER.lock();
+        let flags = get_flags(true, true, false, true, true, false, false, false, true, true);
+        pager.map_page(VirtAddress(apic_virt), apic_phys, flags, *HHDMOFFSET as u64, BlockSize::Normal).unwrap();
+        drop(pager);
+    }
+
+    let lapic = Local_APIC::init();
+    lapic.timer_setup(32, 0x0FFF_FFFF);
 
     hcf();
 }

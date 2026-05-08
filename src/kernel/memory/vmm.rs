@@ -9,6 +9,8 @@ pub static VM_FLAG_EXEC: usize = 1 << 1;
 pub static VM_FLAG_USER: usize = 1 << 2;
 pub static VM_FLAG_HUGE: usize = 1 << 3;
 pub static VM_FLAG_GLOBAL: usize = 1 << 4;
+pub static VM_FLAG_CACHE_DISABLE: usize = 1 << 5;
+pub static VM_FLAG_WRITE_THROUGH: usize = 1 << 5;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
 static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;
@@ -18,11 +20,15 @@ fn convert_vm_flags(flags: usize) -> usize {
     let mut user_access = false;
     let mut global = false;
     let mut no_execute = true;
+    let mut cache_disable = false;
+    let mut write_through = false;
     if flags & VM_FLAG_WRITE != 0 { writable = true };
     if flags & VM_FLAG_USER  != 0 { user_access = true };
     if flags & VM_FLAG_GLOBAL  != 0 { global = true };
-    if (flags & VM_FLAG_EXEC) != 0 { no_execute = false };
-    get_flags(true, writable, user_access, false, false, false, false, false, global, no_execute) as usize
+    if flags & VM_FLAG_EXEC != 0 { no_execute = false };
+    if flags & VM_FLAG_CACHE_DISABLE != 0 { cache_disable = true };
+    if flags & VM_FLAG_WRITE_THROUGH != 0 { write_through = true };
+    get_flags(true, writable, user_access, write_through, cache_disable, false, false, false, global, no_execute) as usize
 }
 
 pub struct VmaNode {

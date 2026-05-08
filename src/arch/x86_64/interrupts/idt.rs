@@ -1,8 +1,10 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
 use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
+use crate::arch::x86_64::apic::{Local_APIC, get_apic_base};
 use crate::hcf;
 use crate::GLOBAL_VMM;
+use crate::kernel::memory::pmm::HHDMOFFSET;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -122,6 +124,10 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
             page_fault_handler(&frame);
         },
         15 => log_to_serial("unexpected interrupt.\n"),
+        32 => {
+            log_to_serial("local apic timer interrupt.");
+            timer_handler(&frame);
+        }
         _ => {},
     }
 }
@@ -154,5 +160,12 @@ fn page_fault_handler(frame: &InterruptStackFrame) {
             "PAGE FAULT EXCEPTION\nAT ADDRESS: {:#X}\nError Code: {:#b}\n{:#?}",
             addr, error_code, frame
         )
+    }
+}
+
+fn timer_handler(frame: &InterruptStackFrame) {
+    unsafe {
+        let lapic = Local_APIC { base_addr: get_apic_base() + *HHDMOFFSET };
+        lapic.eoi();
     }
 }

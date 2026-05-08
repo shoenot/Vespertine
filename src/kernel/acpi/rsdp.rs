@@ -83,15 +83,17 @@ impl Rsdp {
         }
     }
 
-    pub fn get_table(self) -> Option<AcpiRoot> {
-        self.validate()?;
+    pub fn get_table(self) -> AcpiRoot {
+        if self.validate().is_none() {
+            panic!("RSDP Checksum invalid");
+        }
         match self {
-            Rsdp::V1(desc) => Some(AcpiRoot::RSDT(desc.rsdt_address as usize + *HHDMOFFSET)),
+            Rsdp::V1(desc) => AcpiRoot::RSDT(desc.rsdt_address as usize + *HHDMOFFSET),
             Rsdp::V2(desc) => {
                 if desc.xsdt_address == 0 {
-                    Some(AcpiRoot::RSDT(desc.v1.rsdt_address as usize + *HHDMOFFSET))
+                    AcpiRoot::RSDT(desc.v1.rsdt_address as usize + *HHDMOFFSET)
                 } else {
-                    Some(AcpiRoot::XSDT(desc.xsdt_address as usize + *HHDMOFFSET))
+                    AcpiRoot::XSDT(desc.xsdt_address as usize + *HHDMOFFSET)
                 }
             }
         }
