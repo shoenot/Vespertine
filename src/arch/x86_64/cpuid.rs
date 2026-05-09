@@ -1,0 +1,31 @@
+use core::arch::x86_64::__cpuid;
+
+pub fn has_invariant_tsc() -> bool {
+    let highest = __cpuid(0x80000000u32);
+    if highest.eax < 0x80000007u32 {
+       false
+    } else {
+        let ret = __cpuid(0x80000007u32);
+        (ret.edx & (1 << 8)) != 0
+    }
+}
+
+pub fn check_tsc_frequency() -> Option<usize> {
+    let fq = __cpuid(0x15);
+    if (fq.eax == 0) || (fq.ebx == 0) || (fq.ecx == 0) {
+        None
+    } else {
+        let tsc_fq = (fq.ecx as usize * fq.ebx as usize) / fq.eax as usize;
+        Some(tsc_fq)
+    }
+}
+
+pub fn check_apic_frequency() -> Option<usize> {
+    let fq = __cpuid(0x15);
+    if (fq.ecx == 0) {
+        None
+    } else {
+        let apic_fq = fq.ecx as usize / 16;
+        Some(apic_fq)
+    }
+}

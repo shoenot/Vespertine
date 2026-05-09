@@ -1,10 +1,6 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
-use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
-use crate::{Local_APIC, get_apic_base};
-use crate::hcf;
-use crate::GLOBAL_VMM;
-use crate::kernel::memory::pmm::HHDMOFFSET;
+use crate::arch::x86_64::interrupts::handle;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -79,8 +75,6 @@ pub fn init_idt() {
             options(att_syntax, nostack, preserves_flags)
         )
     }
-
-    log_to_serial("IDT INIT OK\n");
 }
 
 #[repr(C)]
@@ -115,19 +109,11 @@ pub struct InterruptStackFrame {
 #[unsafe(no_mangle)]
 pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
     match frame.interrupt_number {
-        13 => {
-            log_to_serial("general protection fault.\n");
-            gpf_handler(&frame);
-        },
-        14 => {
-            log_to_serial("\npage fault.\n");
-            page_fault_handler(&frame);
-        },
-        15 => log_to_serial("unexpected interrupt.\n"),
-        32 => {
-            log_to_serial("local apic timer interrupt.");
-            timer_handler(&frame);
-        }
+        13 => handle::gpf_handler(frame),
+        14 => handle::page_fault_handler(frame),
+        15 => handle::unexpected_interrupt_handler(frame),
+        32 => handle::pit_interrupt_handler(), // PIT Timer
+        35 => handle::lapic_interrupt_handler(), // LAPIC Timer
         _ => {},
     }
 }

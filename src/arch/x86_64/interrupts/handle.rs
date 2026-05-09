@@ -1,16 +1,13 @@
+use core::arch::asm;
 use super::idt::InterruptStackFrame;
-use crate::drivers::serial::SerialWriter;
+use super::super::apic::lapic::send_apic_eoi;
+use crate::{
+    GLOBAL_VMM,
+    klogln,
+    kernel::time,
+};
 
-use core::fmt::Write;
-
-
-pub fn gpf_handler(frame: &InterruptStackFrame) {
-    log_to_serial("Error Code: ");
-    log_u64_to_serial(frame.error_code);
-    log_to_serial(" Instruction Pointer: ");
-    log_u64_to_serial(frame.instruction_pointer);
-    hcf();
-}
+// HELPERS
 
 pub fn read_cr2() -> u64 {
     let cr2: u64;
@@ -20,6 +17,18 @@ pub fn read_cr2() -> u64 {
     cr2
 }
 
+// HANDLERS
+
+// Interrupt 13
+pub fn gpf_handler(frame: &InterruptStackFrame) {
+    panic!(
+        "General Protection Fault.\nError Code: {}\nInstruction Pointer: {:#X}\n", 
+        frame.error_code, 
+        frame.instruction_pointer
+    );
+}
+
+// Interrupt 14
 pub fn page_fault_handler(frame: &InterruptStackFrame) {
     let addr = read_cr2() as usize;
     let error_code = frame.error_code as usize;
@@ -29,15 +38,24 @@ pub fn page_fault_handler(frame: &InterruptStackFrame) {
 
     if !fixed {
         panic!(
-            "PAGE FAULT EXCEPTION\nAT ADDRESS: {:#X}\nError Code: {:#b}\n{:#?}",
+            "Page Fault Exception.\nAt address: {:#X}\nError Code: {:#b}\nStack Frame:\n{:#?}",
             addr, error_code, frame
         )
     }
 }
 
-pub fn timer_handler(frame: &InterruptStackFrame) {
-    unsafe {
-        let lapic = Local_APIC { base_addr: get_apic_base() + *HHDMOFFSET };
-        lapic.eoi();
-    }
+pub fn unexpected_interrupt_handler(frame: &InterruptStackFrame) {
+    klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
+}
+
+// Timer Handlers
+pub fn pit_interrupt_handler() {
+    time::increment_ticks();
+    send_apic_eoi();
+}
+
+
+pub fn lapic_interrupt_handler() {
+    time::increment_ticks();
+    send_apic_eoi();
 }

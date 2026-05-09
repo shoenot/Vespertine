@@ -335,5 +335,13 @@ impl Pager {
         }
         flush_tlb(virt.0);
     }
+
+    pub fn map_mmio_addr(&mut self, phys: u64) -> Option<()> {
+        let virt = VirtAddress(phys + *HHDMOFFSET as u64);
+        let flags = get_flags(true, true, false, true, true, false, false, false, true, true);
+        self.map_page(virt, phys, flags, *HHDMOFFSET as u64, BlockSize::Normal)?;
+        flush_tlb(virt.0);
+        Some(())
+    }
 }
 

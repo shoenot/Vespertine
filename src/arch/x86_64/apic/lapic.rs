@@ -1,5 +1,6 @@
 use core::arch::asm;
 use core::ptr::{read_volatile, write_volatile};
+use lazy_static::lazy_static;
 use super::pic8259;
 use crate::HHDMOFFSET;
 
@@ -14,14 +15,18 @@ const CURRENT_COUNT_OFFSET: usize = 0x390;
 
 const IA32_APIC_BASE: usize = 0x1B;
 
-pub struct Local_APIC {
+pub struct LocalAPIC {
     pub base_addr: usize
 }
 
-unsafe impl Send for Local_APIC {}
-unsafe impl Sync for Local_APIC {}
+unsafe impl Send for LocalAPIC {}
+unsafe impl Sync for LocalAPIC {}
 
-pub unsafe fn get_apic_base() -> usize {
+lazy_static!(
+    static ref LAPIC_BASE_ADDR: usize = unsafe { get_apic_base() };
+);
+
+pub fn get_apic_base() -> usize {
     let (lower, upper): (u32, u32);
     unsafe {
         asm!(
@@ -36,15 +41,20 @@ pub unsafe fn get_apic_base() -> usize {
     (base_phys & !0xFFF) as usize
 }
 
-impl Local_APIC {
-    pub fn init() -> Self {
+pub fn send_apic_eoi() {
+    unsafe {
+        let eoi_ptr = ((*LAPIC_BASE_ADDR + *HHDMOFFSET) + EOI_OFFSET) as *mut u32;
+        write_volatile(eoi_ptr, 0);
+    }
+}
+
+impl LocalAPIC {
+    pub fn init(&mut self) {
         unsafe {
             pic8259::disable();
-            let base_addr = get_apic_base() + *HHDMOFFSET;
-            let lapic = Local_APIC { base_addr };
-            lapic.write_reg(SV_OFFSET, lapic.read_reg(SV_OFFSET)  | (1 << 8) | 0xFF);
-            lapic.write_reg(TPR_OFFSET, 0);
-            lapic
+            self.base_addr = get_apic_base() + *HHDMOFFSET;
+            self.write_reg(SV_OFFSET, self.read_reg(SV_OFFSET)  | (1 << 8) | 0xFF);
+            self.write_reg(TPR_OFFSET, 0);
         }
     }
 
@@ -81,5 +91,11 @@ impl Local_APIC {
 
     pub fn stop_timer(&self) {
         unsafe { self.write_reg(INIT_COUNT_OFFSET, 0) };
+    }
+
+    pub fn current_count(&self) -> usize {
+        unsafe {
+            self.read_reg(CURRENT_COUNT_OFFSET) as usize
+        }
     }
 }

@@ -5,20 +5,23 @@ const IOREGSEL_OFFSET: usize = 0x00;
 const IOWIN_OFFSET: usize = 0x10;
 const IOREDTBL_BASE: u8 = 0x10;
 
-pub struct IoApic {
+pub struct IOApic {
     pub base_addr: usize,
     pub gsi_base: usize,
 }
 
-impl IoApic {
-    pub fn new() -> Self {
-        let rsdp = acpi::rsdp::Rsdp::get();
-        let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
-        let madt = acpi::madt::parse_madt(&sdt);
-        let io_apic = &madt.io_apics[0];
-        let base_addr = io_apic.addr as usize + *HHDMOFFSET;
-        let gsi_base = io_apic.gsi_base as usize;
-        Self { base_addr, gsi_base }  
+pub fn get_ioapic_addrs() -> (usize, usize) {
+    let rsdp = acpi::rsdp::Rsdp::get();
+    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
+    let madt = acpi::madt::parse_madt(&sdt);
+    let io_apic = &madt.io_apics[0];
+    (io_apic.addr as usize, io_apic.gsi_base as usize)
+}
+
+impl IOApic {
+    pub fn init(&mut self, addr: usize, gsi_base: usize) {
+        self.base_addr = addr as usize + *HHDMOFFSET;
+        self.gsi_base = gsi_base as usize;
     }
 
     unsafe fn write_reg(&self, reg: u8, value: u32) {

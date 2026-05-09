@@ -43,6 +43,7 @@ pub trait RawLock {
 
 // Raw SpinLock
 
+#[derive(Debug)]
 pub struct RawSpinLock {
     locked: AtomicBool,
 }
@@ -77,6 +78,7 @@ impl RawLock for RawSpinLock {
 
 // Raw TicketLock
 
+#[derive(Debug)]
 pub struct RawTicketLock {
     ticket: AtomicUsize,
     serving: AtomicUsize,
@@ -109,6 +111,7 @@ impl RawLock for RawTicketLock {
 
 // Generic Lock
 
+#[derive(Debug)]
 pub struct Lock<R: RawLock, T> {
     raw: R,
     data: UnsafeCell<T>,
@@ -137,6 +140,7 @@ unsafe impl<R: RawLock + Sync, T> Send for Lock<R, T> where T: Send {}
 
 // lock guard wrapper
 
+#[derive(Debug)]
 pub struct LockGuard<'a, R: RawLock, T> {
     lock: &'a Lock<R, T>,
     interrupts_state: bool,

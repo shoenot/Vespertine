@@ -1,6 +1,4 @@
 use core::arch::asm;
-use core::ptr::addr_of;
-use core::mem::size_of_val;
 use lazy_static::lazy_static;
 use crate::drivers::serial::log_to_serial;
 
@@ -101,7 +99,7 @@ lazy_static!(
     };
 );
 
-pub unsafe fn init_gdt() {
+pub fn init_gdt() {
     let gdt_ptr = &*GDT as *const [GDTEntry; 7];
     let ptr = GDTPointer {
         limit: (core::mem::size_of::<[GDTEntry; 7]>() - 1) as u16,
@@ -134,6 +132,4 @@ pub unsafe fn init_gdt() {
             options(att_syntax, nostack, preserves_flags)
         )
     }
-
-    log_to_serial("GDT INIT OK\n");
 }

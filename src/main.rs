@@ -8,17 +8,12 @@ mod tests;
 mod panic;
 
 extern crate alloc;
-
-use drivers::logger::Logger;
 pub use boot::*;
 
 use panic::hcf;
 
-use arch::x86_64::interrupts::gdt::init_gdt;
-use arch::x86_64::interrupts::idt::init_idt;
-use arch::x86_64::apic::lapic::{Local_APIC, get_apic_base};
-use arch::x86_64::apic::ioapic::IoApic;
-use arch::x86_64::timer;
+use arch::x86_64::{init_interrupts, init_apic};
+pub use arch::x86_64::{LOCAL_APIC, IO_APIC};
 
 use kernel::lock::TicketLock;
 
@@ -27,7 +22,8 @@ use kernel::memory::paging::*;
 use kernel::memory::vmm::*;
 use kernel::memory::heap::KernelAllocator;
 
-use kernel::acpi;
+use kernel::time;
+use kernel::time::*;
 
 use tests::memory_tests::*;
 
@@ -43,16 +39,9 @@ pub extern "C" fn kmain() -> ! {
     if !BASE_REVISION.is_supported() {
         hcf();
     }
-
-    unsafe {
-        klog!("INITIATING GDT...");
-        init_gdt();
-        klogln!("GDT INIT OK.");
-        klog!("INITIATING IDT...");
-        init_idt();
-        klogln!("IDT INIT OK.");
-    }
     
+    init_interrupts();
+
     klogln!("INITIATING MEMORY MANAGERS... ");
     
     // Inititate PMM
@@ -76,44 +65,11 @@ pub extern "C" fn kmain() -> ! {
     test_collections();
 
     klogln!("TESTS COMPLETE!");
-    
-    unsafe {
-        let apic_phys = get_apic_base() as u64;
-        let apic_virt = apic_phys + *HHDMOFFSET as u64;
-        let mut pager = PAGER.lock();
-        let flags = get_flags(true, true, false, true, true, false, false, false, true, true);
-        pager.map_page(VirtAddress(apic_virt), apic_phys, flags, *HHDMOFFSET as u64, BlockSize::Normal).unwrap();
-        drop(pager);
-    }
 
-    let lapic = Local_APIC::init();
-    let lapic_id = lapic.id();
-    // lapic.timer_setup(32, 0x0FFF_FFFF);
+    init_apic();
 
-    let ioapic = IoApic::new();
-    {
-        let ioapic_virt = ioapic.base_addr as u64;
-        let ioapic_phys = ioapic_virt - *HHDMOFFSET as u64;
-        let mut pager = PAGER.lock();
-        let flags = get_flags(true, true, false, true, true, false, false, false, true, true);
-        pager.map_page(VirtAddress(ioapic_virt), ioapic_phys, flags, *HHDMOFFSET as u64, BlockSize::Normal).unwrap();
-        drop(pager);
-    }
-
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
-    let madt_info = acpi::madt::parse_madt(&sdt);
-
-    let mut pit_gsi = 0;
-    for ovr in madt_info.overrides.iter() {
-        if ovr.source == 0 {
-            pit_gsi = ovr.gsi;
-            break;
-        }
-    }
-
-    ioapic.set_entry(pit_gsi, 32, lapic_id);
-    timer::pit::init(1000);
+    time::init();
+    klogln!("Using timer: {:#?} with frequency: {:?}", *TIME_SOURCE.lock(), TIME_SRC_FQ);
 
     hcf();
 }
