@@ -46,6 +46,37 @@ pub fn sleep_ticks(ticks_to_wait: usize) {
     }
 }
 
+pub fn sleep_ms(ms: usize) {
+    sleep_ticks(ms);
+}
+
+fn calibrate_timers<F: FnOnce()>(wait_loop: F, use_tsc: bool, multiplier: usize) -> (usize, usize) {
+    let lapic = LOCAL_APIC.lock();
+    let mut tsc = timer::tsc::TSC { frequency: 0 };
+    
+    let start_tsc = if use_tsc {
+        unsafe { asm!("lfence"); }
+        tsc.read_counter()
+    } else { 0 };
+    
+    lapic.timer_setup(35, 0x0FFF_FFFF);
+    let start_lapic = lapic.current_count();
+
+    wait_loop();
+
+    let end_tsc = if use_tsc {
+        unsafe { asm!("lfence"); }
+        tsc.read_counter()
+    } else { 0 };
+    
+    let end_lapic = lapic.current_count();
+
+    let tsc_freq = (end_tsc.saturating_sub(start_tsc)) * multiplier;
+    let lapic_freq = (start_lapic.saturating_sub(end_lapic)) * multiplier;
+
+    (tsc_freq, lapic_freq)
+}
+
 pub fn init() {
     // tier 1: read tsc_fq straight from cpuid
     match check_tsc_frequency() {
@@ -56,6 +87,9 @@ pub fn init() {
                 *time_source = TimeSource::TSC(tsc);
                 TIME_SRC_FQ.store(tsc.frequency, Ordering::Relaxed);
                 LAPIC_FQ.store(check_apic_frequency().unwrap(), Ordering::Relaxed);
+                
+                let ticks_per_ms = (LAPIC_FQ.load(Ordering::Relaxed) / 1000) as u32;
+                LOCAL_APIC.lock().timer_setup(35, ticks_per_ms);
                 return;
             }
         },
@@ -97,104 +131,60 @@ pub fn init() {
         src = TimeSource::PIT(pit);
     }
 
-    if has_invariant_tsc() {
-        let mut tsc = timer::tsc::TSC { frequency: 0 };
-        let lapic = LOCAL_APIC.lock();
-        match src {
-            TimeSource::HPET(hpet) => {
-                let tick_interval_tgt = hpet.frequency / 100;
-                
-                // start timers
-                let start_hpet = hpet.read_counter();
-                unsafe { asm!("lfence"); }
-                let start_tsc = tsc.read_counter();
-                lapic.timer_setup(35, 0x0FFF_FFFF);
-                let start_lapic = lapic.current_count();
+    let use_tsc = has_invariant_tsc();
 
-                // loop 10ms 
-                let end_hpet = start_hpet + tick_interval_tgt;
-                while hpet.read_counter() < end_hpet {
-                    spin_loop();
-                }
+    let (tsc_freq, lapic_freq, mut final_src) = match src {
+        TimeSource::HPET(hpet) => {
+            let target = hpet.frequency / 100; // 10ms
+            let start = hpet.read_counter();
+            let (t, l) = calibrate_timers(|| {
+                while hpet.read_counter() < start + target { spin_loop(); }
+            }, use_tsc, 100);
+            (t, l, TimeSource::HPET(hpet))
+        },
+        TimeSource::ACPIPM(acpipm) => {
+            let target = 35795; // 10ms
+            let start = acpipm.read_counter();
+            let (t, l) = calibrate_timers(|| {
+                while (acpipm.read_counter().wrapping_sub(start) & 0x00FF_FFFF) < target { spin_loop(); }
+            }, use_tsc, 100);
+            (t, l, TimeSource::ACPIPM(acpipm))
+        },
+        TimeSource::PIT(mut pit) => {
+            let (t, l) = calibrate_timers(|| {
+                while pit.read_counter() > 0 && pit.read_counter() <= 11932 { spin_loop(); }
+            }, use_tsc, 100);
+            
+            // switch the pit to mode 2 if we're gonna use it as an actual timer
+            if !use_tsc { pit.init_mode_2(1000); }
+            (t, l, TimeSource::PIT(pit))
+        },
+        _ => (0, 0, TimeSource::None),
+    };
 
-                unsafe { asm!("lfence"); }
-                let end_tsc = tsc.read_counter();
-                let end_lapic = lapic.current_count();
+    if lapic_freq > 0 {
+        LAPIC_FQ.store(lapic_freq, Ordering::Relaxed);
+    }
 
-                tsc.frequency = (end_tsc - start_tsc) * 100;
-                TIME_SRC_FQ.store(tsc.frequency, Ordering::Relaxed);
-                LAPIC_FQ.store((start_lapic - end_lapic) * 100, Ordering::Relaxed);
-                let mut time_source = TIME_SOURCE.lock();
-                *time_source = TimeSource::TSC(tsc);
-
-                return;
-            },
-            TimeSource::ACPIPM(acpipm) => {
-                let tick_interval_tgt = 35795; 
-                
-                let start_acpipm = acpipm.read_counter();
-                unsafe { asm!("lfence"); }
-                let start_tsc = tsc.read_counter();
-                lapic.timer_setup(35, 0x0FFF_FFFF);
-                let start_lapic = lapic.current_count();
-
-                while (acpipm.read_counter().wrapping_sub(start_acpipm) & 0x00FF_FFFF) < tick_interval_tgt {
-                    spin_loop();
-                }
-
-                unsafe { asm!("lfence"); }
-                let end_tsc = tsc.read_counter();
-                let end_lapic = lapic.current_count();
-
-                tsc.frequency = (end_tsc - start_tsc) * 100;
-                TIME_SRC_FQ.store(tsc.frequency, Ordering::Relaxed);
-                LAPIC_FQ.store((start_lapic - end_lapic) * 100, Ordering::Relaxed);
-                
-                let mut time_source = TIME_SOURCE.lock();
-                *time_source = TimeSource::TSC(tsc);
-                return;
-            },
-            TimeSource::PIT(pit) => {
-                unsafe { asm!("lfence"); }
-                let start_tsc = tsc.read_counter();
-                lapic.timer_setup(35, 0x0FFF_FFFF);
-                let start_lapic = lapic.current_count();
-
-                while pit.read_counter() > 0 && pit.read_counter() <= 11932 {
-                    spin_loop();
-                }
-
-                unsafe { asm!("lfence"); }
-                let end_tsc = tsc.read_counter();
-                let end_lapic = lapic.current_count();
-
-                tsc.frequency = (end_tsc - start_tsc) * 100;
-                TIME_SRC_FQ.store(tsc.frequency, Ordering::Relaxed);
-                LAPIC_FQ.store((start_lapic - end_lapic) * 100, Ordering::Relaxed);
-                
-                let mut time_source = TIME_SOURCE.lock();
-                *time_source = TimeSource::TSC(tsc);
-                return;
-            },
-            _ => {},
-        }
+    if use_tsc && tsc_freq > 0 {
+        let tsc = timer::tsc::TSC { frequency: tsc_freq };
+        TIME_SRC_FQ.store(tsc_freq, Ordering::Relaxed);
+        final_src = TimeSource::TSC(tsc);
     } else {
-        let mut time_source = TIME_SOURCE.lock();
-        match src {
-            TimeSource::HPET(hpet) => {
-                TIME_SRC_FQ.store(hpet.frequency(), Ordering::Relaxed);
-                *time_source = src;
-            },
-            TimeSource::ACPIPM(acpipm) => {
-                TIME_SRC_FQ.store(acpipm.frequency(), Ordering::Relaxed);
-                *time_source = src;
-            },
-            TimeSource::PIT(_) => {
-                let mut new_src = timer::pit::PIT { frequency: 0 };
-                new_src.init_mode_2(1000);
-                TIME_SRC_FQ.store(1000, Ordering::Relaxed);
-            },
-            _ => {},
+        match final_src {
+            TimeSource::HPET(h) => TIME_SRC_FQ.store(h.frequency(), Ordering::Relaxed),
+            TimeSource::ACPIPM(a) => TIME_SRC_FQ.store(a.frequency(), Ordering::Relaxed),
+            TimeSource::PIT(_) => TIME_SRC_FQ.store(1000, Ordering::Relaxed),
+            _ => {}
         }
+    }
+
+    *TIME_SOURCE.lock() = final_src;
+
+    // reconfigure lapic to do 1ms heartbeat
+    let current_lapic_fq = LAPIC_FQ.load(Ordering::Relaxed);
+    if current_lapic_fq > 0 {
+        let ticks_per_ms = (current_lapic_fq / 1000) as u32;
+        LOCAL_APIC.lock().timer_setup(35, ticks_per_ms);
     }
 }

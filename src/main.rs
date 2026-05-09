@@ -70,6 +70,13 @@ pub extern "C" fn kmain() -> ! {
 
     time::init();
     klogln!("Using timer: {:#?} with frequency: {:?}", *TIME_SOURCE.lock(), TIME_SRC_FQ);
+    klogln!("");
 
-    hcf();
+    let mut counter = 0u64;
+
+    loop {
+        klogln!("{}", counter);
+        counter += 1;
+        sleep_ms(1000);
+    }
 }

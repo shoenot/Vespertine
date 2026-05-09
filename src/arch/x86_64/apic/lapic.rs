@@ -9,7 +9,7 @@ const EOI_OFFSET: usize = 0xB0;
 const TIMER_LVT_OFFSET: usize = 0x320;
 const LAPIC_ID_OFFSET: usize = 0x20;
 const TPR_OFFSET: usize = 0x80;
-const DIVIDE_CONFIG_OFFSET: usize = 0x3E;
+const DIVIDE_CONFIG_OFFSET: usize = 0x3E0;
 const INIT_COUNT_OFFSET: usize = 0x380;
 const CURRENT_COUNT_OFFSET: usize = 0x390;
 
