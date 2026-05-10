@@ -26,6 +26,12 @@ lazy_static!(
     static ref LAPIC_BASE_ADDR: usize = unsafe { get_apic_base() };
 );
 
+pub enum TimerMode {
+    OneShot = 0x00000,
+    Periodic = 0x20000,
+    TscDeadline = 0x40000,
+}
+
 pub fn get_apic_base() -> usize {
     let (lower, upper): (u32, u32);
     unsafe {
@@ -80,12 +86,14 @@ impl LocalAPIC {
         unsafe { self.read_reg(LAPIC_ID_OFFSET) }
     }
 
-    pub fn timer_setup(&self, vector: u8, init_count: u32) {
+    pub fn timer_setup(&self, vector: u8, init_count: u32, mode: TimerMode) {
         unsafe {
             self.write_reg(DIVIDE_CONFIG_OFFSET, 0x03);
-            let mode_periodic = 0x20000;
-            self.write_reg(TIMER_LVT_OFFSET, mode_periodic | vector as u32);
-            self.write_reg(INIT_COUNT_OFFSET, init_count);
+            self.write_reg(TIMER_LVT_OFFSET, TimerMode::Periodic as u32 | vector as u32);
+
+            if !matches!(mode, TimerMode::TscDeadline) {
+                self.write_reg(INIT_COUNT_OFFSET, init_count);
+            }
         }
     }
 
@@ -96,6 +104,12 @@ impl LocalAPIC {
     pub fn current_count(&self) -> usize {
         unsafe {
             self.read_reg(CURRENT_COUNT_OFFSET) as usize
+        }
+    }
+
+    pub fn arm_oneshot(&self, ticks: u32) {
+        unsafe {
+            self.write_reg(INIT_COUNT_OFFSET, ticks);
         }
     }
 }

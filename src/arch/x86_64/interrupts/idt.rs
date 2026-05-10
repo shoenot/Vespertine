@@ -112,7 +112,6 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         13 => handle::gpf_handler(frame),
         14 => handle::page_fault_handler(frame),
         15 => handle::unexpected_interrupt_handler(frame),
-        32 => handle::pit_interrupt_handler(), // PIT Timer
         35 => handle::lapic_interrupt_handler(), // LAPIC Timer
         _ => {},
     }

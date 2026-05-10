@@ -10,6 +10,11 @@ pub fn has_invariant_tsc() -> bool {
     }
 }
 
+pub fn has_tsc_deadline() -> bool {
+    let leaf1 = __cpuid(0x01);
+    (leaf1.ecx & (1 << 24)) != 0
+}
+
 pub fn check_tsc_frequency() -> Option<usize> {
     let fq = __cpuid(0x15);
     if (fq.eax == 0) || (fq.ebx == 0) || (fq.ecx == 0) {

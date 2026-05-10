@@ -8,6 +8,8 @@ mod tests;
 mod panic;
 
 extern crate alloc;
+use core::arch::asm;
+
 pub use boot::*;
 
 use panic::hcf;
@@ -72,11 +74,10 @@ pub extern "C" fn kmain() -> ! {
     klogln!("Using timer: {:#?} with frequency: {:?}", *TIME_SOURCE.lock(), TIME_SRC_FQ);
     klogln!("");
 
-    let mut counter = 0u64;
-
+    arm_sleep_ns(1_000_000_000);
     loop {
-        klogln!("{}", counter);
-        counter += 1;
-        sleep_ms(1000);
+        unsafe {
+            asm!("sti", "hlt", options(nomem, nostack));
+        }
     }
 }

@@ -1,10 +1,9 @@
 use core::arch::asm;
 use super::idt::InterruptStackFrame;
+use core::sync::atomic::Ordering;
 use super::super::apic::lapic::send_apic_eoi;
 use crate::{
-    GLOBAL_VMM,
-    klogln,
-    kernel::time,
+    GLOBAL_VMM, USE_TSC_DEADLINE, kernel::time::{self, arm_sleep_ns}, klogln
 };
 
 // HELPERS
@@ -48,14 +47,8 @@ pub fn unexpected_interrupt_handler(frame: &InterruptStackFrame) {
     klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
 }
 
-// Timer Handlers
-pub fn pit_interrupt_handler() {
-    time::increment_ticks();
-    send_apic_eoi();
-}
-
-
 pub fn lapic_interrupt_handler() {
-    time::increment_ticks();
     send_apic_eoi();
+    klogln!("poggers");
+    arm_sleep_ns(1_000_000_000);
 }

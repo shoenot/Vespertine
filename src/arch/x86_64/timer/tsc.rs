@@ -29,3 +29,4 @@ impl ClockSource for TSC {
         self.frequency
     }
 }
+
