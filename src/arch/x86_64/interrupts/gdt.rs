@@ -96,34 +96,14 @@ lazy_static!(
     };
 );
 
+unsafe extern "sysv64" {
+    fn load_gdt(ptr: &GDTPointer);
+}
+
 pub fn init_gdt() {
     let gdt_ptr = &*GDT as *const [GDTEntry; 7];
     let ptr = GDTPointer { limit: (core::mem::size_of::<[GDTEntry; 7]>() - 1) as u16, base: gdt_ptr as u64 };
-
-    unsafe {
-        asm!(
-            "lgdt [{ptr}]",
-            "push 0x08",
-            "lea {tmp}, [rip + 2f]",
-            "push {tmp}",
-            "retfq",
-            "2:",
-            "mov {tmp:x}, 16",
-            "mov ds, {tmp:x}",
-            "mov es, {tmp:x}",
-            "mov ss, {tmp:x}",
-            "mov {tmp:x}, 0",
-            "mov fs, {tmp:x}",
-            "mov gs, {tmp:x}",
-            ptr = in(reg) &ptr,
-            tmp = out(reg) _,
-            options(readonly, nostack, preserves_flags)
-        );
-
-        asm!(
-            "ltr {sel:x}",
-            sel = in(reg) 0x28_u16,
-            options(nostack, preserves_flags)
-        );
-    }
+    unsafe { load_gdt(&ptr) };
 }
+
+

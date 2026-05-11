@@ -56,3 +56,4 @@ fn map_ioapic_memory(base_addr: u64) {
     pager.map_mmio_addr(ioapic_phys).unwrap();
     drop(pager);
 }
+

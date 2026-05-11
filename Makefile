@@ -47,9 +47,17 @@ run-bios: build/$(IMAGE_NAME).iso
 		$(QEMUFLAGS)
 
 # --- Assembly Build Step ---
+build/gdt.o: src/arch/x86_64/interrupts/gdt.asm
+	mkdir -p build/
+	$(AS) -f elf64 src/arch/x86_64/interrupts/gdt.asm -o build/gdt.o
+	
 build/idt.o: src/arch/x86_64/interrupts/idt.asm
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/interrupts/idt.asm -o build/idt.o
+	
+build/io.o: src/arch/x86_64/io.asm
+	mkdir -p build/
+	$(AS) -f elf64 src/arch/x86_64/io.asm -o build/io.o
 
 build/switch.o: src/arch/x86_64/task/switch.asm 
 	mkdir -p build/
@@ -60,7 +68,7 @@ build/fpu.o: src/arch/x86_64/cpu/fpu.asm
 	$(AS) -f elf64 src/arch/x86_64/cpu/fpu.asm -o build/fpu.o
 
 .PHONY: kernel
-kernel: build/idt.o build/switch.o build/fpu.o
+kernel: build/gdt.o build/idt.o build/switch.o build/fpu.o build/io.o
 	cargo build --release --target $(TARGET_NAME)
 
 # ISO Creation (Hybrid BIOS/UEFI)
