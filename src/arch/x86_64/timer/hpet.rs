@@ -4,7 +4,7 @@ use core::{ptr::{
 }, sync::atomic::Ordering};
 
 use crate::{
-    HHDMOFFSET,
+    memory::HHDMOFFSET,
     kernel::time::{ClockSource, HPET_BASE_ADDR},
 };
 

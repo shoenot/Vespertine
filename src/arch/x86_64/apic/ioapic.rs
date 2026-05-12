@@ -5,7 +5,7 @@ use core::ptr::{
 
 use crate::kernel::{
     acpi,
-    memory::pmm::HHDMOFFSET,
+    memory::HHDMOFFSET,
 };
 
 const IOREGSEL_OFFSET: usize = 0x00;

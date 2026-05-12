@@ -7,10 +7,6 @@ use core::{
 };
 
 use crate::{
-    ALLOCATOR,
-    BlockSize,
-    GLOBAL_VMM,
-    HHDMOFFSET,
     kernel::{
         sync::TicketLock,
         memory::{
@@ -25,6 +21,13 @@ use crate::{
             },
         },
     },
+};
+
+use super::{
+    ALLOCATOR,
+    GLOBAL_VMM,
+    HHDMOFFSET,
+    BlockSize,
 };
 
 const CACHE_SIZES: [usize; 10] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];

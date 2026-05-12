@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::slice::from_raw_parts;
 
 use super::rsdp::AcpiRoot;
-use crate::HHDMOFFSET;
+use crate::memory::HHDMOFFSET;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]

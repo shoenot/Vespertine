@@ -1,7 +1,7 @@
 use core::slice::from_raw_parts;
 
 use crate::{
-    HHDMOFFSET,
+    memory::HHDMOFFSET,
     boot::RSDP_REQUEST,
 };
 

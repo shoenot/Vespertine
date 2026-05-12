@@ -11,9 +11,8 @@ use core::{
 };
 
 use crate::{
-    LOCAL_APIC,
-    PAGER,
-    arch::x86_64::{
+    arch::LOCAL_APIC,
+    arch::{self, x86_64::{
         apic::lapic::*, 
         cpuid::*, 
         interrupts::{
@@ -21,11 +20,9 @@ use crate::{
             enable_interrupts
         }, 
         timer::{
-            self, *,
-            hpet::read_hpet_direct,
-            tsc::read_tsc_direct,
+            self, hpet::read_hpet_direct, tsc::read_tsc_direct, *
         },
-    },
+    }},
     kernel::{
         acpi::hpet::get_hpet_base_addr,
         sync::TicketLock, 
@@ -34,6 +31,7 @@ use crate::{
             schedule::SCHEDULER,
         },
     },
+    memory::PAGER,
 };
 
 pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
@@ -137,6 +135,7 @@ pub fn sleep(ns: usize) {
 }
 
 pub fn init() {
+    arch::init_timers();
     let use_tsc = has_invariant_tsc();
 
     // try to read fqs straight from cpuid

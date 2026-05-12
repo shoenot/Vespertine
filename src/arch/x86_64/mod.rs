@@ -12,8 +12,10 @@ use apic::{
 };
 
 use crate::{
-    PAGER,
-    TicketLock,
+    kernel::{
+        memory::PAGER,
+        sync::TicketLock,
+    },
     klog,
     klogln,
 };

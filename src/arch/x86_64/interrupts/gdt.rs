@@ -1,5 +1,3 @@
-use core::arch::asm;
-
 use lazy_static::lazy_static;
 
 pub const KERNEL_CS: u64 = 0x08;

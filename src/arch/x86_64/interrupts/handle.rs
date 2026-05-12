@@ -1,13 +1,19 @@
 use core::{arch::asm, ptr::null_mut};
 
 use crate::{
-    GLOBAL_VMM,
-    SCHEDULER,
+    memory::GLOBAL_VMM,
     arch::x86_64::{
         apic::lapic::send_apic_eoi,
         interrupts::idt::InterruptStackFrame,
     },
-    kernel::{thread::tcb::ThreadState, time::{arm_sleep_ns, get_time}},
+    kernel::{
+        SCHEDULER,
+        thread::tcb::ThreadState, 
+        time::{
+            arm_sleep_ns, 
+            get_time
+        }
+    },
     klogln,
 };
 

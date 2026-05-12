@@ -10,6 +10,8 @@ use limine::{
     },
 };
 
+use crate::hcf;
+
 #[used]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".requests")]
@@ -44,3 +46,9 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".requests_end")]
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
+
+pub fn check() {
+    if !BASE_REVISION.is_supported() {
+        hcf();
+    }
+}

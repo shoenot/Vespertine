@@ -1,5 +1,4 @@
 use core::{
-    arch::asm,
     cell::UnsafeCell,
     hint::spin_loop,
     ops::{

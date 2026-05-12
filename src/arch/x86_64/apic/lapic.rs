@@ -9,7 +9,7 @@ use core::{
 use lazy_static::lazy_static;
 
 use super::pic8259;
-use crate::HHDMOFFSET;
+use crate::memory::HHDMOFFSET;
 
 const SV_OFFSET: usize = 0xF0;
 const EOI_OFFSET: usize = 0xB0;
