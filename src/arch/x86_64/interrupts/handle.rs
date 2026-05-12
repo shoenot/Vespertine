@@ -19,7 +19,7 @@ use crate::{
 
 // HELPERS
 
-pub fn read_cr2() -> u64 {
+fn read_cr2() -> u64 {
     let cr2: u64;
     unsafe {
         asm!("mov {0}, cr2", 
@@ -32,12 +32,12 @@ pub fn read_cr2() -> u64 {
 // HANDLERS
 
 // Interrupt 13
-pub fn gpf_handler(frame: &InterruptStackFrame) {
+pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &InterruptStackFrame) {
     panic!("General Protection Fault.\nError Code: {}\nInstruction Pointer: {:#X}\n", frame.error_code, frame.instruction_pointer);
 }
 
 // Interrupt 14
-pub fn page_fault_handler(frame: &InterruptStackFrame) {
+pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &InterruptStackFrame) {
     let addr = read_cr2() as usize;
     let error_code = frame.error_code as usize;
     let mut vmm = GLOBAL_VMM.lock();
@@ -49,11 +49,11 @@ pub fn page_fault_handler(frame: &InterruptStackFrame) {
     }
 }
 
-pub fn unexpected_interrupt_handler(frame: &InterruptStackFrame) {
+pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &InterruptStackFrame) {
     klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
 }
 
-pub fn lapic_interrupt_handler() {
+pub(in crate::arch::x86_64::interrupts) fn lapic_interrupt_handler() {
     let current_time = get_time();
     send_apic_eoi();
 

@@ -1,3 +1,3 @@
-pub mod ioapic;
-pub mod lapic;
+pub(crate) mod ioapic;
+pub(crate) mod lapic;
 mod pic8259;

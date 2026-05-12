@@ -1,25 +1,25 @@
-pub mod gdt;
-pub mod handle;
-pub mod idt;
+pub(crate) mod gdt;
+pub(crate) mod handle;
+pub(crate) mod idt;
 
 use core::arch::asm;
 
 #[inline]
-pub fn disable_interrupts() {
+pub(crate) fn disable_interrupts() {
     unsafe {
         asm!("cli", options(nomem, nostack));
     }
 }
 
 #[inline]
-pub fn enable_interrupts() {
+pub(crate) fn enable_interrupts() {
     unsafe {
         asm!("sti", options(nomem, nostack));
     }
 }
 
 #[inline]
-pub fn interrupts_enabled() -> bool {
+pub(crate) fn interrupts_enabled() -> bool {
     let rflags: usize;
     unsafe {
         asm!("pushf",

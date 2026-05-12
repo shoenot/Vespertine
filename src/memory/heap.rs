@@ -9,16 +9,16 @@ use core::{
 use crate::{
     kernel::{
         sync::TicketLock,
-        memory::{
-            pmm::{
-                HUGE_PAGE_SIZE,
-                NORMAL_PAGE_SIZE,
-            },
-            vmm::{
-                VM_FLAG_GLOBAL,
-                VM_FLAG_HUGE,
-                VM_FLAG_WRITE,
-            },
+    },
+    memory::{
+        pmm::{
+            HUGE_PAGE_SIZE,
+            NORMAL_PAGE_SIZE,
+        },
+        vmm::{
+            VM_FLAG_GLOBAL,
+            VM_FLAG_HUGE,
+            VM_FLAG_WRITE,
         },
     },
 };

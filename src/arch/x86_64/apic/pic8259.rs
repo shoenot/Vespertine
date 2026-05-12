@@ -12,7 +12,7 @@ const ICW_3_M: u8 = 0x4;
 const ICW_3_S: u8 = 0x2;
 const ICW_4: u8 = 0x1;
 
-pub fn disable() {
+pub(in crate::arch::x86_64::apic) fn disable() {
     unsafe {
         outb(PIC_COMMAND_MASTER, ICW_1);
         outb(PIC_COMMAND_SLAVE, ICW_1);

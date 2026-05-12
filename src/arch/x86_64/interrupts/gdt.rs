@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 
-pub const KERNEL_CS: u64 = 0x08;
-pub const KERNEL_SS: u64 = 0x10;
+pub(crate) const KERNEL_CS: u64 = 0x08;
+pub(crate) const KERNEL_SS: u64 = 0x10;
 
 #[repr(C, packed)]
 struct GDTEntry {
@@ -98,7 +98,7 @@ unsafe extern "sysv64" {
     fn load_gdt(ptr: &GDTPointer);
 }
 
-pub fn init_gdt() {
+pub(in crate::arch::x86_64) fn init_gdt() {
     let gdt_ptr = &*GDT as *const [GDTEntry; 7];
     let ptr = GDTPointer { limit: (core::mem::size_of::<[GDTEntry; 7]>() - 1) as u16, base: gdt_ptr as u64 };
     unsafe { load_gdt(&ptr) };

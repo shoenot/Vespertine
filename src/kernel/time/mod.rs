@@ -1,6 +1,6 @@
+mod clock;
+
 use core::{
-    arch::asm, 
-    mem::transmute, 
     ptr::null_mut,
     sync::atomic::{
         AtomicBool, 
@@ -11,35 +11,31 @@ use core::{
 };
 
 use crate::{
-    arch::LOCAL_APIC,
-    arch::{self, x86_64::{
-        apic::lapic::*, 
-        cpuid::*, 
-        interrupts::{
-            disable_interrupts, 
-            enable_interrupts
-        }, 
-        timer::{
-            self, hpet::read_hpet_direct, tsc::read_tsc_direct, *
+    arch::{
+        self,
+        LOCAL_APIC,
+        x86_64::{
+            apic::lapic::*, 
+            cpuid::*, 
+            timer::{
+                self, hpet::read_hpet_direct, tsc::read_tsc_direct, *
+            },
         },
-    }},
+    },
     kernel::{
         acpi::hpet::get_hpet_base_addr,
         sync::TicketLock, 
-        thread::{
-            ThreadState,
-            schedule::SCHEDULER,
-        },
     },
     memory::PAGER,
 };
+
+pub use clock::*;
 
 pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
 pub static LAPIC_FQ: AtomicUsize = AtomicUsize::new(0);
 pub static USE_TSC_DEADLINE: AtomicBool = AtomicBool::new(false);
 pub static TIME_SOURCE: TicketLock<TimeSource> = TicketLock::new(TimeSource::None);
 pub static HPET_BASE_ADDR: AtomicPtr<usize> = AtomicPtr::new(null_mut());
-
 
 const IA32_TSC_DEADLINE: u32 = 0x6E0;
 
@@ -75,63 +71,6 @@ pub trait ClockSource {
     fn name(&self) -> &'static str;
     fn read_counter(&self) -> usize;
     fn frequency(&self) -> usize;
-}
-
-pub fn arm_sleep_ns(ns: usize) {
-    if USE_TSC_DEADLINE.load(Ordering::Relaxed) {
-        let tsc_fq = TIME_SRC_FQ.load(Ordering::Relaxed);
-        let tsc_ticks = (ns * tsc_fq) / 1_000_000_000;
-
-        let mut lo: u32;
-        let mut hi: u32;
-        unsafe {
-            // read tsc
-            asm!("rdtsc",
-                out("eax") lo, out("edx") hi, options(nomem, nostack));
-
-            let current = ((hi as usize) << 32) | (lo as usize);
-            let target = current + tsc_ticks;
-            let tgt_lo = (target & 0xFFFF_FFFF) as u32;
-            let tgt_hi = (target >> 32) as u32;
-
-            // set deadline
-            asm!("wrmsr",
-                in("ecx") IA32_TSC_DEADLINE, in("eax") tgt_lo, in("edx") tgt_hi, options(nomem, nostack));
-        }
-    } else {
-        // fallback to lapic
-        let lapic_fq = LAPIC_FQ.load(Ordering::Relaxed);
-        let lapic_ticks = (ns as usize * lapic_fq) / 1_000_000_000;
-        LOCAL_APIC.lock().arm_oneshot(lapic_ticks as u32);
-    }
-}
-
-pub fn ns_to_ticks(ns: usize) -> usize {
-    let freq = TIME_SRC_FQ.load(Ordering::Relaxed);
-    ((ns as u128 * freq as u128) / 1_000_000_000) as usize
-}
-
-pub fn get_time() -> usize {
-    let ptr = GET_TIME_FN.load(Ordering::Relaxed);
-    let time_func: TimeFn = unsafe { transmute(ptr) };
-    time_func()
-}
-
-pub fn sleep(ns: usize) {
-    let target_time = get_time() + ns_to_ticks(ns);
-    disable_interrupts();
-
-    let mut sched = SCHEDULER.lock();
-    let current_thread = sched.get_current_thread();
-    unsafe {
-        (*current_thread).state = ThreadState::Blocked;
-        (*current_thread).wake_time = target_time;
-    }
-    sched.push_sleep(current_thread);
-    sched.schedule();
-
-    drop(sched);
-    enable_interrupts();
 }
 
 pub fn init() {

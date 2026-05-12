@@ -4,6 +4,7 @@ mod arch;
 mod boot;
 mod drivers;
 mod helpers;
+mod memory;
 mod kernel;
 mod panic;
 mod tests;
@@ -17,7 +18,6 @@ use crate::{
     demo::run_demo,
     kernel::{
         SCHEDULER,
-        memory,
         time,
     },
     panic::hcf,

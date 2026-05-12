@@ -37,14 +37,11 @@ fn test_thread_1() -> ! {
 
             *guard += 1;
 
-            sleep(10_000_000);
-
             klogln!("T1: Releasing lock...");
         }
 
         SCHEDULER.lock().schedule();
 
-        sleep(10_000_000);
     }
 }
 
@@ -58,13 +55,10 @@ fn test_thread_2() -> ! {
 
             *guard += 1;
 
-            sleep(10_000_000);
-
             klogln!("T2: Releasing lock...");
         }
 
         SCHEDULER.lock().schedule();
 
-        sleep(10_000_000);
     }
 }

@@ -23,7 +23,7 @@ impl InterruptDescriptor {
     const FLAGS_INTERRUPT_GATE: u8 = 0x8E;
     const KERNEL_CODE_SEGMENT: u16 = 0x08;
 
-    pub fn new(handler_address: u64) -> Self {
+    pub(super) fn new(handler_address: u64) -> Self {
         InterruptDescriptor {
             address_low: handler_address as u16,
             selector: Self::KERNEL_CODE_SEGMENT,
@@ -60,7 +60,7 @@ lazy_static! {
     };
 }
 
-pub fn init_idt() {
+pub(in crate::arch::x86_64) fn init_idt() {
     let idt_address = &*IDT as *const [InterruptDescriptor; 256] as u64;
 
     let idt_ptr = IDTDescriptor { size: (core::mem::size_of::<[InterruptDescriptor; 256]>() - 1) as u16, address: idt_address };
@@ -78,7 +78,7 @@ pub fn init_idt() {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct InterruptStackFrame {
+pub(crate) struct InterruptStackFrame {
     pub rax: u64,
     pub rbx: u64,
     pub rcx: u64,
@@ -106,7 +106,7 @@ pub struct InterruptStackFrame {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
+extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
     match frame.interrupt_number {
         13 => handle::gpf_handler(frame),
         14 => handle::page_fault_handler(frame),

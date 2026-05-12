@@ -5,7 +5,7 @@ use limine::memmap::*;
 
 use crate::{
     HHDM_REQUEST,
-    MEMMAP_REQUEST,
+    MEMMAP_REQUEST, kernel::sync::KernelOnceCell,
 };
 
 lazy_static! {
@@ -15,6 +15,8 @@ lazy_static! {
         panic!("COULD NOT GET HHDM OFFSET FROM LIMINE")
     };
 }
+
+pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
 pub static HUGE_PAGE_SIZE: usize = 0x20_0000;
 pub static NORMAL_PAGE_SIZE: usize = 0x1000;
@@ -76,6 +78,10 @@ impl Allocator {
     pub const fn new() -> Self { Allocator { normal_head: 0, huge_head: 0, highest_addr: 0, free_4k: 0, free_2m: 0 } }
 
     pub fn init(&mut self) {
+        HHDMOFFSET.get_or_init(|| {
+            HHDM_REQUEST.response().expect("Failed to get HHDM offset from Limine").offset as usize
+        });
+
         let mem_map = if let Some(memmap_response) = MEMMAP_REQUEST.response() {
             memmap_response.deref().entries()
         } else {

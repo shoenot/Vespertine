@@ -47,7 +47,7 @@ impl ThreadContext {
 }
 
 #[repr(C)]
-pub struct SwitchContext {
+pub(crate) struct SwitchContext {
     pub r15: usize,
     pub r14: usize,
     pub r13: usize,
@@ -58,7 +58,7 @@ pub struct SwitchContext {
 }
 
 impl SwitchContext {
-    pub fn init(&mut self) {
+    pub(crate) fn init(&mut self) {
         self.r12 = 0;
         self.r13 = 0;
         self.r14 = 0;

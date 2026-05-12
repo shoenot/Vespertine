@@ -25,13 +25,13 @@ use crate::{
     },
 };
 
-pub static CLEAN_FPU_CXT: AtomicPtr<u8> = AtomicPtr::new(null_mut() as *mut u8);
-pub static CLEAN_LEGACY_FPU_CXT: TicketLock<Option<LegacyXtCxt>> = TicketLock::new(None);
-pub static FPU_CXT_SIZE: AtomicUsize = AtomicUsize::new(0);
-pub static USE_XSAVE: AtomicBool = AtomicBool::new(false);
+pub(crate) static CLEAN_FPU_CXT: AtomicPtr<u8> = AtomicPtr::new(null_mut() as *mut u8);
+pub(crate) static CLEAN_LEGACY_FPU_CXT: TicketLock<Option<LegacyXtCxt>> = TicketLock::new(None);
+pub(crate) static FPU_CXT_SIZE: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static USE_XSAVE: AtomicBool = AtomicBool::new(false);
 
 #[repr(C, align(16))]
-pub struct LegacyXtCxt {
+pub(crate) struct LegacyXtCxt {
     pub fcw: u16,
     pub fsw: u16,
     pub ftw: u16,
@@ -46,7 +46,7 @@ pub struct LegacyXtCxt {
 }
 
 impl LegacyXtCxt {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             fcw: 0,
             fsw: 0,
@@ -62,7 +62,7 @@ impl LegacyXtCxt {
         }
     }
 
-    pub unsafe fn init_default_state(&mut self) {
+    pub(crate) unsafe fn init_default_state(&mut self) {
         unsafe {
             asm!("fninit",
                 "fxsave64 [{}]",
@@ -74,7 +74,7 @@ impl LegacyXtCxt {
 }
 
 #[repr(C, align(64))]
-pub struct XtCxtFixed {
+pub(crate) struct XtCxtFixed {
     pub legacy: LegacyXtCxt,
     pub xsave_header: [u8; 64],
 }
@@ -114,7 +114,7 @@ fn init_default_fpu_legacy_cxt() {
     *cln = Some(clean_state);
 }
 
-pub fn init_default_fpu_cxt() {
+pub(crate) fn init_default_fpu_cxt() {
     if let Some(_) = init_default_fpu_avx_cxt() {
         return;
     } else {
@@ -122,7 +122,7 @@ pub fn init_default_fpu_cxt() {
     }
 }
 
-pub fn gen_avx_dummy_fpu() -> Result<*mut u8, ThreadError> {
+pub(crate) fn gen_avx_dummy_fpu() -> Result<*mut u8, ThreadError> {
     unsafe {
         let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
         let fpu_layout = Layout::from_size_align(size, 64)?;

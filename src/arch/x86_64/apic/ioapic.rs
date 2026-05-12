@@ -3,9 +3,11 @@ use core::ptr::{
     write_volatile,
 };
 
-use crate::kernel::{
-    acpi,
+use crate::{
     memory::HHDMOFFSET,
+    kernel::{
+        acpi,
+    },
 };
 
 const IOREGSEL_OFFSET: usize = 0x00;
@@ -13,8 +15,8 @@ const IOWIN_OFFSET: usize = 0x10;
 const IOREDTBL_BASE: u8 = 0x10;
 
 pub struct IOApic {
-    pub base_addr: usize,
-    pub gsi_base: usize,
+    pub(crate) base_addr: usize,
+    pub(crate) gsi_base: usize,
 }
 
 pub fn get_ioapic_addrs() -> (usize, usize) {
@@ -26,7 +28,7 @@ pub fn get_ioapic_addrs() -> (usize, usize) {
 }
 
 impl IOApic {
-    pub fn init(&mut self, addr: usize, gsi_base: usize) {
+    pub(crate) fn init(&mut self, addr: usize, gsi_base: usize) {
         self.base_addr = addr as usize + *HHDMOFFSET;
         self.gsi_base = gsi_base as usize;
     }
@@ -50,7 +52,7 @@ impl IOApic {
     }
 
     // route hw interrupt to a local apic mapped to a specific interrupt vector
-    pub fn mask_all(&self) {
+    pub(crate) fn mask_all(&self) {
         // Read the Version Register at offset 0x01
         let version_reg = unsafe { self.read_reg(0x01) };
 
@@ -70,7 +72,7 @@ impl IOApic {
         }
     }
 
-    pub fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool) {
+    pub(crate) fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool) {
         if gsi < self.gsi_base as u32 {
             return;
         }

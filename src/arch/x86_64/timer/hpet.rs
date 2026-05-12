@@ -13,14 +13,14 @@ const HPET_GEN_CONF_OFFSET: usize = 0x10;
 const HPET_MAIN_COUNTER_OFFSET: usize = 0xF0;
 
 #[derive(Copy, Clone, Debug)]
-pub struct HPET {
+pub(crate) struct HPET {
     pub base_addr: usize,
     pub frequency: usize,
     pub enabled: bool,
 }
 
 impl HPET {
-    pub fn init(&mut self, base_addr: usize) {
+    pub(crate) fn init(&mut self, base_addr: usize) {
         self.base_addr = base_addr + *HHDMOFFSET;
         let capabilites = self.read_reg(HPET_GEN_CAP_OFFSET);
         let tick_len = capabilites >> 32;
@@ -29,13 +29,13 @@ impl HPET {
         self.enabled = false;
     }
 
-    pub fn enable(&mut self) {
+    pub(crate) fn enable(&mut self) {
         let existing = self.read_reg(HPET_GEN_CONF_OFFSET);
         self.write_reg(HPET_GEN_CONF_OFFSET, existing | 1);
         self.enabled = true;
     }
 
-    pub fn disable(&mut self) {
+    pub(crate) fn disable(&mut self) {
         let existing = self.read_reg(HPET_GEN_CONF_OFFSET);
         self.write_reg(HPET_GEN_CONF_OFFSET, existing & !1);
         self.enabled = false;
@@ -64,7 +64,7 @@ impl ClockSource for HPET {
     fn frequency(&self) -> usize { self.frequency }
 }
 
-pub fn read_hpet_direct() -> usize { 
+pub(crate) fn read_hpet_direct() -> usize { 
     let addr = HPET_BASE_ADDR.load(Ordering::Relaxed) as usize + HPET_MAIN_COUNTER_OFFSET;
     unsafe { read_volatile(addr as *const usize) }
 }

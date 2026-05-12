@@ -7,7 +7,7 @@ BIN_NAME    := shoes
 KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
 IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS   := -m 2G -cpu host,migratable=no,+invtsc
+QEMUFLAGS   := -smp 2 -m 2G -cpu host,migratable=no,+invtsc
 
 # --- Toolchain ---
 AS := nasm

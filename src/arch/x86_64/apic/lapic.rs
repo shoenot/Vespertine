@@ -22,7 +22,7 @@ const CURRENT_COUNT_OFFSET: usize = 0x390;
 
 const IA32_APIC_BASE: usize = 0x1B;
 
-pub struct LocalAPIC {
+pub(crate) struct LocalAPIC {
     pub base_addr: usize,
 }
 
@@ -34,13 +34,13 @@ lazy_static! {
 }
 
 #[derive(Clone, Copy)]
-pub enum TimerMode {
+pub(crate) enum TimerMode {
     OneShot = 0x00000,
     Periodic = 0x20000,
     TscDeadline = 0x40000,
 }
 
-pub fn get_apic_base() -> usize {
+pub(in crate::arch::x86_64) fn get_apic_base() -> usize {
     let (lower, upper): (u32, u32);
     unsafe {
         asm!("rdmsr", 
@@ -52,7 +52,7 @@ pub fn get_apic_base() -> usize {
     (base_phys & !0xFFF) as usize
 }
 
-pub fn send_apic_eoi() {
+pub(in crate::arch::x86_64) fn send_apic_eoi() {
     unsafe {
         let eoi_ptr = ((*LAPIC_BASE_ADDR + *HHDMOFFSET) + EOI_OFFSET) as *mut u32;
         write_volatile(eoi_ptr, 0);
@@ -60,7 +60,7 @@ pub fn send_apic_eoi() {
 }
 
 impl LocalAPIC {
-    pub fn init(&mut self) {
+    pub(crate) fn init(&mut self) {
         unsafe {
             pic8259::disable();
             self.base_addr = get_apic_base() + *HHDMOFFSET;
@@ -83,15 +83,15 @@ impl LocalAPIC {
         }
     }
 
-    pub fn eoi(&self) {
+    pub(crate) fn eoi(&self) {
         unsafe {
             self.write_reg(EOI_OFFSET, 0);
         }
     }
 
-    pub fn id(&self) -> u32 { unsafe { self.read_reg(LAPIC_ID_OFFSET) } }
+    pub(crate) fn id(&self) -> u32 { unsafe { self.read_reg(LAPIC_ID_OFFSET) } }
 
-    pub fn timer_setup(&self, vector: u8, init_count: u32, mode: TimerMode) {
+    pub(crate) fn timer_setup(&self, vector: u8, init_count: u32, mode: TimerMode) {
         unsafe {
             self.write_reg(DIVIDE_CONFIG_OFFSET, 0x03);
             self.write_reg(TIMER_LVT_OFFSET, mode as u32 | vector as u32);
@@ -104,11 +104,11 @@ impl LocalAPIC {
         }
     }
 
-    pub fn stop_timer(&self) { unsafe { self.write_reg(INIT_COUNT_OFFSET, 0) }; }
+    pub(crate) fn stop_timer(&self) { unsafe { self.write_reg(INIT_COUNT_OFFSET, 0) }; }
 
-    pub fn current_count(&self) -> usize { unsafe { self.read_reg(CURRENT_COUNT_OFFSET) as usize } }
+    pub(crate) fn current_count(&self) -> usize { unsafe { self.read_reg(CURRENT_COUNT_OFFSET) as usize } }
 
-    pub fn arm_oneshot(&self, ticks: u32) {
+    pub(crate) fn arm_oneshot(&self, ticks: u32) {
         unsafe {
             self.write_reg(INIT_COUNT_OFFSET, ticks);
         }

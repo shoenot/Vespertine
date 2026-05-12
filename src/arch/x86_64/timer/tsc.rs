@@ -3,8 +3,8 @@ use crate::kernel::time::ClockSource;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]
-pub struct TSC {
-    pub frequency: usize,
+pub(crate) struct TSC {
+    pub(crate) frequency: usize,
 }
 
 impl ClockSource for TSC {
@@ -17,6 +17,6 @@ impl ClockSource for TSC {
     fn frequency(&self) -> usize { self.frequency }
 }
 
-pub fn read_tsc_direct() -> usize {
+pub(crate) fn read_tsc_direct() -> usize {
     unsafe { _rdtsc() as usize }
 }

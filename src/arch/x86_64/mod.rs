@@ -13,9 +13,9 @@ use apic::{
 
 use crate::{
     kernel::{
-        memory::PAGER,
         sync::TicketLock,
     },
+    memory::PAGER,
     klog,
     klogln,
 };

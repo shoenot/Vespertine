@@ -1,1 +1,1 @@
-pub mod fpu;
+pub(crate) mod fpu;
