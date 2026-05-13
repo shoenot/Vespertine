@@ -1,24 +1,11 @@
-use alloc::alloc::{
-    Layout,
-    alloc,
-};
 use core::arch::asm;
-use core::intrinsics::write_bytes;
-use core::sync::atomic::{
-    AtomicU64,
-    AtomicUsize,
-    Ordering,
-};
 
 use super::gdt::*;
 use crate::BOOTSTRAP_ALLOC;
 use crate::arch::x86_64::apic::lapic::ApicMode;
+use crate::kernel::sync::TicketLock;
 use crate::kernel::thread::schedule::SchedulerState;
-use crate::memory::{
-    ALLOCATOR,
-    BlockSize,
-    HHDMOFFSET,
-};
+use crate::kernel::thread::workqueue::WorkQueue;
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
@@ -27,8 +14,9 @@ pub struct CPULocalData {
     pub self_ptr: *mut CPULocalData,
     pub lapic_id: usize,
     pub core_gdt: CPULocalGDT,
-    pub scheduler: SchedulerState,
     pub apic_mode: ApicMode,
+    pub scheduler: SchedulerState,
+    pub work_queue: TicketLock<WorkQueue>,
 }
 
 pub fn init_core_data(lapic_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {

@@ -1,3 +1,8 @@
+use crate::arch::x86_64::cpu::gdt::{
+    KERNEL_CS,
+    KERNEL_SS,
+};
+
 #[repr(C, align(16))]
 pub struct ThreadContext {
     pub rax: usize,
@@ -44,6 +49,16 @@ impl ThreadContext {
         self.r14 = 0;
         self.r15 = 0;
     }
+
+    pub fn init(&mut self, entry_point: u64, stack_top: u64, arg: usize) {
+        self.zero_gp();
+        self.instruction_pointer = entry_point;
+        self.stack_pointer = stack_top;
+        self.code_segment = KERNEL_CS;
+        self.stack_segment = KERNEL_SS;
+        self.cpu_flags = 0x202; // IF set
+        self.rdi = arg;
+    }
 }
 
 #[repr(C)]
@@ -58,12 +73,13 @@ pub(crate) struct SwitchContext {
 }
 
 impl SwitchContext {
-    pub(crate) fn init(&mut self) {
+    pub(crate) fn init(&mut self, rip: usize) {
         self.r12 = 0;
         self.r13 = 0;
         self.r14 = 0;
         self.r15 = 0;
         self.rbx = 0;
         self.rbp = 0;
+        self.rip = rip;
     }
 }

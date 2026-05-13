@@ -42,7 +42,6 @@ impl<T> KernelOnceCell<T> {
                         return unsafe { (*self.value.get()).assume_init_ref() };
                     }
                 }
-                _ => spin_loop(),
             }
         }
     }

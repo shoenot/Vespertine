@@ -2,6 +2,8 @@
 
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
+use core::ptr::copy;
+use core::ptr::write_bytes;
 
 pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
     let pixels_per_row = fb.pitch / 4;
@@ -59,6 +61,7 @@ unsafe impl Sync for SyncFramebuffer {}
 
 pub struct GraphicsWriter {
     pub current_line: u32,
+    pub lim_lines: u32,
     pub current_offset: u32,
     pub font: &'static Psf<'static>,
     pub fb: SyncFramebuffer,
@@ -68,7 +71,11 @@ impl core::fmt::Write for GraphicsWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.chars() {
             if c == '\n' {
-                self.current_line += 1;
+                if self.current_line < self.lim_lines {
+                    self.current_line += 1;
+                } else {
+                    self.scroll();
+                }
                 self.current_offset = 0;
             } else {
                 putchar(c, self.current_offset, self.current_line, self.font, self.fb.0);
@@ -76,5 +83,27 @@ impl core::fmt::Write for GraphicsWriter {
             }
         }
         Ok(())
+    }
+}
+
+impl GraphicsWriter {
+    fn scroll(&mut self) {
+        let fb_base_ptr = self.fb.0.address() as *mut u8;
+        let pitch = self.fb.0.pitch;
+
+        let active_height = (self.fb.0.height / 16) * 16;
+
+        let pixel_lines = active_height - 16;
+        let block_size = pixel_lines as u64 * pitch as u64;
+        
+        let src = (fb_base_ptr as u64 + (16 * pitch as u64)) as *const u8;
+        unsafe {
+            copy(src, fb_base_ptr, block_size as usize);
+        }
+
+        let bottom_line = (fb_base_ptr as u64 + block_size) as *mut u8;
+        unsafe {
+            write_bytes(bottom_line, 0, (16 * pitch) as usize);
+        }
     }
 }

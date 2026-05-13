@@ -1,10 +1,15 @@
-use crate::klogln;
-use crate::TicketLock;
-use crate::time::sleep;
-use core::sync::atomic::AtomicUsize;
-use core::sync::atomic::Ordering;
-use crate::get_core_data;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
+
 use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::time::sleep;
+use crate::{
+    TicketLock,
+    get_core_data,
+    klogln,
+};
 
 #[allow(dead_code)]
 pub fn ap_test_thread(thread_id: usize) -> ! {

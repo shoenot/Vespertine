@@ -6,6 +6,8 @@ pub mod io;
 pub mod task;
 pub mod timer;
 
+use core::arch::asm;
+
 use apic::ioapic::*;
 use apic::lapic::get_apic_base;
 
@@ -47,4 +49,12 @@ fn map_ioapic_memory(base_addr: u64) {
     let mut pager = PAGER.lock();
     pager.map_mmio_addr(ioapic_phys).expect("Failed to map IOAPIC MMIO");
     drop(pager);
+}
+
+pub fn hcf() -> ! {
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
 }

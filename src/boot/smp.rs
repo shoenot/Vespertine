@@ -1,16 +1,15 @@
 use core::sync::atomic::{
     AtomicU64,
-    AtomicUsize,
     Ordering,
 };
 
 use limine::mp::MpInfo;
 
+use crate::arch::init_fpu;
 use crate::arch::x86_64::apic::lapic::{
     ApicDriver,
     ApicMode,
     TimerMode,
-    init_local_apic,
 };
 use crate::arch::x86_64::cpu::core::{
     CPULocalData,
@@ -19,18 +18,7 @@ use crate::arch::x86_64::cpu::core::{
 };
 use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::interrupts::idt::load_idt;
-use crate::arch::{
-    init_ap_fpu,
-    init_fpu,
-};
-use crate::kernel::sync::TicketLock;
-use crate::kernel::thread::ThreadState;
-use crate::kernel::thread::schedule::DEFAULT_QUANTUM;
-use crate::kernel::time::{
-    USE_TSC_DEADLINE,
-    arm_sleep_ns,
-    sleep,
-};
+use crate::kernel::time::USE_TSC_DEADLINE;
 use crate::klogln;
 use crate::memory::paging::load_cr3;
 
@@ -62,12 +50,7 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
     }
 
     klogln!("Started {}", get_core_data().lapic_id);
-
     enable_interrupts();
-
-    let scheduler = &mut core_data.scheduler;
-
-    scheduler.terminate();
-
+    core_data.scheduler.terminate();
     unreachable!();
 }

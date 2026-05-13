@@ -3,7 +3,7 @@ use core::arch::x86_64::{
     __cpuid_count,
 };
 
-use crate::helpers::bitwise::check_bit;
+use crate::util::bitwise::check_bit;
 
 // TIMER
 

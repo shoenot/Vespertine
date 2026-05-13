@@ -14,7 +14,7 @@ use core::sync::atomic::{
     AtomicUsize,
 };
 
-use crate::arch::x86_64::interrupts::{
+use crate::arch::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,

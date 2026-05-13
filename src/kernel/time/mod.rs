@@ -13,15 +13,9 @@ pub use clock::*;
 use crate::arch::x86_64::apic::lapic::*;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::cpuid::*;
+use crate::arch::x86_64::timer;
 use crate::arch::x86_64::timer::hpet::read_hpet_direct;
 use crate::arch::x86_64::timer::tsc::read_tsc_direct;
-use crate::arch::x86_64::timer::{
-    self,
-    *,
-};
-use crate::arch::{
-    self,
-};
 use crate::kernel::acpi::hpet::get_hpet_base_addr;
 use crate::kernel::sync::TicketLock;
 use crate::memory::PAGER;

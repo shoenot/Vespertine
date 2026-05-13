@@ -6,12 +6,9 @@ use core::ptr::{
 };
 
 use super::pic8259;
-use crate::helpers::bitwise::{
-    check_bit,
-    set_bit,
-};
 use crate::kernel::sync::KernelOnceCell;
 use crate::memory::HHDMOFFSET;
+use crate::util::bitwise::check_bit;
 
 const SV_OFFSET: usize = 0xF0;
 const EOI_OFFSET: usize = 0xB0;
@@ -129,7 +126,7 @@ impl ApicDriver for XApicDriver {
         }
     }
 
-    fn id(&self) -> u32 { unsafe { self.read_reg(LAPIC_ID_OFFSET) } }
+    fn id(&self) -> u32 { self.read_reg(LAPIC_ID_OFFSET) }
 
     fn timer_setup(&self, vector: u8, init_count: u32, mode: TimerMode) {
         unsafe {
@@ -146,7 +143,7 @@ impl ApicDriver for XApicDriver {
 
     fn stop_timer(&self) { unsafe { self.write_reg(INIT_COUNT_OFFSET, 0) }; }
 
-    fn current_count(&self) -> usize { unsafe { self.read_reg(CURRENT_COUNT_OFFSET) as usize } }
+    fn current_count(&self) -> usize { self.read_reg(CURRENT_COUNT_OFFSET) as usize }
 
     fn arm_oneshot(&self, ticks: u32) {
         unsafe {

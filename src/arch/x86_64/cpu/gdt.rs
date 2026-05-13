@@ -1,13 +1,6 @@
-use alloc::alloc::{
-    Layout,
-    alloc,
-};
 use core::ptr::write_volatile;
 
-use crate::{
-    BOOTSTRAP_ALLOC,
-    klogln,
-};
+use crate::BOOTSTRAP_ALLOC;
 
 pub(crate) const KERNEL_CS: u64 = 0x08;
 pub(crate) const KERNEL_SS: u64 = 0x10;

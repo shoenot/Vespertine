@@ -16,12 +16,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::BOOTSTRAP_ALLOC;
 use crate::arch::x86_64::cpu::fpu::*;
-use crate::arch::x86_64::cpu::gdt::{
-    KERNEL_CS,
-    KERNEL_SS,
-};
 use crate::arch::x86_64::interrupts::disable_interrupts;
 use crate::arch::x86_64::task::context::*;
 use crate::kernel::thread::idle::*;
@@ -33,6 +28,10 @@ use crate::kernel::thread::{
     switch_threads_legacy,
 };
 use crate::kernel::time::arm_sleep_ns;
+use crate::{
+    BOOTSTRAP_ALLOC,
+    impl_queue_methods,
+};
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
 
@@ -52,6 +51,8 @@ unsafe impl Send for SchedulerState {}
 unsafe impl Sync for SchedulerState {}
 
 pub fn get_new_tid() -> usize { GLOBAL_TID.fetch_add(1, Ordering::Relaxed) }
+
+impl_queue_methods!(SchedulerState, ThreadControlBlock, ready_queue_head, ready_queue_tail);
 
 impl SchedulerState {
     pub const fn new() -> Self {
@@ -91,35 +92,6 @@ impl SchedulerState {
         self.current_thread = tcb_ptr;
     }
 
-    pub fn push(&mut self, thread: *mut ThreadControlBlock) {
-        unsafe {
-            (*thread).next = null_mut(); // ensure new thread isn't linked to anything else
-            if self.ready_queue_tail.is_null() {
-                self.ready_queue_head = thread;
-                self.ready_queue_tail = thread;
-            } else {
-                (*self.ready_queue_tail).next = thread;
-                self.ready_queue_tail = thread;
-            }
-        }
-    }
-
-    pub fn pop(&mut self) -> *mut ThreadControlBlock {
-        unsafe {
-            if self.ready_queue_head.is_null() {
-                return null_mut();
-            }
-
-            let ret = self.ready_queue_head;
-            self.ready_queue_head = (*ret).next;
-            if self.ready_queue_head.is_null() {
-                self.ready_queue_tail = null_mut();
-            }
-            (*ret).next = null_mut(); // ensure ret thread isn't linked ot anything else
-            ret
-        }
-    }
-
     pub fn spawn(&mut self, entry_point: usize, arg: usize) -> Result<(), ThreadError> {
         let stack_size = 4096 * 4;
         let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
@@ -156,22 +128,15 @@ impl SchedulerState {
         let context_addr = context_addr & !0xF; // align to 16 bytes
         let context = unsafe { &mut *(context_addr as *mut ThreadContext) };
 
-        context.zero_gp();
-        context.instruction_pointer = entry_point as u64;
-        context.stack_pointer = (stack_top - 8) as u64;
-        context.code_segment = KERNEL_CS;
-        context.stack_segment = KERNEL_SS;
-        context.cpu_flags = RFLAGS_IF;
-        context.rdi = arg;
+        context.init(entry_point as u64, (stack_top - 8) as u64, arg);
 
         let switch_addr = context_addr - size_of::<SwitchContext>();
         let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };
-        switch_context.init();
 
         unsafe extern "C" {
             fn thread_entry_stub();
         }
-        switch_context.rip = (thread_entry_stub as *const ()) as usize;
+        switch_context.init((thread_entry_stub as *const ()) as usize);
 
         // init TCB
         unsafe {
@@ -295,3 +260,4 @@ impl SchedulerState {
         }
     }
 }
+

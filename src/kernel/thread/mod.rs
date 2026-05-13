@@ -2,6 +2,7 @@ pub mod idle;
 pub mod schedule;
 pub mod tcb;
 pub mod wait;
+pub mod workqueue;
 
 use core::alloc::LayoutError;
 use core::fmt;

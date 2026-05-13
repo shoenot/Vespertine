@@ -8,6 +8,11 @@ use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::kernel::thread::schedule::DEFAULT_QUANTUM;
 use crate::kernel::thread::tcb::ThreadState;
+use crate::kernel::thread::workqueue::{
+    WorkItem,
+    WorkQueue,
+    worker_thread,
+};
 use crate::kernel::time::{
     arm_sleep_ns,
     arm_sleep_ticks,

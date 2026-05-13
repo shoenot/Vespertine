@@ -1,7 +1,3 @@
-use alloc::alloc::{
-    Layout,
-    alloc,
-};
 use core::arch::asm;
 use core::ptr::copy_nonoverlapping;
 use core::sync::atomic::Ordering;
@@ -35,7 +31,6 @@ fn idle_loop() -> ! {
 
 pub fn init_idle_thread() -> *mut ThreadControlBlock {
     let stack_size = 4096;
-    let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
 
     let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
     let stack_base = BOOTSTRAP_ALLOC.lock().alloc(stack_size, 8) as usize;
@@ -68,13 +63,13 @@ pub fn init_idle_thread() -> *mut ThreadControlBlock {
 
     let switch_addr = context_addr - size_of::<SwitchContext>();
     let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };
-    switch_context.init();
 
     unsafe extern "C" {
         fn thread_entry_stub();
     }
+    let rip = (thread_entry_stub as *const ()) as usize;
+    switch_context.init(rip);
 
-    switch_context.rip = (thread_entry_stub as *const ()) as usize;
     // init TCB
     unsafe {
         (*tcb_ptr).init(switch_addr, stack_base, fpu_ptr);

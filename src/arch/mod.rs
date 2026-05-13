@@ -3,6 +3,7 @@ pub mod x86_64;
 use core::sync::atomic::Ordering;
 
 use x86_64::apic::lapic::init_local_apic;
+pub use x86_64::cpu::core::get_core_data;
 use x86_64::cpu::core::{
     activate_core,
     init_core_data,
@@ -10,6 +11,12 @@ use x86_64::cpu::core::{
 use x86_64::cpu::fpu::{
     init_cr4,
     init_default_fpu_cxt,
+};
+pub use x86_64::hcf;
+pub(crate) use x86_64::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+    interrupts_enabled,
 };
 use x86_64::{
     init_global_apics,
