@@ -6,7 +6,7 @@ use crate::arch::x86_64::cpu::core::{
 };
 use crate::boot::MP_REQUEST;
 use crate::boot::smp::ap_entry;
-use crate::demo::ipi_sniper_thread;
+use crate::demo::test_thread;
 
 pub fn init_smp() {
     let mp_resp = MP_REQUEST.response().expect("No SMP Response from limine");
@@ -20,10 +20,8 @@ pub fn init_smp() {
         unsafe {
             let ap_data_ptr = init_core_data(core.lapic_id as usize, get_core_data().apic_mode.clone());
 
-            if core.lapic_id == 1 {
-                let att = ipi_sniper_thread as *const ();
-                (*ap_data_ptr).scheduler.spawn(att as usize, 0).unwrap();
-            }
+            // let att = test_thread as *const ();
+            // (*ap_data_ptr).scheduler.spawn(att as usize, core.processor_id as usize).unwrap();
 
             let ap_data_addr = ap_data_ptr as u64;
             let ap_entry_ptr = ap_entry as MpGotoFunction;

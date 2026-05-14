@@ -7,7 +7,7 @@ BIN_NAME    := shoes
 KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
 IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS   := -smp 8 -m 8G -cpu host,migratable=no,+invtsc
+QEMUFLAGS   := -smp 4 -m 2G -cpu host,migratable=no,+invtsc
 
 # --- Toolchain ---
 AS := nasm
@@ -55,10 +55,6 @@ build/idt.o: src/arch/x86_64/interrupts/idt.asm
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/interrupts/idt.asm -o build/idt.o
 	
-build/io.o: src/arch/x86_64/io.asm
-	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/io.asm -o build/io.o
-
 build/switch.o: src/arch/x86_64/task/switch.asm 
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/task/switch.asm -o build/switch.o
@@ -68,7 +64,7 @@ build/fpu.o: src/arch/x86_64/cpu/fpu.asm
 	$(AS) -f elf64 src/arch/x86_64/cpu/fpu.asm -o build/fpu.o
 
 .PHONY: kernel
-kernel: build/gdt.o build/idt.o build/switch.o build/fpu.o build/io.o
+kernel: build/gdt.o build/idt.o build/switch.o build/fpu.o
 	cargo build --release --target $(TARGET_NAME)
 
 # ISO Creation (Hybrid BIOS/UEFI)

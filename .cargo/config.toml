@@ -6,7 +6,6 @@ rustflags = [
     "-C", "link-arg=-Tscripts/linker.ld",
     "-C", "link-arg=build/gdt.o",
     "-C", "link-arg=build/idt.o",
-    "-C", "link-arg=build/io.o",
     "-C", "link-arg=build/switch.o",
     "-C", "link-arg=build/fpu.o",
     "-C", "no-redzone=yes",

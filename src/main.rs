@@ -53,6 +53,8 @@ pub extern "C" fn kmain() -> ! {
     init_smp();
 
     enable_interrupts();
+    let timestamp = arch::get_unix_timestamp();
+    klogln!("unix timestamp is: {}", timestamp);
     get_core_data().scheduler.terminate();
 
     unreachable!()

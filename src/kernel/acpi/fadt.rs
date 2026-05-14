@@ -96,3 +96,16 @@ pub fn get_pm_timer_addr() -> (usize, bool) {
 
     (fadt_v1.pm_timer_blk as usize, false)
 }
+
+pub fn get_century_register() -> u8 {
+    let rsdp = acpi::rsdp::Rsdp::get();
+    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
+    let fadt_addr = match sdt.find_table(b"FACP") {
+        Some(addr) => addr,
+        None => panic!("Couldn't find ACPI FADT table"),
+    };
+
+    let fadt_v1 = unsafe { &*(fadt_addr as *const FADT) };
+
+    fadt_v1.century
+}

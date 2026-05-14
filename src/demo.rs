@@ -60,10 +60,6 @@ pub extern "C" fn ipi_sniper_thread(_id: usize) -> ! {
         apic.send_ipi(0, 64);
         apic.send_ipi(2, 64);
         apic.send_ipi(3, 64);
-        apic.send_ipi(4, 64);
-        apic.send_ipi(5, 64);
-        apic.send_ipi(6, 64);
-        apic.send_ipi(7, 64);
     }
 
     loop {

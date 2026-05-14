@@ -55,7 +55,7 @@ impl Logger {
         let fb = get_framebuffer();
         self.graphics_writer.write(GraphicsWriter {
             current_line: 0,
-            lim_lines: ((fb.height / 16) - 1) as u32,
+            lim_lines: ((fb.height / 16) - 2) as u32,
             current_offset: 0,
             font: FONT.get_or_init(|| load_font()),
             fb: SyncFramebuffer(fb),
