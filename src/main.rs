@@ -33,9 +33,9 @@ use memory::{
     BumpAllocator,
 };
 
+use crate::drivers::keyboard::init_keyboard_irq;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
-use crate::kernel::time::callout::{timer_daemon};
 use crate::kernel::time::datetime::epoch_to_datetime;
 
 pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());
@@ -61,6 +61,7 @@ pub extern "C" fn kmain() -> ! {
     time::init_realtime();
     klogln!("Initialized Real Time Clock. Current time is: {}", epoch_to_datetime(time::get_realtime()));
 
+    init_keyboard_irq();
     enable_interrupts();
 
     spawn_kernel_thread(tasks::initializer as *const () as usize, 0, ThreadPriority::MAXIMUM);

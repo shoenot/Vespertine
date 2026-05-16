@@ -1,4 +1,5 @@
 use core::arch::asm;
+use core::ptr::null_mut;
 
 use alloc::collections::binary_heap::BinaryHeap;
 
@@ -43,10 +44,16 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
         (*data_ptr).scheduler = SchedulerState::new();
         (*data_ptr).scheduler.init(logical_id);
         (*data_ptr).callout_queue = TicketLock::new(BinaryHeap::new());
-        (*data_ptr).timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH).unwrap();
-        (*data_ptr).scheduler.push((*data_ptr).timer_daemon_tcb);
+        (*data_ptr).timer_daemon_tcb = null_mut();
 
         data_ptr
+    }
+}
+
+pub fn init_timer_daemon(data_ptr: *mut CPULocalData) {
+    unsafe {
+        (*data_ptr).timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH).unwrap();
+        (*data_ptr).scheduler.push((*data_ptr).timer_daemon_tcb);
     }
 }
 

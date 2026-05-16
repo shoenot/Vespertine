@@ -28,7 +28,7 @@ use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::{
     ThreadControlBlock,
     ThreadError,
-    ThreadState, priority,
+    ThreadState,
 };
 
 pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority) -> *mut ThreadControlBlock {

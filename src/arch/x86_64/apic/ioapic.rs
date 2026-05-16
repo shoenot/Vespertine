@@ -68,7 +68,8 @@ impl IOApic {
         }
     }
 
-    pub(crate) fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool) {
+    pub(crate) fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool,
+                            active_high: bool, edge_triggered: bool) {
         if gsi < self.gsi_base as u32 {
             return;
         }
@@ -78,10 +79,18 @@ impl IOApic {
         let high_idx = IOREDTBL_BASE + (rel_gsi * 2) + 1;
 
         // Bits 0-7: Vector
+        // Bit 13: Interrupt pin polarity (0: Active High, 1: Active Low)
+        // Bit 15: Trigger mode (0: Edge triggered, 1: Level triggered)
         // Bit 16: Mask (1 = Disabled, 0 = Enabled)
         let mut low_val = vector as u32;
         if masked {
             low_val |= 1 << 16;
+        }
+        if !active_high {
+            low_val |= 1 << 13;
+        }
+        if !edge_triggered {
+            low_val |= 1 << 15;
         }
 
         // Bits 56-63 (Shifted): Destination LAPIC ID

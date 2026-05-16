@@ -22,7 +22,7 @@ use crate::kernel::thread::{
     switch_threads_avx,
     switch_threads_legacy,
 };
-use crate::kernel::time::arm_sleep_ns;
+use crate::kernel::time::{get_time, ns_to_ticks};
 use crate::{
     BOOTSTRAP_ALLOC,
     impl_queue_methods,
@@ -121,25 +121,25 @@ impl SchedulerState {
         }
 
         let mut next_thread = self.pop();
-        if next_thread.is_null() {
-            next_thread = self.idle_thread;
-        }
-
         let prev_thread = self.current_thread;
-
-        // if prev_thread == self.idle_thread && next_thread == self.idle_thread {
-        //     return;
-        // }
-
-        if prev_thread == next_thread {
-            unsafe {
-                if (*next_thread).priority != ThreadPriority::IDLE {
-                    arm_sleep_ns(DEFAULT_QUANTUM);
-                } 
+        if next_thread.is_null() {
+            if !prev_thread.is_null() && unsafe { (*prev_thread).state == ThreadState::Running } {
+                next_thread = prev_thread;
+            } else {
+                next_thread = self.idle_thread;
             }
-            return;
         }
 
+        // arm the timer for the next quantum if its not the idle thread.
+        // idle only responds to interrupts.
+        unsafe {
+            if (*next_thread).priority != ThreadPriority::IDLE {
+                (*next_thread).quantum_expiry = get_time() + ns_to_ticks(DEFAULT_QUANTUM);
+            } else {
+                (*next_thread).quantum_expiry = usize::MAX;
+            }
+        }
+        
         if !prev_thread.is_null() {
             unsafe {
                 if (*prev_thread).state == ThreadState::Running {
@@ -154,6 +154,12 @@ impl SchedulerState {
         self.current_thread = next_thread;
         unsafe {
             (*next_thread).state = ThreadState::Running;
+        }
+
+        crate::kernel::time::update_hardware_timer();
+
+        if prev_thread == next_thread {
+            return;
         }
 
         if !prev_thread.is_null() {
@@ -202,10 +208,10 @@ impl SchedulerState {
     }
 
     pub fn push(&mut self, item: *mut ThreadControlBlock) {
-        let priority = unsafe { (*item).priority.as_usize() };
         if item.is_null() {
             return;
         }
+        let priority = unsafe { (*item).priority.as_usize() };
         unsafe {
             (*item).next = null_mut();
             if self.ready_queue_tails[priority].is_null() {
@@ -266,7 +272,6 @@ impl SchedulerState {
             {
                 GRAVEYARD.lock().push(self.current_thread);
             }
-            arm_sleep_ns(DEFAULT_QUANTUM);
             self.schedule();
         }
     }

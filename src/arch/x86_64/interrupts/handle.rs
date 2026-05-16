@@ -1,5 +1,7 @@
 use core::arch::asm;
 
+use crate::arch::x86_64::io::inb;
+use crate::arch::x86_64::{IO_APIC, io};
 use crate::arch::x86_64::apic::lapic::{
     ApicDriver,
 };
@@ -32,15 +34,21 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
-    klogln!("timer interrupt");
-
     core_data.apic_mode.eoi(); 
+
+    if core_data.scheduler.idle_thread.is_null() {
+        return;
+    }
 
     unsafe {
         let td_tcb_ptr = (*core_data).timer_daemon_tcb;
-        if (*td_tcb_ptr).state == ThreadState::Blocked {
-            (*td_tcb_ptr).state = ThreadState::Ready;
-            core_data.scheduler.push(td_tcb_ptr);
+        if !td_tcb_ptr.is_null() {
+            // In the new centralized timer model, we always wake the daemon
+            // to check if it was a callout or a quantum expiry.
+            if (*td_tcb_ptr).state != ThreadState::Running {
+                (*td_tcb_ptr).state = ThreadState::Ready;
+                core_data.scheduler.push(td_tcb_ptr);
+            }
         }
     }
 
@@ -50,6 +58,22 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
 pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {
     let core_data = get_core_data();
     core_data.apic_mode.eoi();
-    klogln!(">>> Core {} forcefully woken up by an IPI <<<", core_data.lapic_id);
     core_data.scheduler.schedule();
+}
+
+
+pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
+    let core_data = get_core_data();
+    core_data.apic_mode.eoi();
+    
+    crate::drivers::serial::log_to_serial("KB INT\n");
+
+    unsafe {
+        for _ in 0..10 {
+            if (io::inb(0x64) & 0x1) == 0 {
+                break 
+            }
+            io::inb(0x60);
+        }
+    }
 }

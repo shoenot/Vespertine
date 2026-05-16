@@ -118,6 +118,7 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         13 => handle::gpf_handler(frame),
         14 => handle::page_fault_handler(frame),
         15 => handle::unexpected_interrupt_handler(frame),
+        33 => handle::keyboard_irq_handler(),
         35 => handle::timer_interrupt_handler(),
         64 => handle::ipi_handler(),
         _ => {

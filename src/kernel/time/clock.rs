@@ -11,6 +11,7 @@ use crate::arch::x86_64::interrupts::{
 };
 use crate::kernel::sync::KernelOnceCell;
 use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::callout::{Callout, CalloutPayload};
 use crate::kernel::time::{
     GET_TIME_FN,
@@ -100,6 +101,47 @@ pub fn get_time() -> usize {
     time_func()
 }
 
+// compares the current quantum and the next callout and sets timer to the earlier of the two.
+pub fn update_hardware_timer() {
+    let core_data = get_core_data();
+    let current_time = get_time();
+    
+    // next preemption time (infinity if its idle, quantum expiry if its not).
+    let mut next_event = unsafe { 
+        if !core_data.scheduler.current_thread.is_null() && 
+           (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
+            (*core_data.scheduler.current_thread).quantum_expiry
+        } else {
+            usize::MAX
+        }
+    };
+
+    // check callout queue time and if its earlier than the preemption time then set it to that.
+    let queue = core_data.callout_queue.lock();
+    if let Some(earliest) = queue.peek() {
+        if earliest.wake_time < next_event {
+            next_event = earliest.wake_time;
+        }
+    }
+    drop(queue);
+
+    if next_event != usize::MAX {
+        // arm for at least 1 tick because otherwise it hangs 
+        let diff = next_event.saturating_sub(current_time).max(1);
+
+        // clamp to 32 bits 
+        let ticks = if diff > u32::MAX as usize {
+            u32::MAX as usize
+        } else {
+            diff
+        };
+
+        arm_sleep_ticks(ticks);
+    } else {
+        core_data.apic_mode.stop_timer();
+    }
+}
+
 pub fn sleep(ns: usize) {
     let target_time = get_time() + ns_to_ticks(ns);
 
@@ -119,24 +161,11 @@ pub fn sleep(ns: usize) {
         payload: CalloutPayload::WakeThread(current_thread),
     };
 
-    let mut queue = get_core_data().callout_queue.lock();
-    queue.push(callout);
-    
-    let is_earliest = queue.peek().unwrap().wake_time == target_time;
-    drop(queue);
-
-    if is_earliest {
-        let daemon_ptr = get_core_data().timer_daemon_tcb;
-        if !daemon_ptr.is_null() {
-            unsafe {
-                if (*daemon_ptr).state == ThreadState::Blocked {
-                    (*daemon_ptr).state = ThreadState::Ready;
-                    sched.push(daemon_ptr);
-                }
-            }
-        }
+    {
+        let mut queue = get_core_data().callout_queue.lock();
+        queue.push(callout);
     }
-
+    
     sched.schedule();
 
     enable_interrupts();

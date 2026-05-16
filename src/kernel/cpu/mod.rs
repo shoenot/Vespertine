@@ -21,6 +21,11 @@ pub static NUM_CORES: KernelOnceCell<usize> = KernelOnceCell::new();
 
 static GLOBAL_CPU_DATA: [AtomicPtr<CPULocalData>; MAX_CORES] = [const { AtomicPtr::new(null_mut()) }; MAX_CORES];
 
+pub fn register_core_data(logical_id: usize, data_ptr: *mut CPULocalData) {
+    assert!(logical_id < MAX_CORES, "Invalid Core ID");
+    GLOBAL_CPU_DATA[logical_id].store(data_ptr, Ordering::Release);
+}
+
 pub fn init_smp() {
     let mp_resp = MP_REQUEST.response().expect("No SMP Response from limine");
     let bsp_id = mp_resp.bsp_lapic_id;
@@ -33,7 +38,7 @@ pub fn init_smp() {
 
         let ap_data_ptr = init_core_data(core.lapic_id as usize, logical_id, get_core_data().apic_mode.clone());
 
-        GLOBAL_CPU_DATA[logical_id].store(ap_data_ptr, Ordering::Release);
+        register_core_data(logical_id, ap_data_ptr);
 
         // let att = test_thread as *const ();
         // (*ap_data_ptr).scheduler.spawn(att as usize, core.processor_id as usize).unwrap();

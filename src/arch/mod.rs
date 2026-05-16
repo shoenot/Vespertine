@@ -7,6 +7,7 @@ pub use x86_64::cpu::core::get_core_data;
 use x86_64::cpu::core::{
     activate_core,
     init_core_data,
+    init_timer_daemon,
 };
 use x86_64::cpu::fpu::{
     init_cr4,
@@ -38,7 +39,9 @@ pub fn init_bootstrap_core() {
     let lapic = init_local_apic();
     let lapic_id = lapic.id();
     let data_ptr = init_core_data(lapic_id as usize, 0, lapic);
+    crate::kernel::cpu::register_core_data(0, data_ptr);
     activate_core(data_ptr);
+    init_timer_daemon(data_ptr);
 }
 
 pub fn init_fpu(bsp: bool) {

@@ -22,6 +22,7 @@ pub struct ThreadControlBlock {
     pub priority: ThreadPriority,
     pub wake_time: usize,
     pub total_runtime: usize,
+    pub quantum_expiry: usize,
     pub stack_ptr: usize,
     pub stack_base: usize,
     pub stack_size: usize,

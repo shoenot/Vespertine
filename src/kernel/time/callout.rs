@@ -1,8 +1,4 @@
-use core::{ptr::null_mut, sync::atomic::AtomicPtr};
-
-use alloc::collections::binary_heap::BinaryHeap;
-
-use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data, x86_64::{apic::lapic::ApicDriver, cpu::core::CPULocalData}}, kernel::{cpu::get_core_data_for, sync::{KernelOnceCell, TicketLock}, thread::{ThreadControlBlock, ThreadState, schedule::DEFAULT_QUANTUM}, time::{arm_sleep_ticks, get_time}}};
+use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data}, kernel::thread::{ThreadControlBlock, ThreadState}, kernel::time::get_time};
 
 pub enum CalloutPayload {
     /// Used by 'sleep()'. Contains the pointer to the sleeping thread.
@@ -40,47 +36,37 @@ unsafe impl Send for Callout {}
 
 pub extern "C" fn timer_daemon(_arg: usize) -> ! {
     loop {
-        let current_time = get_time();
-        let mut queue = get_core_data().callout_queue.lock();
+        disable_interrupts();
+        
+        loop {
+            let mut queue = get_core_data().callout_queue.lock();
+            let current_time = get_time();
 
-        if let Some(earliest) = queue.peek() {
-            if earliest.wake_time <= current_time {
-                // expired, pop it off
-                let expired = queue.pop().unwrap();
-                drop(queue);
-
-                match expired.payload {
-                    CalloutPayload::WakeThread(tcb_ptr) => {
-                        unsafe {
-                            (*tcb_ptr).state = ThreadState::Ready;
-                            get_core_data().scheduler.push(tcb_ptr);
-                        }
-                    },
+            if let Some(earliest) = queue.peek() {
+                if earliest.wake_time <= current_time {
+                    let expired = queue.pop().unwrap();
+                    drop(queue);
+                    
+                    match expired.payload {
+                        CalloutPayload::WakeThread(tcb_ptr) => {
+                            unsafe {
+                                (*tcb_ptr).state = ThreadState::Ready;
+                                get_core_data().scheduler.push(tcb_ptr);
+                            }
+                        },
+                    }
+                    continue; 
                 }
-
-                continue;
             }
-            
-            let next_wake = earliest.wake_time;
             drop(queue);
-
-            disable_interrupts();
-            unsafe { (*get_core_data().scheduler.current_thread).state = ThreadState::Blocked };
-            
-            arm_sleep_ticks(next_wake.saturating_sub(get_time())); 
-            
-            get_core_data().scheduler.schedule();
-            enable_interrupts();
-            
-        } else {
-            drop(queue);
-            
-            disable_interrupts();
-            unsafe { (*get_core_data().scheduler.current_thread).state = ThreadState::Blocked };
-            
-            get_core_data().scheduler.schedule();
-            
-            enable_interrupts();
+            break;
         }
+
+        unsafe {
+            (*get_core_data().scheduler.current_thread).state = ThreadState::Blocked;
+        }
+        
+        get_core_data().scheduler.schedule();
+        enable_interrupts();
     }
 }

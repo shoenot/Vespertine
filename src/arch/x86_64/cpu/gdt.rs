@@ -7,7 +7,7 @@ pub(crate) const KERNEL_SS: u64 = 0x10;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct GDTEntry {
+pub struct GDTEntry {
     limit_low: u16,
     base_low: u16,
     base_middle: u8,
@@ -31,7 +31,7 @@ impl GDTEntry {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct TaskStateSegment {
+pub struct TaskStateSegment {
     reserved_1: u32,
     rsp: [u64; 3],
     reserved_2: u64,

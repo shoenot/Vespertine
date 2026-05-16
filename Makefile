@@ -24,8 +24,8 @@ run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom build/$(IMAGE_NAME).iso \
-		-cpu host,migratable=no,+invtsc
 		-accel kvm \
+		-cpu host,migratable=no,+invtsc \
 		$(QEMUFLAGS) \
 		-serial stdio 
 
