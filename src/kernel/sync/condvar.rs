@@ -1,17 +1,26 @@
-use core::{mem::forget, ops::Deref};
+use core::mem::forget;
+use core::ops::Deref;
 
-use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled}, kernel::{sync::{MutexGuard, TicketLock}, thread::{ThreadState, dispatch::wake_thread, wait::WaitQueue}}};
-
-
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    get_core_data,
+    interrupts_enabled,
+};
+use crate::kernel::sync::{
+    MutexGuard,
+    TicketLock,
+};
+use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::dispatch::wake_thread;
+use crate::kernel::thread::wait::WaitQueue;
 
 struct CondVar {
     wait_queue: TicketLock<WaitQueue>,
 }
 
 impl CondVar {
-    pub const fn new() -> Self {
-        Self { wait_queue: TicketLock::new(WaitQueue::new()) }
-    }
+    pub const fn new() -> Self { Self { wait_queue: TicketLock::new(WaitQueue::new()) } }
 
     pub fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         unsafe {
@@ -20,7 +29,7 @@ impl CondVar {
             let current_thread = get_core_data().scheduler.get_current_thread();
             (*current_thread).state = ThreadState::Blocked;
             queue.push(current_thread);
-            
+
             let mutex = guard.mutex;
             forget(guard);
 
@@ -41,7 +50,9 @@ impl CondVar {
         if !current_thread.is_null() {
             wake_thread(current_thread);
         }
-        if int_state { enable_interrupts() };
+        if int_state {
+            enable_interrupts()
+        };
     }
 
     pub fn notify_all(&self) {
@@ -51,11 +62,13 @@ impl CondVar {
         loop {
             let current_thread = queue.pop();
             if current_thread.is_null() {
-                break
-            } else { 
-                wake_thread(current_thread); 
+                break;
+            } else {
+                wake_thread(current_thread);
             }
         }
-        if int_state { enable_interrupts() };
+        if int_state {
+            enable_interrupts()
+        };
     }
 }

@@ -5,12 +5,16 @@ use core::sync::atomic::{
 };
 
 use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::kernel::sync::{Mutex, Semaphore};
+use crate::kernel::sync::{
+    Mutex,
+    Semaphore,
+};
 use crate::time::sleep;
 use crate::{
     TicketLock,
     get_core_data,
-    klogln, terminate_thread,
+    klogln,
+    terminate_thread,
 };
 
 #[allow(dead_code)]
@@ -74,7 +78,9 @@ pub extern "C" fn producer_thread(_arg: usize) -> ! {
         SLOTS_AVAILABLE.wait();
 
         let tail = PRODUCER_TAIL.fetch_add(1, Ordering::Relaxed) % BUFFER_SIZE;
-        unsafe { PRODUCER_BUFFER[tail] = 1; }
+        unsafe {
+            PRODUCER_BUFFER[tail] = 1;
+        }
 
         if tail % 4 == 0 {
             get_core_data().scheduler.schedule();
@@ -88,7 +94,7 @@ pub extern "C" fn producer_thread(_arg: usize) -> ! {
 
 pub extern "C" fn consumer_thread(expected_total: usize) -> ! {
     let mut items_consumed = 0;
-    
+
     for _ in 0..expected_total {
         ITEMS_READY.wait();
 
@@ -96,10 +102,10 @@ pub extern "C" fn consumer_thread(expected_total: usize) -> ! {
         let _val = unsafe { PRODUCER_BUFFER[head] };
 
         SLOTS_AVAILABLE.signal();
-        
+
         items_consumed += 1;
     }
-    
+
     klogln!("Consumer successfully processed {} items.", items_consumed);
     THREADS_FINISHED.fetch_add(1, Ordering::Relaxed);
     terminate_thread!();

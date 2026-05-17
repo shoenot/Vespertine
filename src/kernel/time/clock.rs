@@ -12,7 +12,10 @@ use crate::arch::x86_64::interrupts::{
 use crate::kernel::sync::KernelOnceCell;
 use crate::kernel::thread::ThreadState;
 use crate::kernel::thread::priority::ThreadPriority;
-use crate::kernel::time::callout::{Callout, CalloutPayload};
+use crate::kernel::time::callout::{
+    Callout,
+    CalloutPayload,
+};
 use crate::kernel::time::{
     GET_TIME_FN,
     IA32_TSC_DEADLINE,
@@ -105,11 +108,10 @@ pub fn get_time() -> usize {
 pub fn update_hardware_timer() {
     let core_data = get_core_data();
     let current_time = get_time();
-    
+
     // next preemption time (infinity if its idle, quantum expiry if its not).
-    let mut next_event = unsafe { 
-        if !core_data.scheduler.current_thread.is_null() && 
-           (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
+    let mut next_event = unsafe {
+        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
             (*core_data.scheduler.current_thread).quantum_expiry
         } else {
             usize::MAX
@@ -126,15 +128,11 @@ pub fn update_hardware_timer() {
     drop(queue);
 
     if next_event != usize::MAX {
-        // arm for at least 1 tick because otherwise it hangs 
+        // arm for at least 1 tick because otherwise it hangs
         let diff = next_event.saturating_sub(current_time).max(1);
 
-        // clamp to 32 bits 
-        let ticks = if diff > u32::MAX as usize {
-            u32::MAX as usize
-        } else {
-            diff
-        };
+        // clamp to 32 bits
+        let ticks = if diff > u32::MAX as usize { u32::MAX as usize } else { diff };
 
         arm_sleep_ticks(ticks);
     } else {
@@ -156,16 +154,13 @@ pub fn sleep(ns: usize) {
         (*current_thread).wake_time = target_time;
     }
 
-    let callout = Callout {
-        wake_time: target_time,
-        payload: CalloutPayload::WakeThread(current_thread),
-    };
+    let callout = Callout { wake_time: target_time, payload: CalloutPayload::WakeThread(current_thread) };
 
     {
         let mut queue = get_core_data().callout_queue.lock();
         queue.push(callout);
     }
-    
+
     sched.schedule();
 
     enable_interrupts();

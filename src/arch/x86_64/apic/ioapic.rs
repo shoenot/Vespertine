@@ -68,8 +68,7 @@ impl IOApic {
         }
     }
 
-    pub(crate) fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool,
-                            active_high: bool, edge_triggered: bool) {
+    pub(crate) fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool, active_high: bool, edge_triggered: bool) {
         if gsi < self.gsi_base as u32 {
             return;
         }

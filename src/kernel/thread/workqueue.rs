@@ -1,3 +1,4 @@
+use alloc::alloc::dealloc;
 use core::alloc::Layout;
 use core::ptr::null_mut;
 use core::sync::atomic::{
@@ -5,13 +6,12 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use alloc::alloc::dealloc;
-
-use crate::arch::{
-    get_core_data,
-};
+use crate::arch::get_core_data;
 use crate::impl_queue_methods;
-use crate::kernel::sync::{Semaphore, TicketLock};
+use crate::kernel::sync::{
+    Semaphore,
+    TicketLock,
+};
 
 // deferred work func signature
 type WorkFunction = fn(*mut u8);
@@ -49,7 +49,7 @@ pub extern "C" fn worker_thread() -> ! {
                 dealloc(item as *mut u8, Layout::new::<WorkItem>());
             }
         } else {
-            continue 
+            continue;
         }
     }
 }

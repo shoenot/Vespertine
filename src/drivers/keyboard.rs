@@ -1,11 +1,28 @@
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicBool,
+    AtomicUsize,
+    Ordering,
+};
 
-use crate::arch::x86_64::io::{inb, outb};
-use crate::arch::x86_64::{IO_APIC, apic::ioapic};
+use crate::arch::x86_64::IO_APIC;
+use crate::arch::x86_64::apic::ioapic;
+use crate::arch::x86_64::io::{
+    inb,
+    outb,
+};
 use crate::kernel::acpi;
-use crate::kernel::sync::{KernelOnceCell, Semaphore};
-use crate::{klog, klogln};
-use crate::util::bitwise::{set_bit, unset_bit};
+use crate::kernel::sync::{
+    KernelOnceCell,
+    Semaphore,
+};
+use crate::util::bitwise::{
+    set_bit,
+    unset_bit,
+};
+use crate::{
+    klog,
+    klogln,
+};
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);
 static EDGE: AtomicBool = AtomicBool::new(true);
@@ -28,20 +45,26 @@ fn check_madt_overrides() {
     for entry in iso {
         if entry.source == 1 {
             KEYBOARD_GSI.store(entry.gsi as usize, Ordering::Relaxed);
-            if entry.flags & 0b11 == 3 { ACTIVE_HIGH.store(false, Ordering::Relaxed); }
-            if entry.flags & 0b1100 == 11 { EDGE.store(false, Ordering::Relaxed); }
+            if entry.flags & 0b11 == 3 {
+                ACTIVE_HIGH.store(false, Ordering::Relaxed);
+            }
+            if entry.flags & 0b1100 == 11 {
+                EDGE.store(false, Ordering::Relaxed);
+            }
         }
     }
 }
 
 pub fn init_keyboard_irq() {
     check_madt_overrides();
-    IO_APIC.lock().set_entry(KEYBOARD_GSI.load(Ordering::Relaxed) as u32,
-                             IDT_VECTOR,
-                             0,
-                             false,
-                             ACTIVE_HIGH.load(Ordering::Relaxed),
-                             EDGE.load(Ordering::Relaxed));
+    IO_APIC.lock().set_entry(
+        KEYBOARD_GSI.load(Ordering::Relaxed) as u32,
+        IDT_VECTOR,
+        0,
+        false,
+        ACTIVE_HIGH.load(Ordering::Relaxed),
+        EDGE.load(Ordering::Relaxed),
+    );
     unsafe {
         outb(0x64, 0x20);
         let mut config = inb(0x60);
@@ -52,7 +75,6 @@ pub fn init_keyboard_irq() {
         outb(0x60, config);
     }
 }
-
 
 pub extern "C" fn kbd_processor_thread() -> ! {
     let mut shift_held = false;
@@ -80,19 +102,15 @@ pub extern "C" fn kbd_processor_thread() -> ! {
                 shift_held = !is_release;
             }
             0x3A => {
-                if !is_release { 
-                    caps_lock = !caps_lock; 
+                if !is_release {
+                    caps_lock = !caps_lock;
                 }
             }
             _ => {}
         }
 
         if !is_release {
-            let mut c = if shift_held {
-                KBD_US_SHIFT[key]
-            } else {
-                KBD_US_BASE[key]
-            };
+            let mut c = if shift_held { KBD_US_SHIFT[key] } else { KBD_US_BASE[key] };
 
             if caps_lock && c.is_ascii_alphabetic() {
                 if c.is_ascii_lowercase() {
@@ -112,29 +130,22 @@ pub extern "C" fn kbd_processor_thread() -> ! {
 }
 
 const KBD_US_BASE: [char; 128] = [
-    '\0', '\x1B', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\x08',
-    '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
-    '\0', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 
-    '\0', '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', '\0',
-    '*', '\0', ' ', // Space is 0x39
+    '\0', '\x1B', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\x08', '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o',
+    'p', '[', ']', '\n', '\0', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', '\0', '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm',
+    ',', '.', '/', '\0', '*', '\0', ' ', // Space is 0x39
     // ... the rest are F-keys, numpad, etc. Fill with '\0' for now.
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0',
 ];
 
 const KBD_US_SHIFT: [char; 128] = [
-    '\0', '\x1B', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\x08',
-    '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n',
-    '\0', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', 
-    '\0', '|', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', '\0',
-    '*', '\0', ' ', 
-    // ... fill the rest with '\0'
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
-    '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\x1B', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\x08', '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O',
+    'P', '{', '}', '\n', '\0', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', '\0', '|', 'Z', 'X', 'C', 'V', 'B', 'N', 'M',
+    '<', '>', '?', '\0', '*', '\0', ' ', // ... fill the rest with '\0'
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0',
 ];

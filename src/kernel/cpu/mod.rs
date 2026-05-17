@@ -1,7 +1,8 @@
 use alloc::format;
 use core::ptr::null_mut;
 use core::sync::atomic::{
-    AtomicPtr, Ordering
+    AtomicPtr,
+    Ordering,
 };
 
 use limine::mp::MpGotoFunction;
@@ -67,9 +68,5 @@ pub fn get_core_data_for(logical_id: usize) -> &'static CPULocalData {
 pub fn try_get_core_data_for(logical_id: usize) -> Option<&'static CPULocalData> {
     assert!(logical_id < MAX_CORES, "Invalid Core ID");
     let ptr = GLOBAL_CPU_DATA[logical_id].load(Ordering::Acquire);
-    if ptr.is_null() {
-        None
-    } else {
-        Some(unsafe {&mut *ptr})
-    }
+    if ptr.is_null() { None } else { Some(unsafe { &mut *ptr }) }
 }

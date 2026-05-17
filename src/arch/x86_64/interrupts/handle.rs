@@ -1,14 +1,20 @@
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
-use crate::arch::x86_64::io::inb;
-use crate::arch::x86_64::{IO_APIC, io};
-use crate::arch::x86_64::apic::lapic::{
-    ApicDriver,
-};
+use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
-use crate::drivers::keyboard::{KBD_BUFFER, KBD_BUFFER_SIZE, KBD_BUFFER_TAIL, KBD_ITEMS_READY};
+use crate::arch::x86_64::io::inb;
+use crate::arch::x86_64::{
+    IO_APIC,
+    io,
+};
+use crate::drivers::keyboard::{
+    KBD_BUFFER,
+    KBD_BUFFER_SIZE,
+    KBD_BUFFER_TAIL,
+    KBD_ITEMS_READY,
+};
 use crate::kernel::thread::tcb::ThreadState;
 use crate::klogln;
 use crate::memory::GLOBAL_VMM;
@@ -36,7 +42,7 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
-    core_data.apic_mode.eoi(); 
+    core_data.apic_mode.eoi();
 
     if core_data.scheduler.idle_thread.is_null() {
         return;
@@ -63,17 +69,16 @@ pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {
     core_data.scheduler.schedule();
 }
 
-
 pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     let core_data = get_core_data();
     core_data.apic_mode.eoi();
-    
+
     // crate::drivers::serial::log_to_serial("KB INT\n");
 
     unsafe {
         for _ in 0..256 {
             if (io::inb(0x64) & 0x1) == 0 {
-                break 
+                break;
             }
             let tail = KBD_BUFFER_TAIL.load(Ordering::Relaxed) % KBD_BUFFER_SIZE;
             KBD_BUFFER[tail] = io::inb(0x60);

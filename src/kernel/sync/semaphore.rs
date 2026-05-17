@@ -1,6 +1,18 @@
-use core::sync::atomic::{AtomicIsize, Ordering};
+use core::sync::atomic::{
+    AtomicIsize,
+    Ordering,
+};
 
-use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled}, kernel::{sync::TicketLock, thread::{ThreadState, dispatch::wake_thread, wait::WaitQueue}}};
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    get_core_data,
+    interrupts_enabled,
+};
+use crate::kernel::sync::TicketLock;
+use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::dispatch::wake_thread;
+use crate::kernel::thread::wait::WaitQueue;
 
 pub struct Semaphore {
     counter: AtomicIsize,
@@ -11,27 +23,21 @@ unsafe impl Sync for Semaphore {}
 unsafe impl Send for Semaphore {}
 
 impl Semaphore {
-    pub const fn new(counter: isize) -> Self {
-        Self { 
-            counter: AtomicIsize::new(counter), 
-            wait_queue: TicketLock::new(WaitQueue::new()),
-        }
-    }
+    pub const fn new(counter: isize) -> Self { Self { counter: AtomicIsize::new(counter), wait_queue: TicketLock::new(WaitQueue::new()) } }
 
     pub fn wait(&self) {
         let mut counter = self.counter.load(Ordering::Relaxed);
         loop {
             if counter > 0 {
-                match self.counter.compare_exchange_weak(counter, counter-1, Ordering::Acquire, Ordering::Relaxed) {
+                match self.counter.compare_exchange_weak(counter, counter - 1, Ordering::Acquire, Ordering::Relaxed) {
                     Ok(_) => {
                         return;
-                    },
+                    }
                     Err(v) => {
                         counter = v;
-                    },
+                    }
                 }
             } else {
-                
                 disable_interrupts();
                 let sched = &mut get_core_data().scheduler;
                 let mut wq = self.wait_queue.lock();
@@ -54,7 +60,7 @@ impl Semaphore {
                 // yield CPU
                 sched.schedule();
 
-                // continue here when unlocked 
+                // continue here when unlocked
                 enable_interrupts();
                 counter = self.counter.load(Ordering::Relaxed);
             }
@@ -75,7 +81,8 @@ impl Semaphore {
             wake_thread(next_thread);
         }
 
-        if ir_state { enable_interrupts(); }
+        if ir_state {
+            enable_interrupts();
+        }
     }
 }
-

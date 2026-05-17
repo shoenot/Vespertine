@@ -85,7 +85,9 @@ impl<T> Mutex<T> {
             wake_thread(next_thread);
         }
 
-        if int_state { enable_interrupts() };
+        if int_state {
+            enable_interrupts()
+        };
     }
 }
 

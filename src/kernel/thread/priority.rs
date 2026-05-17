@@ -1,39 +1,31 @@
-use core::ops::*;
 use core::cmp::Ordering;
+use core::ops::*;
 
 #[derive(Eq, Copy, Clone, Debug)]
 pub struct ThreadPriority(u8);
 
 impl ThreadPriority {
     pub const MAXIMUM: ThreadPriority = ThreadPriority(0);
-    pub const HIGH:    ThreadPriority = ThreadPriority(4);
-    pub const MEDIUM:  ThreadPriority = ThreadPriority(8);
-    pub const LOW:     ThreadPriority = ThreadPriority(12);
-    pub const REAPER:     ThreadPriority = ThreadPriority(30);
-    pub const IDLE:    ThreadPriority = ThreadPriority(31);
+    pub const HIGH: ThreadPriority = ThreadPriority(4);
+    pub const MEDIUM: ThreadPriority = ThreadPriority(8);
+    pub const LOW: ThreadPriority = ThreadPriority(12);
+    pub const REAPER: ThreadPriority = ThreadPriority(30);
+    pub const IDLE: ThreadPriority = ThreadPriority(31);
 
     #[inline(always)]
-    pub fn as_usize(&self) -> usize {
-        self.0 as usize
-    }
+    pub fn as_usize(&self) -> usize { self.0 as usize }
 }
 
 impl PartialEq for ThreadPriority {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
+    fn eq(&self, other: &Self) -> bool { self.0 == other.0 }
 }
 
 impl PartialOrd for ThreadPriority {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.cmp(&other.0))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.0.cmp(&other.0)) }
 }
 
 impl Ord for ThreadPriority {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
+    fn cmp(&self, other: &Self) -> Ordering { self.0.cmp(&other.0) }
 }
 
 macro_rules! impl_omni_integer_math {

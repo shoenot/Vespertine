@@ -9,11 +9,9 @@ use crate::arch::x86_64::cpu::gdt::{
 };
 use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::task::context::*;
-use crate::kernel::thread::schedule::RFLAGS_IF;
-use crate::kernel::thread::{
-    ThreadControlBlock,
-};
+use crate::kernel::thread::ThreadControlBlock;
 use crate::kernel::thread::priority::ThreadPriority;
+use crate::kernel::thread::schedule::RFLAGS_IF;
 use crate::{
     BOOTSTRAP_ALLOC,
     klogln,

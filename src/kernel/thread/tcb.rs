@@ -1,10 +1,8 @@
-use core::{ops::Add, ptr::null_mut};
-
-use crate::kernel::thread::schedule::{
-    get_new_tid,
-};
+use core::ops::Add;
+use core::ptr::null_mut;
 
 use super::priority::ThreadPriority;
+use crate::kernel::thread::schedule::get_new_tid;
 
 #[derive(PartialEq)]
 pub enum ThreadState {
@@ -32,8 +30,9 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-    pub fn init(&mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, 
-                           fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority) {
+    pub fn init(
+        &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority,
+    ) {
         self.thread_id = get_new_tid();
         self.state = ThreadState::Ready;
         self.priority = priority;

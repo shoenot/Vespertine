@@ -21,8 +21,8 @@ use crate::arch::x86_64::task::context::{
 };
 use crate::kernel::cpu::{
     NUM_CORES,
-    try_get_core_data_for,
     get_core_data_for,
+    try_get_core_data_for,
 };
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::{

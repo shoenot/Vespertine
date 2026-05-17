@@ -1,7 +1,6 @@
+use alloc::collections::binary_heap::BinaryHeap;
 use core::arch::asm;
 use core::ptr::null_mut;
-
-use alloc::collections::binary_heap::BinaryHeap;
 
 use super::gdt::*;
 use crate::BOOTSTRAP_ALLOC;
@@ -12,7 +11,10 @@ use crate::kernel::thread::dispatch::create_tcb;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::schedule::SchedulerState;
 use crate::kernel::thread::workqueue::WorkQueue;
-use crate::kernel::time::callout::{Callout, timer_daemon};
+use crate::kernel::time::callout::{
+    Callout,
+    timer_daemon,
+};
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
@@ -26,7 +28,7 @@ pub struct CPULocalData {
     pub scheduler: SchedulerState,
     pub work_queue: WorkQueue,
     pub callout_queue: TicketLock<BinaryHeap<Callout>>,
-    pub timer_daemon_tcb: *mut ThreadControlBlock
+    pub timer_daemon_tcb: *mut ThreadControlBlock,
 }
 
 pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {

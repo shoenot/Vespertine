@@ -1,6 +1,6 @@
+pub mod callout;
 mod clock;
 pub mod datetime;
-pub mod callout;
 
 use core::ptr::null_mut;
 use core::sync::atomic::{

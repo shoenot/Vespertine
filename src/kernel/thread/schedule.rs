@@ -22,7 +22,10 @@ use crate::kernel::thread::{
     switch_threads_avx,
     switch_threads_legacy,
 };
-use crate::kernel::time::{get_time, ns_to_ticks};
+use crate::kernel::time::{
+    get_time,
+    ns_to_ticks,
+};
 use crate::{
     BOOTSTRAP_ALLOC,
     impl_queue_methods,
@@ -34,7 +37,8 @@ pub const RFLAGS_IF: u64 = 0x202; // bit 9 is interrupt enable and bit 1 is alwa
 
 pub const DEFAULT_QUANTUM: usize = 10_000_000;
 
-pub static GRAVEYARD: TicketLock<TCBQueue> = TicketLock::new(TCBQueue { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() });
+pub static GRAVEYARD: TicketLock<TCBQueue> =
+    TicketLock::new(TCBQueue { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() });
 
 pub struct TCBQueue {
     pub queue_length: AtomicUsize,
@@ -116,7 +120,9 @@ impl SchedulerState {
         disable_interrupts();
         loop {
             let item = { self.mailbox.lock().pop() };
-            if item.is_null() { break; }
+            if item.is_null() {
+                break;
+            }
             unsafe { (*item).state = ThreadState::Ready };
             self.push(item);
         }
@@ -140,7 +146,7 @@ impl SchedulerState {
                 (*next_thread).quantum_expiry = usize::MAX;
             }
         }
-        
+
         if !prev_thread.is_null() {
             unsafe {
                 if (*prev_thread).state == ThreadState::Running {
@@ -234,7 +240,7 @@ impl SchedulerState {
 
         let highest_priority = self.active_priorities.trailing_zeros() as usize;
         let ret = self.ready_queue_heads[highest_priority];
-        
+
         unsafe {
             if ret.is_null() {
                 return null_mut();
@@ -254,7 +260,6 @@ impl SchedulerState {
             self.queue_length.fetch_sub(1, Ordering::Relaxed);
             ret
         }
-
     }
 
     pub fn get_current_thread(&self) -> *mut ThreadControlBlock { self.current_thread }

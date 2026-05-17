@@ -1,9 +1,15 @@
-use core::{alloc::Layout, sync::atomic::Ordering};
-
 use alloc::alloc::dealloc;
+use core::alloc::Layout;
+use core::sync::atomic::Ordering;
 
-use crate::{arch::x86_64::cpu::fpu::{FPU_CXT_SIZE, USE_XSAVE}, kernel::{thread::{ThreadControlBlock, schedule::GRAVEYARD}, time::sleep}, klogln};
-
+use crate::arch::x86_64::cpu::fpu::{
+    FPU_CXT_SIZE,
+    USE_XSAVE,
+};
+use crate::kernel::thread::ThreadControlBlock;
+use crate::kernel::thread::schedule::GRAVEYARD;
+use crate::kernel::time::sleep;
+use crate::klogln;
 
 pub extern "C" fn reaper_daemon(_arg: usize) -> ! {
     loop {
@@ -27,7 +33,7 @@ fn reap_thread(thread: *mut ThreadControlBlock) {
         let stack_layout = Layout::from_size_align(stack_size, 16).expect("Error reaping thread");
         dealloc(stack_ptr, stack_layout);
 
-        // dealloc extended context 
+        // dealloc extended context
         let xt_cxt_ptr = (*thread).extended_context;
         let xt_cxt_alignment = if USE_XSAVE.load(Ordering::Relaxed) { 64 } else { 16 };
         let xt_layout = Layout::from_size_align(FPU_CXT_SIZE.load(Ordering::Relaxed), xt_cxt_alignment).expect("Error reaping thread");
