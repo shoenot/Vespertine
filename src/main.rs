@@ -10,6 +10,7 @@ mod panic;
 mod tasks;
 mod tests;
 mod util;
+mod object;
 
 extern crate alloc;
 
