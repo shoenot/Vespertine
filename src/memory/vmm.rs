@@ -1,14 +1,13 @@
 #![allow(dead_code)]
 
-use alloc::alloc::dealloc;
 use alloc::alloc::{
     Layout,
     alloc,
+    dealloc,
 };
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.
-
 use super::paging::*;
 use super::pmm::*;
 use crate::arch::x86_64::interrupts::shootdown::shootdown;
@@ -169,7 +168,7 @@ impl VirtMemManager {
 
         unsafe {
             while let Some(curr) = current_ptr {
-                let node = &mut *curr; 
+                let node = &mut *curr;
 
                 if node.start == start_addr {
                     if node.size != size {
@@ -223,7 +222,7 @@ impl VirtMemManager {
             if let Some(phys_addr) = phys_to_free {
                 let mut alloclock = self.allocator.lock();
                 alloclock.free(phys_addr, block_size);
-            } 
+            }
 
             current_page += step_size;
         }

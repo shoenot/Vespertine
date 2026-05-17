@@ -2,19 +2,10 @@ use core::arch::asm;
 use core::sync::atomic::Ordering;
 
 use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
-use crate::arch::x86_64::io::inb;
-use crate::arch::x86_64::{IO_APIC, io};
-use crate::arch::x86_64::apic::lapic::{
-    ApicDriver,
-};
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
-use crate::arch::x86_64::io::inb;
-use crate::arch::x86_64::{
-    IO_APIC,
-    io,
-};
+use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
+use crate::arch::x86_64::io;
 use crate::drivers::keyboard::{
     KBD_BUFFER,
     KBD_BUFFER_SIZE,

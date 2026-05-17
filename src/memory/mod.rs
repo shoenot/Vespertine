@@ -14,7 +14,10 @@ pub use pmm::{
 };
 use vmm::*;
 
-use crate::kernel::sync::{RwLock, TicketLock};
+use crate::kernel::sync::{
+    RwLock,
+    TicketLock,
+};
 use crate::{
     klog,
     klogln,

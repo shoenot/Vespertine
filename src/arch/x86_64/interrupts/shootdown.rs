@@ -1,8 +1,21 @@
-use core::{alloc::Layout, hint, sync::atomic::{AtomicUsize, Ordering}};
+use alloc::alloc::dealloc;
+use alloc::vec::Vec;
+use core::alloc::Layout;
+use core::hint;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
-use alloc::{alloc::dealloc, vec::Vec};
-
-use crate::{arch::{get_core_data, x86_64::apic::lapic::ApicDriver}, kernel::{cpu::{NUM_CORES, get_core_data_for}, sync::TicketLock}, memory::{GLOBAL_VMM, paging::flush_tlb}};
+use crate::arch::get_core_data;
+use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::kernel::cpu::{
+    NUM_CORES,
+    get_core_data_for,
+};
+use crate::kernel::sync::TicketLock;
+use crate::memory::GLOBAL_VMM;
+use crate::memory::paging::flush_tlb;
 
 pub struct TLBShootdownInfo {
     pub addr: AtomicUsize,
@@ -19,7 +32,7 @@ pub fn shootdown(addr: usize, size: usize) {
     SHOOTDOWN_INFO.counter.store(*NUM_CORES - 1, Ordering::Release);
     for id in 0..*NUM_CORES {
         if id == this_core_id {
-            continue
+            continue;
         }
         get_core_data_for(id).apic_mode.send_ipi(get_core_data_for(id).lapic_id as u32, 65);
     }
@@ -29,4 +42,3 @@ pub fn shootdown(addr: usize, size: usize) {
     }
     drop(lock);
 }
-

@@ -1,6 +1,28 @@
-use core::{cell::UnsafeCell, hint::spin_loop, ops::{Deref, DerefMut}, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
+use core::cell::UnsafeCell;
+use core::hint::spin_loop;
+use core::ops::{
+    Deref,
+    DerefMut,
+};
+use core::sync::atomic::{
+    AtomicBool,
+    AtomicUsize,
+    Ordering,
+};
 
-use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled}, kernel::{sync::{SpinLock, TicketLock}, thread::{ThreadState, dispatch::wake_thread, wait::WaitQueue}}};
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    get_core_data,
+    interrupts_enabled,
+};
+use crate::kernel::sync::{
+    SpinLock,
+    TicketLock,
+};
+use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::dispatch::wake_thread;
+use crate::kernel::thread::wait::WaitQueue;
 
 const WRITER_BIT: usize = 1 << (usize::BITS - 1);
 
@@ -8,27 +30,27 @@ pub struct RwLock<T> {
     state: AtomicUsize,
     writer_queue: TicketLock<WaitQueue>,
     reader_queue: TicketLock<WaitQueue>,
-    data: UnsafeCell<T>
+    data: UnsafeCell<T>,
 }
 
-unsafe impl <T:Send> Sync for RwLock<T> {}
-unsafe impl <T:Send> Send for RwLock<T> {}
+unsafe impl<T: Send> Sync for RwLock<T> {}
+unsafe impl<T: Send> Send for RwLock<T> {}
 
 pub struct RwLockReadGuard<'a, T> {
-    lock: &'a RwLock<T>
+    lock: &'a RwLock<T>,
 }
 
 pub struct RwLockWriteGuard<'a, T> {
-    lock: &'a RwLock<T>
+    lock: &'a RwLock<T>,
 }
 
 impl<T> RwLock<T> {
     pub const fn new(data: T) -> Self {
-        Self { 
-            state: AtomicUsize::new(0), 
-            writer_queue: TicketLock::new(WaitQueue::new()), 
-            reader_queue: TicketLock::new(WaitQueue::new()), 
-            data: UnsafeCell::new(data) 
+        Self {
+            state: AtomicUsize::new(0),
+            writer_queue: TicketLock::new(WaitQueue::new()),
+            reader_queue: TicketLock::new(WaitQueue::new()),
+            data: UnsafeCell::new(data),
         }
     }
 
@@ -53,15 +75,18 @@ impl<T> RwLock<T> {
                     drop(rq);
 
                     get_core_data().scheduler.schedule();
-                    if int_state { enable_interrupts() };
+                    if int_state {
+                        enable_interrupts()
+                    };
                 } else {
                     drop(rq);
-                    if int_state { enable_interrupts() };
+                    if int_state {
+                        enable_interrupts()
+                    };
                 }
             }
         }
     }
-
 
     pub fn write(&self) -> RwLockWriteGuard<T> {
         loop {
@@ -84,10 +109,14 @@ impl<T> RwLock<T> {
                     drop(wq);
 
                     get_core_data().scheduler.schedule();
-                    if int_state { enable_interrupts() };
+                    if int_state {
+                        enable_interrupts()
+                    };
                 } else {
                     drop(wq);
-                    if int_state { enable_interrupts() };
+                    if int_state {
+                        enable_interrupts()
+                    };
                 }
             }
         }
@@ -96,28 +125,16 @@ impl<T> RwLock<T> {
 
 impl<'a, T> Deref for RwLockReadGuard<'a, T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            &*self.lock.data.get()
-        }
-    }
+    fn deref(&self) -> &Self::Target { unsafe { &*self.lock.data.get() } }
 }
 
 impl<'a, T> Deref for RwLockWriteGuard<'a, T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        unsafe {
-            &*self.lock.data.get()
-        }
-    }
+    fn deref(&self) -> &Self::Target { unsafe { &*self.lock.data.get() } }
 }
 
 impl<'a, T> DerefMut for RwLockWriteGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe {
-            &mut *self.lock.data.get()
-        }
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { unsafe { &mut *self.lock.data.get() } }
 }
 
 impl<'a, T> Drop for RwLockReadGuard<'a, T> {
@@ -134,7 +151,9 @@ impl<'a, T> Drop for RwLockReadGuard<'a, T> {
             if !thread.is_null() {
                 wake_thread(thread);
             }
-            if int_state { enable_interrupts() };
+            if int_state {
+                enable_interrupts()
+            };
         }
     }
 }
@@ -157,12 +176,14 @@ impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
             loop {
                 let rthread = rq.pop();
                 if rthread.is_null() {
-                    break
+                    break;
                 }
                 wake_thread(rthread);
             }
             drop(rq);
         }
-        if int_state { enable_interrupts() };
+        if int_state {
+            enable_interrupts()
+        };
     }
 }
