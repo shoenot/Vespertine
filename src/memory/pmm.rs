@@ -1,6 +1,6 @@
 use core::slice::from_raw_parts_mut;
 use crate::memory::init_pmm::BitmapPMM;
-pub use crate::memory::init_pmm::HHDMOFFSET;
+pub use crate::memory::HHDMOFFSET;
 
 
 static ORDER_MAX: usize = 11;

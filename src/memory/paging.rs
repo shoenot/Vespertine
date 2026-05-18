@@ -3,7 +3,7 @@
 use core::arch::asm;
 
 use super::pmm::*;
-use crate::{kernel::sync::TicketLock, memory::PCAllocator};
+use crate::{kernel::sync::TicketLock, memory::{GLOBAL_PMM, PCAllocator}};
 
 type PhysAlloc = PCAllocator;
 
@@ -278,7 +278,7 @@ impl Pager {
     pub const fn new(allocator: &'static PhysAlloc) -> Self { Self { active_l4_addr: 0, allocator } }
 
     pub fn init(&mut self) -> Option<()> {
-        let pml4_table_frame = { self.allocator.alloc(BlockSize::Normal) as u64 };
+        let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
 
         let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();

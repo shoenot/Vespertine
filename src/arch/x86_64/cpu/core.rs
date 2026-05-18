@@ -1,6 +1,7 @@
 use alloc::collections::binary_heap::BinaryHeap;
 use core::arch::asm;
 use core::ptr::null_mut;
+use core::sync::atomic::Ordering;
 
 use super::gdt::*;
 use crate::BOOTSTRAP_ALLOC;

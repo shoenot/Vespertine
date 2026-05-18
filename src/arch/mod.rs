@@ -35,12 +35,11 @@ use crate::kernel::time::datetime::datetime_to_epoch;
 pub fn init() { init_interrupts(); }
 
 pub fn init_bootstrap_core() {
-    init_global_apics();
     let lapic = init_local_apic();
     let lapic_id = lapic.id();
     let data_ptr = init_core_data(lapic_id as usize, 0, lapic);
-    crate::kernel::cpu::register_core_data(0, data_ptr);
     activate_core(data_ptr);
+    init_global_apics();
     init_timer_daemon(data_ptr);
 }
 

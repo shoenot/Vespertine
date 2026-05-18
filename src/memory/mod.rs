@@ -12,7 +12,6 @@ use paging::*;
 use pmm::*;
 pub use pmm::{
     BlockSize,
-    HHDMOFFSET,
     NORMAL_PAGE_SIZE,
     HUGE_PAGE_SIZE,
 };
@@ -24,9 +23,11 @@ use crate::kernel::sync::{
     TicketLock,
 };
 use crate::{
-    klog,
-    klogln,
+    HHDM_REQUEST, klog, klogln
 };
+use crate::kernel::sync::KernelOnceCell;
+
+pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
 #[global_allocator]
 pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -72,14 +73,14 @@ impl PCAllocator {
 
 
 pub fn init() {
-    klogln!("INITIATING MEMORY MANAGERS... ");
-
+    klog!("INITIATING PMM... ");
+    HHDMOFFSET.get_or_init(|| HHDM_REQUEST.response().expect("Failed to get HHDM offset from Limine").offset as usize);
     // Inititate PMM
     {
         let mut global_pmm = GLOBAL_PMM.lock();
         global_pmm.init();
     }
-
+    klogln!("OK");
     // Inititate Pager
     {
         let mut pager = PAGER.lock();
@@ -88,11 +89,11 @@ pub fn init() {
 
     klogln!("SWITCHED CR3. PAGING HANDOVER COMPLETE.");
 
-    klog!("RUNNING MEMORY TESTS... ");
-
+    // klog!("RUNNING MEMORY TESTS... ");
+    //
     // memory_tests::test_kmalloc(false);
     // memory_tests::test_vmalloc(false);
     // memory_tests::test_collections(false);
-
-    klogln!("TESTS COMPLETE!");
+    //
+    // klogln!("TESTS COMPLETE!");
 }

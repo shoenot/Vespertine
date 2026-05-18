@@ -28,7 +28,6 @@ use kernel::sync::TicketLock;
 use kernel::time;
 use memory::paging::get_cr3;
 use memory::{
-    ALLOCATOR,
     BlockSize,
     BumpAllocator,
 };
