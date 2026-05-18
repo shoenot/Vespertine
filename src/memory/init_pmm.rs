@@ -1,12 +1,19 @@
 use core::ops::Deref;
+
 use limine::memmap::*;
-use crate::{
-    HHDM_REQUEST, MEMMAP_REQUEST, drivers::serial::{log_to_serial, log_u64_to_serial}, kernel::sync::KernelOnceCell
+
+use crate::drivers::serial::{
+    log_to_serial,
+    log_u64_to_serial,
 };
+use crate::kernel::sync::KernelOnceCell;
 use crate::memory::HHDMOFFSET;
+use crate::{
+    HHDM_REQUEST,
+    MEMMAP_REQUEST,
+};
 
 static PAGE_SIZE: usize = 4096;
-
 
 pub struct PhysFrame {
     start_addr: usize,
@@ -22,12 +29,16 @@ impl BitmapPMM {
     pub fn init() -> Self {
         let mem_map = if let Some(memmap_response) = MEMMAP_REQUEST.response() {
             memmap_response.deref().entries()
-        } else { panic!("COULD NOT GET MEMMAP FROM LIMINE") };
+        } else {
+            panic!("COULD NOT GET MEMMAP FROM LIMINE")
+        };
 
         let mut highest_addr: usize = 0;
         for entry in mem_map {
             let top = entry.base + entry.length;
-            if top as usize > highest_addr { highest_addr = top as usize; }
+            if top as usize > highest_addr {
+                highest_addr = top as usize;
+            }
         }
 
         let highest_addr = (highest_addr + 4095) & !4095;
@@ -50,22 +61,18 @@ impl BitmapPMM {
 
         bitmap_slice.fill(0xFF);
 
-        let mut pmm = BitmapPMM {
-            bitmap: bitmap_slice,
-            total_frames,
-            max_addr: highest_addr,
-        };
+        let mut pmm = BitmapPMM { bitmap: bitmap_slice, total_frames, max_addr: highest_addr };
 
         for entry in mem_map {
             if entry.type_ == MEMMAP_USABLE {
                 let start_frame = (entry.base as usize / PAGE_SIZE) as usize;
                 let end_frame = ((entry.base + entry.length) as usize / PAGE_SIZE) as usize;
                 for frame in start_frame..end_frame {
-                    let phys_frame = PhysFrame{ start_addr: frame as usize * PAGE_SIZE };
+                    let phys_frame = PhysFrame { start_addr: frame as usize * PAGE_SIZE };
 
                     // if the frame is the location of the bitmap, we don't free it
                     if phys_frame.start_addr >= bitmap_phys_addr && phys_frame.start_addr < bitmap_phys_addr + bitmap_size_bytes {
-                        continue
+                        continue;
                     }
                     pmm.set_free(frame);
                 }
@@ -96,16 +103,14 @@ impl BitmapPMM {
         (self.bitmap[byte_idx] & (1 << bit_idx)) == 0
     }
 
-    pub fn get_bitmap_addr(&self) -> usize {
-        self.bitmap.as_ptr() as usize
-    }
+    pub fn get_bitmap_addr(&self) -> usize { self.bitmap.as_ptr() as usize }
 
     pub fn alloc(&mut self, size: usize) -> Option<usize> {
         let frames_needed = size.div_ceil(PAGE_SIZE);
 
         let mut count = 0;
         let mut start_frame_idx = 0;
-        
+
         for i in 0..self.total_frames {
             if self.is_free(i) {
                 if count == 0 {
@@ -124,7 +129,7 @@ impl BitmapPMM {
                 count = 0;
             }
         }
-    
+
         None
     }
 }

@@ -1,7 +1,7 @@
 use core::slice::from_raw_parts_mut;
-use crate::memory::init_pmm::BitmapPMM;
-pub use crate::memory::HHDMOFFSET;
 
+pub use crate::memory::HHDMOFFSET;
+use crate::memory::init_pmm::BitmapPMM;
 
 static ORDER_MAX: usize = 11;
 pub static HUGE_PAGE_SIZE: usize = 0x20_0000;
@@ -28,12 +28,7 @@ pub struct Allocator {
 
 impl Allocator {
     pub const fn new() -> Self {
-        Self {
-            freelist: [0; ORDER_MAX + 1],
-            metadata: &mut [],
-            metadata_phys_addr: 0,
-            meta_bit_offset: [0; ORDER_MAX + 1],
-        }
+        Self { freelist: [0; ORDER_MAX + 1], metadata: &mut [], metadata_phys_addr: 0, meta_bit_offset: [0; ORDER_MAX + 1] }
     }
 
     pub fn init(&mut self) {
@@ -52,7 +47,7 @@ impl Allocator {
         let mut meta_bit_offset = [0; ORDER_MAX + 1];
 
         let mut current_offset = 0;
-        for order in 0..(ORDER_MAX+1) {
+        for order in 0..(ORDER_MAX + 1) {
             meta_bit_offset[order] = current_offset;
             current_offset += (total_pages >> order) / 2;
         }
@@ -64,12 +59,16 @@ impl Allocator {
 
         let mut cursor = 0;
         while cursor < init_allocator.total_frames {
-            while cursor < init_allocator.total_frames && !init_allocator.is_free(cursor) { 
-                cursor += 1;  // skip used frames
-            } 
-            if cursor >= init_allocator.total_frames { break; }
+            while cursor < init_allocator.total_frames && !init_allocator.is_free(cursor) {
+                cursor += 1; // skip used frames
+            }
+            if cursor >= init_allocator.total_frames {
+                break;
+            }
             let mut start_frame = cursor;
-            while cursor < init_allocator.total_frames && init_allocator.is_free(cursor)  { cursor += 1; }
+            while cursor < init_allocator.total_frames && init_allocator.is_free(cursor) {
+                cursor += 1;
+            }
             let end_frame = cursor;
 
             loop {
@@ -79,15 +78,18 @@ impl Allocator {
                 let mut order = max_order;
                 loop {
                     let frames_needed = 1 << order;
-                    if frames_needed > (end_frame - start_frame) { 
-                        order -= 1; continue; 
+                    if frames_needed > (end_frame - start_frame) {
+                        order -= 1;
+                        continue;
                     } else {
                         self.free_order(start_frame * NORMAL_PAGE_SIZE, order);
                         start_frame += 1 << order;
                         break;
                     }
                 }
-                if start_frame >= end_frame { break; }
+                if start_frame >= end_frame {
+                    break;
+                }
             }
         }
     }
@@ -102,20 +104,23 @@ impl Allocator {
 
     pub fn alloc_order(&mut self, mut order: usize) -> Option<usize> {
         let target_order = order;
-        let block_addr = { 
+        let block_addr = {
             loop {
                 let list_addr = self.freelist[order];
 
-                if list_addr == 0 { 
-                    order += 1;  
+                if list_addr == 0 {
+                    order += 1;
                     if order > ORDER_MAX { return None } else { continue }
                 }
 
                 let list_ptr = (list_addr + *HHDMOFFSET) as *mut FreeBlock;
-                let block = unsafe{ &mut *list_ptr };
+                let block = unsafe { &mut *list_ptr };
 
                 if block.next != 0 {
-                    let next_block = unsafe { let blk = (block.next + *HHDMOFFSET) as *mut FreeBlock; &mut *blk };
+                    let next_block = unsafe {
+                        let blk = (block.next + *HHDMOFFSET) as *mut FreeBlock;
+                        &mut *blk
+                    };
                     next_block.prev = 0;
                 }
 
@@ -141,7 +146,10 @@ impl Allocator {
 
             let order_head_addr = self.freelist[order];
             if order_head_addr != 0 {
-                let order_head_ptr = unsafe { let blk = (self.freelist[order] + *HHDMOFFSET) as *mut FreeBlock; &mut *blk };
+                let order_head_ptr = unsafe {
+                    let blk = (self.freelist[order] + *HHDMOFFSET) as *mut FreeBlock;
+                    &mut *blk
+                };
                 order_head_ptr.prev = buddy_addr;
             }
 
@@ -151,7 +159,7 @@ impl Allocator {
                 *buddy_ptr = FreeBlock { prev: 0, next: order_head_addr };
             }
 
-            // bitmap shit 
+            // bitmap shit
             let page_idx = buddy_addr / NORMAL_PAGE_SIZE;
             let pair_idx = page_idx >> (order + 1);
             let abs_bit = self.meta_bit_offset[order] + pair_idx;
@@ -186,8 +194,8 @@ impl Allocator {
             block_addr = self.merge_block(block_addr, buddy_addr, order);
             order += 1;
         }
-        
-        // add block 
+
+        // add block
         let new_block_ptr = (block_addr + *HHDMOFFSET) as *mut FreeBlock;
         unsafe {
             let old_head = self.freelist[order];
@@ -213,7 +221,7 @@ impl Allocator {
             } else {
                 self.freelist[order] = next;
             }
-            
+
             if next != 0 {
                 let next_ptr = (next + *HHDMOFFSET) as *mut FreeBlock;
                 (*next_ptr).prev = prev;
@@ -221,10 +229,9 @@ impl Allocator {
 
             (*buddy_ptr).prev = 0;
             (*buddy_ptr).next = 0;
-
         }
-        
-        // return left addr  
+
+        // return left addr
         if block_addr < buddy_addr { block_addr } else { buddy_addr }
     }
 }

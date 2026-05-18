@@ -1,15 +1,27 @@
-use core::{fmt::{Debug, Display}, sync::atomic::{AtomicUsize, Ordering}};
+use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
+use core::fmt::{
+    Debug,
+    Display,
+};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
-use alloc::{collections::btree_map::BTreeMap, sync::Arc};
-
-use crate::kernel::object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}};
+use crate::kernel::object::handle::{
+    AccessRights,
+    HandleID,
+};
+use crate::kernel::object::invoke::{
+    Invocation,
+    InvocationError,
+};
 
 pub trait KernelObject: Send + Sync + Debug {
     fn invoke(&self, invocation: Invocation) -> Result<(), InvocationError>;
 
-    fn type_name(&self) -> &'static str {
-        "Unknown"
-    }
+    fn type_name(&self) -> &'static str { "Unknown" }
 }
 
 #[derive(Debug)]
@@ -25,12 +37,7 @@ pub struct KernelHandleTable {
 }
 
 impl KernelHandleTable {
-    pub const fn new() -> Self {
-        Self {
-            next_id: AtomicUsize::new(1),
-            entries: BTreeMap::new(),
-        }
-    }
+    pub const fn new() -> Self { Self { next_id: AtomicUsize::new(1), entries: BTreeMap::new() } }
 
     pub fn insert(&mut self, object: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {
         let id = HandleID(self.next_id.fetch_add(1, Ordering::Relaxed));

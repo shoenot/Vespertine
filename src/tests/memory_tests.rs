@@ -11,15 +11,18 @@ use core::ptr::{
     write_volatile,
 };
 
+use crate::memory::{
+    BlockSize,
+    GLOBAL_PMM,
+    HUGE_PAGE_SIZE,
+    PCAllocator,
+};
 use crate::{
     klog,
     klogln,
     vklog,
     vklogln,
 };
-use crate::memory::{PCAllocator, GLOBAL_PMM, BlockSize};
-use crate::memory::HUGE_PAGE_SIZE;
-
 
 pub fn test_kmalloc(print: bool) {
     unsafe {
@@ -137,17 +140,13 @@ fn test_buddy_merge() {
     let right_child = pmm.alloc_order(0).expect("Failed to alloc right Order 0");
 
     // free the blocks, which should result in them merging back into the order 1 block
-    pmm.free_order(right_child, 0); 
+    pmm.free_order(right_child, 0);
     pmm.free_order(left_child, 0);
 
     // get the merged block addr
     let merged_block = pmm.alloc_order(1).expect("Failed to re-alloc Order 1");
-    
-    assert_eq!(
-        target_block, merged_block, 
-        "Buddy merge failed! Expected base {:#X}, got {:#X}", 
-        target_block, merged_block
-    );
+
+    assert_eq!(target_block, merged_block, "Buddy merge failed! Expected base {:#X}, got {:#X}", target_block, merged_block);
 
     pmm.free_order(merged_block, 1);
     klogln!("OK");
@@ -158,13 +157,8 @@ fn test_huge_alignment() {
     let mut pmm = GLOBAL_PMM.lock();
 
     let huge_frame = pmm.alloc(BlockSize::Huge).expect("Failed to allocate Huge Page");
-    
-    assert_eq!(
-        huge_frame % HUGE_PAGE_SIZE, 
-        0, 
-        "Alignment fault! {:#X} is not 2MB aligned.", 
-        huge_frame
-    );
+
+    assert_eq!(huge_frame % HUGE_PAGE_SIZE, 0, "Alignment fault! {:#X} is not 2MB aligned.", huge_frame);
 
     pmm.free(huge_frame, BlockSize::Huge);
     klogln!("OK");

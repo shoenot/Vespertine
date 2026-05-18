@@ -1,4 +1,13 @@
-use crate::{arch::{disable_interrupts, enable_interrupts, interrupts_enabled}, memory::{ALLOCATOR, BlockSize, GLOBAL_PMM}};
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    interrupts_enabled,
+};
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    GLOBAL_PMM,
+};
 
 pub const MAG_CAPACITY: usize = 256;
 
@@ -8,19 +17,17 @@ pub struct Magazine {
 }
 
 impl Magazine {
-    pub const fn init() -> Self {
-        Self { pages: [0; MAG_CAPACITY], count: 0 }
-    }
+    pub const fn init() -> Self { Self { pages: [0; MAG_CAPACITY], count: 0 } }
 
     pub fn alloc(&mut self) -> usize {
         if self.count > 0 {
             self.count -= 1;
             let ret = self.pages[self.count];
             self.pages[self.count] = 0;
-            ret 
+            ret
         } else {
             let mut pmm = GLOBAL_PMM.lock();
-            for _ in 0..(MAG_CAPACITY/2 - 1) {
+            for _ in 0..(MAG_CAPACITY / 2 - 1) {
                 let block = pmm.alloc(BlockSize::Normal);
                 self.pages[self.count] = block.expect("Global PMM exhausted");
                 self.count += 1;
@@ -37,7 +44,7 @@ impl Magazine {
             self.count += 1;
         } else {
             let mut pmm = GLOBAL_PMM.lock();
-            for _ in 0..(MAG_CAPACITY/2) {
+            for _ in 0..(MAG_CAPACITY / 2) {
                 self.count -= 1;
                 pmm.free(self.pages[self.count], BlockSize::Normal);
             }

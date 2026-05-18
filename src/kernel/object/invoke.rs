@@ -1,5 +1,11 @@
-use crate::kernel::object::handle::{AccessRights, HandleID};
 use core::fmt;
+
+use alloc::string::String;
+
+use crate::kernel::object::handle::{
+    AccessRights,
+    HandleID,
+};
 
 #[derive(Debug)]
 pub enum InvocationError {
@@ -24,6 +30,7 @@ pub enum Invocation {
     Ping,
     GetInfo,
     Channel(ChannelMessage),
+    Directory(DirectoryMessage),
 }
 
 #[repr(C)]
@@ -32,6 +39,14 @@ pub enum ChannelMessage {
     PushSmall { data: [u8; 32], len: u8 },
     PushLarge { vmo_handle: HandleID, offset: usize, len: usize },
     Pull,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum DirectoryMessage {
+    Link { name: String, handle_id: HandleID },
+    Unlink { name: String },
+    Lookup { name: String },
 }
 
 impl Invocation {
@@ -45,4 +60,3 @@ impl Invocation {
         }
     }
 }
-

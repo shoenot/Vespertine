@@ -84,9 +84,7 @@ unsafe impl Sync for VirtMemManager {}
 fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 
 impl VirtMemManager {
-    pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static PCAllocator) -> Self {
-        Self { head: None, pager, allocator }
-    }
+    pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static PCAllocator) -> Self { Self { head: None, pager, allocator } }
 
     pub fn mmap(&mut self, mut size: usize, flags: usize) -> Option<usize> {
         let mask = if flags & VM_FLAG_HUGE != 0 { HUGE_PAGE_SIZE - 1 } else { NORMAL_PAGE_SIZE - 1 };

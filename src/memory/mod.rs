@@ -1,10 +1,10 @@
 mod bootalloc;
 pub mod heap;
+mod init_pmm;
+pub mod magazine;
 pub mod paging;
 mod pmm;
 mod vmm;
-mod init_pmm;
-pub mod magazine;
 
 pub use bootalloc::*;
 use heap::*;
@@ -12,20 +12,27 @@ use paging::*;
 use pmm::*;
 pub use pmm::{
     BlockSize,
-    NORMAL_PAGE_SIZE,
     HUGE_PAGE_SIZE,
+    NORMAL_PAGE_SIZE,
 };
 use vmm::*;
 
-use crate::arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled};
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    get_core_data,
+    interrupts_enabled,
+};
 use crate::kernel::sync::{
+    KernelOnceCell,
     RwLock,
     TicketLock,
 };
 use crate::{
-    HHDM_REQUEST, klog, klogln
+    HHDM_REQUEST,
+    klog,
+    klogln,
 };
-use crate::kernel::sync::KernelOnceCell;
 
 pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
@@ -42,14 +49,14 @@ pub struct PCAllocator {}
 impl PCAllocator {
     pub fn alloc(&self, size: BlockSize) -> usize {
         match size {
-            BlockSize::Huge => {
-                GLOBAL_PMM.lock().alloc(size).expect("Global PMM Exhausted")
-            },
+            BlockSize::Huge => GLOBAL_PMM.lock().alloc(size).expect("Global PMM Exhausted"),
             BlockSize::Normal => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
                 let ret = get_core_data().magazine.alloc();
-                if int_state { enable_interrupts(); }
+                if int_state {
+                    enable_interrupts();
+                }
                 ret
             }
         }
@@ -59,18 +66,18 @@ impl PCAllocator {
         match size {
             BlockSize::Huge => {
                 GLOBAL_PMM.lock().free(addr, size);
-            },
+            }
             BlockSize::Normal => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
                 get_core_data().magazine.free(addr);
-                if int_state { enable_interrupts(); }
+                if int_state {
+                    enable_interrupts();
+                }
             }
         }
     }
 }
-
-
 
 pub fn init() {
     klog!("INITIATING PMM... ");

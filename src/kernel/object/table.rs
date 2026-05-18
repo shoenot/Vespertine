@@ -1,6 +1,20 @@
 use alloc::sync::Arc;
 
-use crate::{arch::x86_64::interrupts::handle, kernel::{object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}, obj::{KernelHandleTable, KernelObject}}, sync::RwLock}, klogln};
+use crate::arch::x86_64::interrupts::handle;
+use crate::kernel::object::handle::{
+    AccessRights,
+    HandleID,
+};
+use crate::kernel::object::invoke::{
+    Invocation,
+    InvocationError,
+};
+use crate::kernel::object::obj::{
+    KernelHandleTable,
+    KernelObject,
+};
+use crate::kernel::sync::RwLock;
+use crate::klogln;
 
 pub static PRINCIPAL_HANDLE_TABLE: RwLock<KernelHandleTable> = RwLock::new(KernelHandleTable::new());
 
