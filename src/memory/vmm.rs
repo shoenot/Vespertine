@@ -12,6 +12,7 @@ use super::paging::*;
 use super::pmm::*;
 use crate::arch::x86_64::interrupts::shootdown::shootdown;
 use crate::kernel::sync::TicketLock;
+use crate::memory::PCAllocator;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
@@ -74,7 +75,7 @@ pub fn allocate_node() -> *mut VmaNode {
 pub struct VirtMemManager {
     head: Option<*mut VmaNode>,
     pager: &'static TicketLock<Pager>,
-    allocator: &'static TicketLock<Allocator>,
+    allocator: &'static PCAllocator,
 }
 
 unsafe impl Send for VirtMemManager {}
@@ -83,7 +84,7 @@ unsafe impl Sync for VirtMemManager {}
 fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 
 impl VirtMemManager {
-    pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static TicketLock<Allocator>) -> Self {
+    pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static PCAllocator) -> Self {
         Self { head: None, pager, allocator }
     }
 
@@ -220,8 +221,7 @@ impl VirtMemManager {
             shootdown(current_page, size);
 
             if let Some(phys_addr) = phys_to_free {
-                let mut alloclock = self.allocator.lock();
-                alloclock.free(phys_addr, block_size);
+                self.allocator.free(phys_addr, block_size);
             }
 
             current_page += step_size;
@@ -313,12 +313,7 @@ impl VirtMemManager {
         let fault_page = addr & !mask;
         let virt = VirtAddress(fault_page as u64);
 
-        let mut alloclock = self.allocator.lock();
-        let phys_frame = match alloclock.alloc(block_size) {
-            Some(addr) => addr as u64,
-            None => panic!("Out of physical memory!"),
-        };
-        drop(alloclock);
+        let phys_frame = self.allocator.alloc(block_size) as u64;
 
         let hw_flags = convert_vm_flags(target_vma.flags) as u64;
         let mut pagerlock = self.pager.lock();

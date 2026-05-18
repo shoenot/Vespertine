@@ -3,9 +3,9 @@
 use core::arch::asm;
 
 use super::pmm::*;
-use crate::kernel::sync::TicketLock;
+use crate::{kernel::sync::TicketLock, memory::PCAllocator};
 
-type PhysAlloc = TicketLock<Allocator>;
+type PhysAlloc = PCAllocator;
 
 // structs
 
@@ -38,7 +38,7 @@ fn next_table(entry: &PageTableEntry, phys_offset: u64) -> Option<*const PageTab
 
 fn get_or_create_next(entry: &mut PageTableEntry, phys_offset: u64, allocator: &'static PhysAlloc) -> Option<*mut PageTable> {
     if !entry.is_present() {
-        let new_frame_phys = { allocator.lock().alloc(BlockSize::Normal)? as u64 };
+        let new_frame_phys = { allocator.alloc(BlockSize::Normal) as u64 };
 
         let new_table_virt = (new_frame_phys + phys_offset) as *mut PageTable;
         unsafe {
@@ -278,7 +278,7 @@ impl Pager {
     pub const fn new(allocator: &'static PhysAlloc) -> Self { Self { active_l4_addr: 0, allocator } }
 
     pub fn init(&mut self) -> Option<()> {
-        let pml4_table_frame = { self.allocator.lock().alloc(BlockSize::Normal)? as u64 };
+        let pml4_table_frame = { self.allocator.alloc(BlockSize::Normal) as u64 };
 
         let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();

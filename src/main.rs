@@ -37,6 +37,7 @@ use crate::drivers::keyboard::init_keyboard_irq;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::datetime::epoch_to_datetime;
+use crate::memory::GLOBAL_PMM;
 
 pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());
 
@@ -45,7 +46,7 @@ pub extern "C" fn kmain() -> ! {
     LOGGER.lock().init();
 
     memory::init();
-    let bootstrap_page = ALLOCATOR.lock().alloc(BlockSize::Huge).unwrap() as usize;
+    let bootstrap_page = GLOBAL_PMM.lock().alloc(BlockSize::Huge).unwrap() as usize;
     BOOTSTRAP_ALLOC.lock().init(bootstrap_page);
 
     arch::init();

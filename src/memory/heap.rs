@@ -117,9 +117,7 @@ impl KmemCache {
     }
 
     unsafe fn refill(&mut self) -> *mut u8 {
-        let mut pmm_lock = ALLOCATOR.lock();
-        let phys_addr = pmm_lock.alloc(BlockSize::Normal).expect("Kernel out of memory");
-        drop(pmm_lock);
+        let phys_addr = ALLOCATOR.alloc(BlockSize::Normal);
 
         let virt_page_start = phys_addr + *HHDMOFFSET;
         let num_objects = NORMAL_PAGE_SIZE / self.object_size;

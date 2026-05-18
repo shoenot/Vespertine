@@ -22,13 +22,16 @@ use crate::tests::smp_tests::{
 };
 use crate::{
     klogln,
-    terminate_thread,
+    terminate_thread, tests,
 };
 
 // Kernel initialization tasks
 
 // Init function dispatcher
 pub extern "C" fn initializer(_arg: usize) -> ! {
+
+    tests::memory_tests::run_pmm_tests();
+
     let dev = Arc::new(TestDevice {});
 
     let handle = kernel_register_obj(dev, AccessRights::READ);
@@ -38,11 +41,11 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         Err(e) => klogln!("{}", e),
     }
 
-    debug_dump_handles();
+    // debug_dump_handles();
 
     let bad_handle = sys_duplicate(handle, AccessRights(0)).unwrap();
 
-    debug_dump_handles();
+    // debug_dump_handles();
 
     match sys_invoke(handle, Invocation::Ping) {
         Ok(_) => {},
@@ -52,7 +55,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     sys_close(bad_handle).unwrap();
     sys_close(handle).unwrap();
 
-    debug_dump_handles();
+    // debug_dump_handles();
 
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER);
     spawn_kernel_thread(kbd_processor_thread as *const () as usize, 0, ThreadPriority::HIGH);

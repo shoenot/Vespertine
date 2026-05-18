@@ -15,6 +15,7 @@ use crate::kernel::time::callout::{
     Callout,
     timer_daemon,
 };
+use crate::memory::magazine::Magazine;
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
@@ -29,6 +30,7 @@ pub struct CPULocalData {
     pub work_queue: WorkQueue,
     pub callout_queue: TicketLock<BinaryHeap<Callout>>,
     pub timer_daemon_tcb: *mut ThreadControlBlock,
+    pub magazine: Magazine,
 }
 
 pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {
@@ -47,6 +49,7 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
         (*data_ptr).scheduler.init(logical_id);
         (*data_ptr).callout_queue = TicketLock::new(BinaryHeap::new());
         (*data_ptr).timer_daemon_tcb = null_mut();
+        (*data_ptr).magazine = Magazine::init();
 
         data_ptr
     }

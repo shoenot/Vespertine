@@ -1,17 +1,12 @@
 use core::ops::Deref;
-use lazy_static::lazy_static;
 use limine::memmap::*;
 use crate::{
-    HHDM_REQUEST, MEMMAP_REQUEST, drivers::serial::{log_to_serial, log_u64_to_serial}
+    HHDM_REQUEST, MEMMAP_REQUEST, drivers::serial::{log_to_serial, log_u64_to_serial}, kernel::sync::KernelOnceCell
 };
 
 static PAGE_SIZE: usize = 4096;
 
-lazy_static!(
-    pub static ref HHDMOFFSET: usize = if let Some(hhdmresp) = HHDM_REQUEST.response() {
-        hhdmresp.deref().offset as usize 
-    } else { panic!("COULD NOT GET HHDM OFFSET FROM LIMINE") };
-);
+pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
 pub struct PhysFrame {
     start_addr: usize,
@@ -25,6 +20,7 @@ pub struct BitmapPMM {
 
 impl BitmapPMM {
     pub fn init() -> Self {
+        HHDMOFFSET.get_or_init(|| HHDM_REQUEST.response().expect("Failed to get HHDM offset from Limine").offset as usize);
         let mem_map = if let Some(memmap_response) = MEMMAP_REQUEST.response() {
             memmap_response.deref().entries()
         } else { panic!("COULD NOT GET MEMMAP FROM LIMINE") };
