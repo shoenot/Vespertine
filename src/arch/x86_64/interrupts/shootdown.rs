@@ -21,6 +21,7 @@ pub struct TLBShootdownInfo {
 pub static SHOOTDOWN_INFO: TLBShootdownInfo = TLBShootdownInfo { addr: AtomicUsize::new(0), counter: AtomicUsize::new(0) };
 pub static SHOOTDOWN_LOCK: TicketLock<()> = TicketLock::new(());
 
+#[allow(unused)]
 pub fn shootdown(addr: usize, size: usize) {
     let this_core_id = get_core_data().logical_id;
     let lock = SHOOTDOWN_LOCK.lock();

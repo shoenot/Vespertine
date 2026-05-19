@@ -12,7 +12,7 @@ use crate::kernel::object::invoke::{
     Invocation,
     InvocationError,
 };
-use crate::kernel::object::message::DirectoryMessage;
+use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::object::obj::KernelObject;
 use crate::kernel::sync::RwLock;
 
@@ -46,9 +46,9 @@ impl Filename {
 impl KernelObject for Directory {
     fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::Directory(DirectoryMessage::Link { name, name_len, handle_id }) => self.link(name, name_len, handle_id),
-            Invocation::Directory(DirectoryMessage::Unlink { name, name_len }) => self.unlink(name, name_len),
-            Invocation::Directory(DirectoryMessage::Lookup { name, name_len }) => self.lookup(name, name_len),
+            Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => self.link(name, name_len, handle_id),
+            Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => self.unlink(name, name_len),
+            Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len),
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

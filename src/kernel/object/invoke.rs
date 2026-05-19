@@ -4,9 +4,10 @@ use core::fmt;
 use core::str::Utf8Error;
 
 use crate::kernel::object::handle::AccessRights;
-use crate::kernel::object::message::{
-    ChannelMessage,
-    DirectoryMessage,
+use crate::kernel::object::op::{
+    ChannelOp,
+    DirectoryOp,
+    FileOp
 };
 
 #[derive(Debug)]
@@ -37,8 +38,9 @@ impl From<Utf8Error> for InvocationError {
 pub enum Invocation {
     Ping,
     GetInfo,
-    Channel(ChannelMessage),
-    Directory(DirectoryMessage),
+    Channel(ChannelOp),
+    Directory(DirectoryOp),
+    File(FileOp),
 }
 
 impl Invocation {
@@ -46,12 +48,13 @@ impl Invocation {
         match self {
             Invocation::Ping => AccessRights::READ,
             Invocation::GetInfo => AccessRights::READ,
-            Invocation::Channel(ChannelMessage::PushSmall { .. }) => AccessRights::WRITE,
-            Invocation::Channel(ChannelMessage::PushLarge { .. }) => AccessRights::WRITE,
-            Invocation::Channel(ChannelMessage::Pull) => AccessRights::READ,
-            Invocation::Directory(DirectoryMessage::Link { .. }) => AccessRights::WRITE,
-            Invocation::Directory(DirectoryMessage::Unlink { .. }) => AccessRights::WRITE,
-            Invocation::Directory(DirectoryMessage::Lookup { .. }) => AccessRights::READ,
+            Invocation::Channel(ChannelOp::PushSmall { .. }) => AccessRights::WRITE,
+            Invocation::Channel(ChannelOp::PushLarge { .. }) => AccessRights::WRITE,
+            Invocation::Channel(ChannelOp::Pull) => AccessRights::READ,
+            Invocation::Directory(DirectoryOp::Link { .. }) => AccessRights::WRITE,
+            Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::WRITE,
+            Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
+            Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
         }
     }
 }

@@ -76,6 +76,7 @@ build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
 	
 	# Copy the kernel from the cargo target directory
 	cp $(KERNEL_ELF) iso_root/boot/kernel
+	cp build_deps/filetest.txt iso_root/boot/filetest.txt
 	cp build_deps/limine.conf iso_root/boot/limine/
 	
 	# x86_64 Specific Limine binaries

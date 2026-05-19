@@ -1,11 +1,7 @@
 pub mod smp;
 
 use limine::request::{
-    FramebufferRequest,
-    HhdmRequest,
-    MemmapRequest,
-    MpRequest,
-    RsdpRequest,
+    FramebufferRequest, HhdmRequest, MemmapRequest, ModulesRequest, MpRequest, RsdpRequest
 };
 use limine::{
     BaseRevision,
@@ -44,6 +40,11 @@ pub static RSDP_REQUEST: RsdpRequest = RsdpRequest::new();
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".requests")]
 pub static MP_REQUEST: MpRequest = MpRequest::new(1);
+
+#[used]
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".requests")]
+pub static MODULE_REQUEST: ModulesRequest = ModulesRequest::new();
 
 #[used]
 #[unsafe(no_mangle)]

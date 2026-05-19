@@ -10,7 +10,6 @@ use core::sync::atomic::{
 
 pub use clock::*;
 
-use crate::arch::x86_64::apic::lapic::*;
 use crate::arch::x86_64::timer;
 use crate::kernel::sync::{
     KernelOnceCell,

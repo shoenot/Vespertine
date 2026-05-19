@@ -50,7 +50,7 @@ impl<T> RwLock<T> {
         }
     }
 
-    pub fn read(&self) -> RwLockReadGuard<T> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
         loop {
             let current = self.state.load(Ordering::Acquire);
 
@@ -84,7 +84,7 @@ impl<T> RwLock<T> {
         }
     }
 
-    pub fn write(&self) -> RwLockWriteGuard<T> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
         loop {
             let current = self.state.load(Ordering::Acquire);
 

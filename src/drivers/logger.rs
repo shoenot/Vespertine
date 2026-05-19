@@ -57,6 +57,7 @@ impl Logger {
             current_line: 0,
             lim_lines: ((fb.height / 16) - 2) as u32,
             current_offset: 0,
+            max_offset: 0,
             font: FONT.get_or_init(|| load_font()),
             fb: SyncFramebuffer(fb),
         });

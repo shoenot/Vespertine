@@ -5,9 +5,8 @@ use crate::arch::{
     get_core_data,
 };
 use crate::drivers::keyboard::kbd_processor_thread;
-use crate::kernel::object::vfs::{
-    init_vfs,
-    test_run,
+use crate::tests::file_tests::{
+    init_vfs, load_ramdisk_modules, test_run
 };
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;

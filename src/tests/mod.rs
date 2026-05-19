@@ -1,5 +1,6 @@
 pub mod memory_tests;
 pub mod smp_tests;
+pub mod file_tests;
 
 #[macro_export]
 macro_rules! vklog {

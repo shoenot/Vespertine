@@ -66,7 +66,7 @@ impl KernelHandleTable {
 impl Display for KernelHandleTable {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for item in &self.entries {
-            write!(f, "{:#?}", item);
+            write!(f, "{:#?}", item)?;
         }
         Ok(())
     }
