@@ -1,5 +1,8 @@
-global _syscall_entry 
 extern syscall_dispatch
+global _syscall_entry 
+global copy_from_user
+
+section .text
 
 _syscall_entry: 
     swapgs 
@@ -50,3 +53,35 @@ _syscall_entry:
     swapgs
 
     sysretq
+
+; fn copy_from_user(dst, src, len)
+copy_from_user:
+    mov rax, rsi                
+    add rax, rdx                
+    mov r8, 0xFFFF800000000000  ; check if address + len encroaches kernel addr space 
+    cmp rax, r8
+    jae .fail_boundary
+
+    mov rcx, rdx                ; mov len into rcx for movsb
+    
+    stac                        ; disable smap 
+.copy_fail_point:
+    rep movsb 
+    clac                        ; reenable smap
+
+    mov rax, 1                  ; success (return true)
+    ret 
+
+.fail_boundary: 
+    mov rax, 0 
+    ret
+
+.recover_target: 
+    clac                        ; page fault handle jumps here to recover from failure (reenable clac)
+    mov rax, 0
+    ret
+
+section .extable
+    align 8 
+    dq .copy_fail_point         ; check fail here
+    dq .recover_target          ; if fail, jump here

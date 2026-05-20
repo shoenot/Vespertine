@@ -8,6 +8,7 @@ rustflags = [
     "-C", "link-arg=build/idt.o",
     "-C", "link-arg=build/switch.o",
     "-C", "link-arg=build/fpu.o",
+    "-C", "link-arg=build/syscall.o",
     "-C", "no-redzone=yes",
     "-C", "target-feature=-sse,-sse2,-sse3,-sse4.1,-sse4.2,-avx,-avx2",
     "-C", "relocation-model=static",

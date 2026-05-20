@@ -20,7 +20,7 @@ pub static VM_FLAG_USER: usize = 1 << 2;
 pub static VM_FLAG_HUGE: usize = 1 << 3;
 pub static VM_FLAG_GLOBAL: usize = 1 << 4;
 pub static VM_FLAG_CACHE_DISABLE: usize = 1 << 5;
-pub static VM_FLAG_WRITE_THROUGH: usize = 1 << 5;
+pub static VM_FLAG_WRITE_THROUGH: usize = 1 << 6;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
 static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;

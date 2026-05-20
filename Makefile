@@ -7,7 +7,7 @@ BIN_NAME    := shoes
 KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
 IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS   := -smp 2 -m 1G 
+QEMUFLAGS   := -smp 8 -m 8G
 
 # --- Toolchain ---
 AS := nasm
@@ -46,26 +46,37 @@ run-bios: build/$(IMAGE_NAME).iso
 		-boot d \
 		$(QEMUFLAGS)
 
-# --- Assembly Build Step ---
+##############################
+# --- ASSEMBLY FILES HERE ---#
+##############################
+
 build/gdt.o: src/arch/x86_64/cpu/gdt.asm
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/cpu/gdt.asm -o build/gdt.o
 	
-build/idt.o: src/arch/x86_64/interrupts/idt.asm
+build/idt.o: src/arch/x86_64/interrupts/idt.asm build/gdt.o
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/interrupts/idt.asm -o build/idt.o
 	
-build/switch.o: src/arch/x86_64/task/switch.asm 
+build/switch.o: src/arch/x86_64/task/switch.asm build/idt.o
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/task/switch.asm -o build/switch.o
 
-build/fpu.o: src/arch/x86_64/cpu/fpu.asm 
+build/fpu.o: src/arch/x86_64/cpu/fpu.asm build/switch.o
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/cpu/fpu.asm -o build/fpu.o
 
+build/syscall.o: src/arch/x86_64/task/syscall.asm build/fpu.o
+	mkdir -p build/
+	$(AS) -f elf64 src/arch/x86_64/task/syscall.asm -o build/syscall.o
+
 .PHONY: kernel
-kernel: build/gdt.o build/idt.o build/switch.o build/fpu.o
+kernel: build/syscall.o
 	cargo build --release --target $(TARGET_NAME)
+
+##############################
+# --- ASSEMBLY FILES DONE ---#
+##############################
 
 # ISO Creation (Hybrid BIOS/UEFI)
 build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel

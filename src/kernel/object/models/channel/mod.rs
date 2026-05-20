@@ -4,7 +4,7 @@ use alloc::{alloc::alloc, string::String, sync::Arc};
 use alloc::format;
 use crate::kernel::object::{op::DirectoryOp, vfs::{ROOT_DIRECTORY, mount_kernel_dir}};
 
-use crate::kernel::{object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}, obj::KernelObject, op::ChannelOp, vfs::{kernel_register_obj, sys_invoke}}, sync::Semaphore};
+use crate::kernel::{object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}, obj::KernelObject, op::ChannelOp, vfs::{kernel_register_obj, kernel_invoke}}, sync::Semaphore};
 
 const CAPACITY: usize = 4;
 const MASK: usize = CAPACITY - 1;
@@ -163,7 +163,7 @@ impl KernelObject for Channel {
     fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Channel(ChannelOp::PushSmall { data, len }) => {
-                if len as usize > data.len() { return Err(InvocationError::InvalidArgument(format!("Data length longer than buffer capacity: {:?}", data))) };
+                if len as usize > data.len() { return Err(InvocationError::InvalidArgument) };
                 match self.state.send(self.side, data, len as usize) {
                     Ok(_) => Ok(0),
                     Err(_) => Err(InvocationError::BufferFull),
@@ -188,12 +188,12 @@ impl KernelObject for Channel {
 }
 
 pub fn link_chan(handle: HandleID) {
-    let obj_root = sys_invoke(
+    let obj_root = kernel_invoke(
         ROOT_DIRECTORY.write().unwrap(),
         Invocation::Directory(DirectoryOp::Lookup { name: "obj".as_ptr(), name_len: "obj".len() })
     ).expect("Obj dir not mounted.");
 
-    let chan_root = sys_invoke(
+    let chan_root = kernel_invoke(
         HandleID(obj_root),
         Invocation::Directory(DirectoryOp::Lookup { name: "chan".as_ptr(), name_len: "chan".len() })
     ).expect("Chan root not mounted.");

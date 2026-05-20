@@ -14,7 +14,7 @@ use crate::kernel::object::op::{
 pub enum InvocationError {
     AccessDenied,
     InvalidHandle,
-    InvalidArgument(String),
+    InvalidArgument,
     UnsupportedOperation,
     BufferFull,
 }
@@ -24,7 +24,7 @@ impl fmt::Display for InvocationError {
         match self {
             Self::AccessDenied => write!(f, "INVOCATION ERROR: Access denied."),
             Self::InvalidHandle => write!(f, "INVOCATION ERROR: Invalid handle."),
-            Self::InvalidArgument(s) => write!(f, "INVOCATION ERROR: Invalid argument: {}", s),
+            Self::InvalidArgument => write!(f, "INVOCATION ERROR: Invalid argument"),
             Self::UnsupportedOperation => write!(f, "INVOCATION ERROR: Unsupported operation."),
             Self::BufferFull => write!(f, "INVOCATION ERROR: Buffer full."),
         }
@@ -32,7 +32,7 @@ impl fmt::Display for InvocationError {
 }
 
 impl From<Utf8Error> for InvocationError {
-    fn from(err: Utf8Error) -> Self { InvocationError::InvalidArgument(format!("Invalid UTF-8 bytes passed ({})", err)) }
+    fn from(_: Utf8Error) -> Self { InvocationError::InvalidArgument }
 }
 
 #[repr(C)]

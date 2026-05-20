@@ -84,6 +84,10 @@ pub struct CPULocalGDT {
     pub gdt_ptr: GDTPointer,
 }
 
+unsafe extern "sysv64" {
+    fn _syscall_entry();
+}
+
 fn init_syscall_msrs() {
     unsafe {
         // EFER = current with bit 0 enabled to activate syscall/sysret
@@ -97,7 +101,7 @@ fn init_syscall_msrs() {
         write_to_msr((hi as u64) << 32, IA32_STAR);
 
         // LSTAR = asm syscall entry trampoline yippee
-        write_to_msr(syscall_entry as *const () as u64, IA32_LSTAR);
+        write_to_msr(_syscall_entry as *const () as u64, IA32_LSTAR);
 
         // IA32_FMASK = interrupt flags, direction flag, nested task, resume flag
         write_to_msr(0x200 | 0x400 | 0x4000 | 0x10000, IA32_FMASK);

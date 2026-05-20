@@ -1,6 +1,6 @@
 use core::str::from_utf8;
 
-use crate::{kernel::object::{handle::HandleID, invoke::Invocation, op::ChannelOp, vfs::{debug_dump_handles, sys_invoke}}, klogln};
+use crate::{kernel::object::{handle::HandleID, invoke::Invocation, op::ChannelOp, vfs::{debug_dump_handles, kernel_invoke}}, klogln};
 
 pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);
@@ -11,7 +11,7 @@ pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
             buffer_ptr: command_bytes.as_mut_ptr(),
         });
 
-        if let Ok(len) = sys_invoke(chan_handle, pull_op) {
+        if let Ok(len) = kernel_invoke(chan_handle, pull_op) {
             if len > 0 {
                 if let Ok(cmd_str) = from_utf8(&command_bytes[0..len]) {
                     let ret = execute_shell_cmd(cmd_str);
@@ -20,7 +20,7 @@ pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
             }
 
             let ack_op = Invocation::Channel(ChannelOp::PushSmall { data: [0u8; 64], len: 0 });
-            let _ = sys_invoke(chan_handle, ack_op);
+            let _ = kernel_invoke(chan_handle, ack_op);
         }
     }
 

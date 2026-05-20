@@ -26,7 +26,7 @@ pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights
     table.insert(obj, init_rights)
 }
 
-pub fn sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
+pub fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let demanded_rights = invocation.required_rights();
 
     let table = PRINCIPAL_HANDLE_TABLE.read();
@@ -36,12 +36,12 @@ pub fn sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, Inv
     obj_arc.invoke(invocation)
 }
 
-pub fn sys_close(handle: HandleID) -> Result<(), InvocationError> {
+pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
     let mut table = PRINCIPAL_HANDLE_TABLE.write();
     table.close(handle)
 }
 
-pub fn sys_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result<HandleID, InvocationError> {
+pub fn kernel_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result<HandleID, InvocationError> {
     let mut table = PRINCIPAL_HANDLE_TABLE.write();
     let cloned_arc = table.resolve(handle, requested_rights)?;
     Ok(table.insert(cloned_arc, requested_rights))
@@ -55,7 +55,7 @@ pub fn debug_dump_handles() {
 pub fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
     klog!("Linking {}... ", name);
     // mount '/dev' inside '/'
-    sys_invoke(
+    kernel_invoke(
         root,
         Invocation::Directory(DirectoryOp::Link { name: name.as_ptr(), name_len: name.len(), handle_id: handle }),
     )

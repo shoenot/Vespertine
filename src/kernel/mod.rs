@@ -5,4 +5,4 @@ pub mod sync;
 pub mod thread;
 pub mod time;
 pub mod shell;
-pub mod sys;
+pub mod syscall;

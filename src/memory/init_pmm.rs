@@ -31,9 +31,13 @@ impl BitmapPMM {
 
         let mut highest_addr: usize = 0;
         for entry in mem_map {
-            let top = entry.base + entry.length;
-            if top as usize > highest_addr {
-                highest_addr = top as usize;
+            if entry.type_ == MEMMAP_USABLE ||
+               entry.type_ == MEMMAP_BOOTLOADER_RECLAIMABLE ||
+               entry.type_ == MEMMAP_EXECUTABLE_AND_MODULES {
+                let top = entry.base + entry.length;
+                if top as usize > highest_addr {
+                    highest_addr = top as usize;
+                }
             }
         }
 

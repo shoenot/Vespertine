@@ -1,7 +1,7 @@
 use crate::kernel::sync::RwLock;
 use crate::{MODULE_REQUEST, klog, klogln};
 use crate::kernel::object::invoke::{Invocation, InvocationError};
-use crate::kernel::object::vfs::{kernel_register_obj, mount_kernel_dir, sys_invoke};
+use crate::kernel::object::vfs::{kernel_register_obj, mount_kernel_dir, kernel_invoke};
 use crate::kernel::object::obj::KernelObject;
 use crate::kernel::object::handle::{AccessRights, HandleID};
 use crate::kernel::object::models::directory::*;
@@ -69,7 +69,7 @@ pub fn load_ramdisk_modules(root_handle: HandleID) {
             }
         );
 
-        match sys_invoke(root_handle, invocation) {
+        match kernel_invoke(root_handle, invocation) {
             Ok(_) => klogln!("Successfully mounted /{}", file_name),
             Err(e) => klogln!("Failed to mount file: {:?}", e),
         }
@@ -83,7 +83,7 @@ pub fn load_ramdisk_modules(root_handle: HandleID) {
 //
 //     let mut read_buffer = [0u8; 128];
 //     let invocation = Invocation::File(FileOp::Read { offset: 0, buffer_ptr: read_buffer.as_mut_ptr(), len: read_buffer.len() });
-//     let bytes_read = sys_invoke(file_handle, invocation).expect("Failed to read file");
+//     let bytes_read = kernel_invoke(file_handle, invocation).expect("Failed to read file");
 //     if let Ok(txt) = str::from_utf8(&read_buffer[..bytes_read]) {
 //         klogln!("File contents: {}", txt);
 //     }

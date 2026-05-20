@@ -18,7 +18,7 @@ use crate::kernel::acpi;
 use crate::kernel::object::handle::HandleID;
 use crate::kernel::object::invoke::Invocation;
 use crate::kernel::object::op::ChannelOp;
-use crate::kernel::object::vfs::sys_invoke;
+use crate::kernel::object::vfs::kernel_invoke;
 use crate::kernel::sync::Semaphore;
 use crate::{klog, klogln};
 use crate::util::bitwise::{
@@ -163,10 +163,10 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                         data: byte_buffer, 
                         len: byte_len as u8,
                     });
-                    let _ = sys_invoke(chan_handle, push_op);
+                    let _ = kernel_invoke(chan_handle, push_op);
 
                     let pull_op = Invocation::Channel(ChannelOp::Pull { buffer_ptr: null_mut() });
-                    let _ = sys_invoke(chan_handle, pull_op);
+                    let _ = kernel_invoke(chan_handle, pull_op);
                 } else {
                     klog!("{}", c);
                 }

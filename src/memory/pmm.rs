@@ -1,11 +1,18 @@
-use core::slice::from_raw_parts_mut;
+use core::{slice::from_raw_parts_mut, sync::atomic::{AtomicU16, AtomicU32, Ordering}};
 
 pub use crate::memory::HHDMOFFSET;
-use crate::memory::init_pmm::BitmapPMM;
+use crate::memory::init_pmm::*;
 
 static ORDER_MAX: usize = 11;
 pub static HUGE_PAGE_SIZE: usize = 0x20_0000;
 pub static NORMAL_PAGE_SIZE: usize = 0x1000;
+
+pub const PF_FREE        :u16 = 1 << 0;
+pub const PF_KERNEL      :u16 = 1 << 1;
+pub const PF_PAGE_TABLE  :u16 = 1 << 2;
+pub const PF_VMO         :u16 = 1 << 3;
+pub const PF_PINNED      :u16 = 1 << 4;
+pub const PF_BUDDY_HEAD  :u16 = 1 << 5;
 
 #[repr(C)]
 struct FreeBlock {
@@ -19,43 +26,51 @@ pub enum BlockSize {
     Huge,
 }
 
+pub struct PageFrame {
+    pub refcount: AtomicU32,
+    pub flags: AtomicU16,
+    pub buddy_order: u16,
+}
+
+
 pub struct Allocator {
     freelist: [usize; ORDER_MAX + 1],
-    metadata: &'static mut [u8],
-    pub metadata_phys_addr: usize,
-    meta_bit_offset: [usize; ORDER_MAX + 1],
+    pub pfndb: &'static mut [PageFrame],
+    pub pfndb_phys_addr: usize,
 }
 
 impl Allocator {
     pub const fn new() -> Self {
-        Self { freelist: [0; ORDER_MAX + 1], metadata: &mut [], metadata_phys_addr: 0, meta_bit_offset: [0; ORDER_MAX + 1] }
+        Self { 
+            freelist: [0; ORDER_MAX + 1],
+            pfndb: &mut [],
+            pfndb_phys_addr: 0,
+        }
     }
 
     pub fn init(&mut self) {
         let mut init_allocator = BitmapPMM::init();
         let max_addr = init_allocator.max_addr;
-        let metadata_size = max_addr / (NORMAL_PAGE_SIZE * 8);
-        let meta_frame_idx = init_allocator.alloc(metadata_size).unwrap();
+        let total_pages = max_addr / NORMAL_PAGE_SIZE;
+        let pfndb_size_bytes = total_pages * size_of::<PageFrame>();
+
+        let meta_frame_idx = init_allocator.alloc(pfndb_size_bytes).unwrap();
         let meta_phys = meta_frame_idx * NORMAL_PAGE_SIZE;
         let meta_virt = meta_phys + *HHDMOFFSET;
 
-        let metadata_slice = unsafe { from_raw_parts_mut(meta_virt as *mut u8, metadata_size) };
+        let pfndb_slice = unsafe {
+            from_raw_parts_mut(meta_virt as *mut PageFrame, total_pages)
+        };
 
-        metadata_slice.fill(0);
-
-        let total_pages = max_addr / NORMAL_PAGE_SIZE;
-        let mut meta_bit_offset = [0; ORDER_MAX + 1];
-
-        let mut current_offset = 0;
-        for order in 0..(ORDER_MAX + 1) {
-            meta_bit_offset[order] = current_offset;
-            current_offset += (total_pages >> order) / 2;
+        for frame in pfndb_slice.iter_mut() {
+            frame.refcount = AtomicU32::new(1);
+            frame.flags = AtomicU16::new(PF_KERNEL);
+            frame.buddy_order = 0;
         }
 
+        self.pfndb = pfndb_slice;
         self.freelist = [0; ORDER_MAX + 1];
-        self.metadata = metadata_slice;
-        self.metadata_phys_addr = meta_phys;
-        self.meta_bit_offset = meta_bit_offset;
+        self.pfndb_phys_addr = meta_phys;
 
         let mut cursor = 0;
         while cursor < init_allocator.total_frames {
@@ -130,9 +145,16 @@ impl Allocator {
             }
         };
 
-        self.xor_bit(block_addr, order);
+        let block_pfn = block_addr / NORMAL_PAGE_SIZE;
+        self.pfndb[block_pfn].refcount.store(0, Ordering::Relaxed);
+        let flags = self.pfndb[block_pfn].flags.load(Ordering::Acquire);
+        let new_flags = flags & !(PF_FREE | PF_BUDDY_HEAD);
+        self.pfndb[block_pfn].flags.store(new_flags, Ordering::Release);
 
         self.split_block(block_addr, order, target_order);
+        
+        self.pfndb[block_pfn].refcount.store(1, Ordering::Relaxed);
+        self.pfndb[block_pfn].flags.store(PF_KERNEL, Ordering::Relaxed);
 
         Some(block_addr)
     }
@@ -159,24 +181,12 @@ impl Allocator {
                 *buddy_ptr = FreeBlock { prev: 0, next: order_head_addr };
             }
 
-            // bitmap shit
-            let page_idx = buddy_addr / NORMAL_PAGE_SIZE;
-            let pair_idx = page_idx >> (order + 1);
-            let abs_bit = self.meta_bit_offset[order] + pair_idx;
-            let byte_idx = abs_bit / 8;
-            let bit_idx = abs_bit % 8;
-            self.metadata[byte_idx] ^= 1 << bit_idx;
+            // pfndb shit
+            let buddy_pfn = buddy_addr / NORMAL_PAGE_SIZE;
+            self.pfndb[buddy_pfn].refcount.store(0, Ordering::Relaxed);
+            self.pfndb[buddy_pfn].flags.store(PF_FREE | PF_BUDDY_HEAD, Ordering::Relaxed);
+            self.pfndb[buddy_pfn].buddy_order = order as u16;
         }
-    }
-
-    fn xor_bit(&mut self, block_addr: usize, order: usize) -> bool {
-        let page_idx = block_addr / NORMAL_PAGE_SIZE;
-        let pair_idx = page_idx >> (order + 1);
-        let abs_bit = self.meta_bit_offset[order] + pair_idx;
-        let byte_idx = abs_bit / 8;
-        let bit_idx = abs_bit % 8;
-        self.metadata[byte_idx] ^= 1 << bit_idx;
-        if self.metadata[byte_idx] & (1 << bit_idx) == 0 { true } else { false }
     }
 
     pub fn free(&mut self, block_addr: usize, size: BlockSize) {
@@ -188,14 +198,28 @@ impl Allocator {
     }
 
     pub fn free_order(&mut self, mut block_addr: usize, mut order: usize) {
-        while self.xor_bit(block_addr, order) && order < ORDER_MAX {
+        while order < ORDER_MAX {
             let block_size = NORMAL_PAGE_SIZE << order;
             let buddy_addr = block_addr ^ block_size;
-            block_addr = self.merge_block(block_addr, buddy_addr, order);
-            order += 1;
+            let buddy_pfn = buddy_addr / NORMAL_PAGE_SIZE;
+            let flags = self.pfndb[buddy_pfn].flags.load(Ordering::Acquire);
+            let buddy_order = self.pfndb[buddy_pfn].buddy_order;
+            let is_free_and_head = (flags & (PF_FREE | PF_BUDDY_HEAD)) == PF_FREE | PF_BUDDY_HEAD;
+            let order_match = order as u16 == buddy_order;
+            if is_free_and_head && order_match {
+                self.pfndb[buddy_pfn].flags.fetch_and(!PF_BUDDY_HEAD, Ordering::Release);
+                block_addr = self.merge_block(block_addr, buddy_addr, order);
+                order += 1;
+            } else {
+                break;
+            }
         }
 
-        // add block
+        let final_pfn = block_addr / NORMAL_PAGE_SIZE;
+        self.pfndb[final_pfn].refcount.store(0, Ordering::Relaxed);
+        self.pfndb[final_pfn].flags.store(PF_FREE | PF_BUDDY_HEAD, Ordering::Relaxed);
+        self.pfndb[final_pfn].buddy_order = order as u16;
+
         let new_block_ptr = (block_addr + *HHDMOFFSET) as *mut FreeBlock;
         unsafe {
             let old_head = self.freelist[order];
