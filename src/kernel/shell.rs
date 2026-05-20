@@ -1,8 +1,6 @@
 use core::str::from_utf8;
 
-use crate::{kernel::object::{handle::HandleID, invoke::Invocation, op::ChannelOp, vfs::sys_invoke}, klogln};
-
-
+use crate::{kernel::object::{handle::HandleID, invoke::Invocation, op::ChannelOp, vfs::{debug_dump_handles, sys_invoke}}, klogln};
 
 pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);
@@ -29,5 +27,10 @@ pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
 }
 
 fn execute_shell_cmd(cmd: &str) -> &str {
-    cmd
+    if cmd == "tree" {
+        debug_dump_handles();
+        ""
+    } else { 
+        "" 
+    }
 }
