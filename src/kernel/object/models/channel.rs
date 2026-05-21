@@ -160,7 +160,7 @@ impl Channel {
 }
 
 impl KernelObject for Channel {
-    fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError> {
+    fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Channel(ChannelOp::PushSmall { data, len }) => {
                 if len as usize > data.len() { return Err(InvocationError::InvalidArgument) };
@@ -189,7 +189,7 @@ impl KernelObject for Channel {
 
 pub fn link_chan(handle: HandleID) {
     let obj_root = kernel_invoke(
-        ROOT_DIRECTORY.write().unwrap(),
+        HandleID(0),
         Invocation::Directory(DirectoryOp::Lookup { name: "obj".as_ptr(), name_len: "obj".len() })
     ).expect("Obj dir not mounted.");
 
@@ -199,7 +199,7 @@ pub fn link_chan(handle: HandleID) {
     ).expect("Chan root not mounted.");
 
     mount_kernel_dir(
-        &format!("Chan{}", CHAN_COUNTER.load(Ordering::Relaxed)), 
+        &format!("Chan{}", CHAN_COUNTER.fetch_add(1, Ordering::Relaxed)), 
         handle, 
         HandleID(chan_root)
     );

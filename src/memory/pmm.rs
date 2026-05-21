@@ -29,7 +29,7 @@ pub enum BlockSize {
 pub struct PageFrame {
     pub refcount: AtomicU32,
     pub flags: AtomicU16,
-    pub buddy_order: u16,
+    pub buddy_order: AtomicU16,
 }
 
 
@@ -41,7 +41,7 @@ pub struct Allocator {
 
 impl Allocator {
     pub const fn new() -> Self {
-        Self { 
+        Self {
             freelist: [0; ORDER_MAX + 1],
             pfndb: &mut [],
             pfndb_phys_addr: 0,
@@ -65,7 +65,7 @@ impl Allocator {
         for frame in pfndb_slice.iter_mut() {
             frame.refcount = AtomicU32::new(1);
             frame.flags = AtomicU16::new(PF_KERNEL);
-            frame.buddy_order = 0;
+            frame.buddy_order = AtomicU16::new(0);
         }
 
         self.pfndb = pfndb_slice;
@@ -152,7 +152,7 @@ impl Allocator {
         self.pfndb[block_pfn].flags.store(new_flags, Ordering::Release);
 
         self.split_block(block_addr, order, target_order);
-        
+
         self.pfndb[block_pfn].refcount.store(1, Ordering::Relaxed);
         self.pfndb[block_pfn].flags.store(PF_KERNEL, Ordering::Relaxed);
 
@@ -185,7 +185,7 @@ impl Allocator {
             let buddy_pfn = buddy_addr / NORMAL_PAGE_SIZE;
             self.pfndb[buddy_pfn].refcount.store(0, Ordering::Relaxed);
             self.pfndb[buddy_pfn].flags.store(PF_FREE | PF_BUDDY_HEAD, Ordering::Relaxed);
-            self.pfndb[buddy_pfn].buddy_order = order as u16;
+            self.pfndb[buddy_pfn].buddy_order.store(order as u16, Ordering::Relaxed);
         }
     }
 
@@ -203,8 +203,8 @@ impl Allocator {
             let buddy_addr = block_addr ^ block_size;
             let buddy_pfn = buddy_addr / NORMAL_PAGE_SIZE;
             let flags = self.pfndb[buddy_pfn].flags.load(Ordering::Acquire);
-            let buddy_order = self.pfndb[buddy_pfn].buddy_order;
-            let is_free_and_head = (flags & (PF_FREE | PF_BUDDY_HEAD)) == PF_FREE | PF_BUDDY_HEAD;
+            let buddy_order = self.pfndb[buddy_pfn].buddy_order.load(Ordering::Relaxed);
+            let is_free_and_head = (flags & (PF_FREE | PF_BUDDY_HEAD)) == (PF_FREE | PF_BUDDY_HEAD);
             let order_match = order as u16 == buddy_order;
             if is_free_and_head && order_match {
                 self.pfndb[buddy_pfn].flags.fetch_and(!PF_BUDDY_HEAD, Ordering::Release);
@@ -218,7 +218,7 @@ impl Allocator {
         let final_pfn = block_addr / NORMAL_PAGE_SIZE;
         self.pfndb[final_pfn].refcount.store(0, Ordering::Relaxed);
         self.pfndb[final_pfn].flags.store(PF_FREE | PF_BUDDY_HEAD, Ordering::Relaxed);
-        self.pfndb[final_pfn].buddy_order = order as u16;
+        self.pfndb[final_pfn].buddy_order.store(order as u16, Ordering::Relaxed);
 
         let new_block_ptr = (block_addr + *HHDMOFFSET) as *mut FreeBlock;
         unsafe {

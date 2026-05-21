@@ -1,9 +1,9 @@
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
-use crate::arch::get_core_data;
 use crate::kernel::object::handle::{
     AccessRights,
-    HandleID,
+    HandleID, HandleTable,
 };
 use crate::kernel::object::invoke::{
     Invocation,
@@ -11,11 +11,11 @@ use crate::kernel::object::invoke::{
 };
 use crate::kernel::object::models::directory::Directory;
 use crate::kernel::object::obj::{
-    KernelHandleTable,
-    KernelObject,
+    HandleEntry, KernelObject
 };
 use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::sync::{KernelOnceCell, RwLock};
+use crate::kernel::thread::get_current_process;
 use crate::{
     klog, klogln
 };
@@ -23,42 +23,44 @@ use crate::{
 pub static ROOT_DIRECTORY: KernelOnceCell<Arc<Directory>> = KernelOnceCell::new();
 
 pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights) -> HandleID {
-    let mut table = PRINCIPAL_HANDLE_TABLE.write();
-    table.insert(obj, init_rights)
+    get_current_process()
+        .expect("No active process")
+        .proc_handles
+        .write()
+        .insert(obj, init_rights)
 }
 
 pub fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let demanded_rights = invocation.required_rights();
-
-    let current_thread = get_core_data().scheduler.get_current_thread();
-    let process = unsafe { &(*current_thread).process };
-
-    let table = process.proc_handles.read();
-    let entry = table.get(&handle).ok_or(InvocationError::InvalidHandle)?;
-
-    if !entry.rights.contains(demanded_rights) {
-        return Err(InvocationError::AccessDenied);
-    }
-
-    let obj_arc = entry.object.clone();
-    drop(table);
-
-    obj_arc.invoke(invocation)
+    let (obj, rights) = {
+        let table = get_current_process().expect("No active processes").proc_handles.read();
+        let entry = table.resolve_entry(handle, demanded_rights)?;
+        (entry.object.clone(), entry.rights)
+    }; // drop the lock 
+    obj.invoke(invocation, rights)
 }
 
 pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
-    let mut table = PRINCIPAL_HANDLE_TABLE.write();
-    table.close(handle)
+    get_current_process()
+        .expect("No active process")
+        .proc_handles
+        .write()
+        .close(handle)
 }
 
 pub fn kernel_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result<HandleID, InvocationError> {
-    let mut table = PRINCIPAL_HANDLE_TABLE.write();
-    let cloned_arc = table.resolve(handle, requested_rights)?;
-    Ok(table.insert(cloned_arc, requested_rights))
+    get_current_process()
+        .expect("No active process")
+        .proc_handles
+        .write()
+        .duplicate(handle, requested_rights)
 }
 
 pub fn debug_dump_handles() {
-    let table = PRINCIPAL_HANDLE_TABLE.read();
+    let table = get_current_process()
+        .expect("No active process")
+        .proc_handles
+        .read();
     klogln!("{:#?}", *table);
 }
 
@@ -72,4 +74,21 @@ pub fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
     .expect("Link failed.");
     klogln!("Link success!");
 }
+
+pub fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, InvocationError> {
+    let dirs = path.split('/').collect::<Vec<&str>>();
+    let start = if dirs[0] == "" { HandleID(0) } else { handle };
+    let mut last: HandleID = start;
+    for dir in dirs {
+        if dir == "" || dir == "." || dir == ".." { continue; };
+        let next = HandleID(kernel_invoke(last, Invocation::Directory(
+                DirectoryOp::Lookup { name: dir.as_ptr(), name_len: dir.len() }
+        ))?);
+        if last != start { let _ = kernel_close(last); }
+        last = next;
+    }
+    Ok(last)
+}
+
+
 

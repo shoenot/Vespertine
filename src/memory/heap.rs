@@ -7,7 +7,6 @@ use core::ptr::null_mut;
 use super::{
     ALLOCATOR,
     BlockSize,
-    GLOBAL_VMM,
     HHDMOFFSET,
 };
 use crate::kernel::sync::TicketLock;
@@ -61,17 +60,11 @@ unsafe impl GlobalAlloc for KernelAllocator {
             unsafe { cache_lock.allocate() }
         } else {
             // vmalloc
-            let mut vmm = GLOBAL_VMM.write();
-            if size < HUGE_PAGE_SIZE {
-                match vmm.mmap(size, KERNEL_VM_FLAGS) {
-                    Some(addr) => addr as *mut u8,
-                    None => null_mut(),
-                }
-            } else {
-                match vmm.mmap(size, KERNEL_VM_FLAGS | VM_FLAG_HUGE) {
-                    Some(addr) => addr as *mut u8,
-                    None => null_mut(),
-                }
+            let pages = (size + NORMAL_PAGE_SIZE - 1) / NORMAL_PAGE_SIZE;
+            let order = pages.next_power_of_two().trailing_zeros() as usize;
+            match ALLOCATOR.alloc_order(order) {
+                Some(phys_addr) => (phys_addr + *HHDMOFFSET) as *mut u8,
+                None => null_mut(),
             }
         }
     }
@@ -89,8 +82,10 @@ unsafe impl GlobalAlloc for KernelAllocator {
             unsafe { cache_lock.deallocate(ptr) }
         } else {
             // vfree
-            let mut vmm = GLOBAL_VMM.write();
-            let _ = vmm.munmap(ptr as usize, size);
+            let phys_addr = ptr as usize - *HHDMOFFSET;
+            let pages = (size + NORMAL_PAGE_SIZE - 1) / NORMAL_PAGE_SIZE;
+            let order = pages.next_power_of_two().trailing_zeros() as usize;
+            ALLOCATOR.free_order(phys_addr, order);
         }
     }
 }

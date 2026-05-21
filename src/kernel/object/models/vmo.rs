@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use crate::{kernel::object::{invoke::{Invocation, InvocationError}, obj::KernelObject, op::VmoOp}, memory::vmo::{PagedBackingStore, Vmo}};
+use crate::{kernel::{object::{handle::AccessRights, invoke::{Invocation, InvocationError}, obj::KernelObject, op::VmoOp}, thread::get_current_process}, memory::vmo::{PagedBackingStore, Vmo}};
 
 
 #[derive(Debug)]
@@ -9,7 +9,7 @@ pub struct VmoObject {
 }
 
 impl KernelObject for VmoObject {
-    fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError> {
+    fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         if let Invocation::Vmo(vmo_op) = invocation {
             match vmo_op {
                 VmoOp::GetPage { offset } => { 
@@ -22,7 +22,17 @@ impl KernelObject for VmoObject {
                     Ok(0)
                 },
                 VmoOp::Clone { offset, len } => { 
-                    Err(InvocationError::UnsupportedOperation)
+                    let child_vmo = self.vmo.clone_range(offset, len)
+                        .map_err(|_| InvocationError::InvalidArgument)?;
+
+                    let child_obj = Arc::new(VmoObject { vmo: child_vmo });
+
+                    let current_proc = get_current_process()
+                        .ok_or(InvocationError::UnsupportedOperation)?;
+
+                    let handle_id = current_proc.proc_handles.write().insert(child_obj, AccessRights::all());
+
+                    Ok(handle_id.0 as usize)
                 },
             }
         } else {

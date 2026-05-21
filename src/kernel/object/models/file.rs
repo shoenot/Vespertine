@@ -1,6 +1,7 @@
 use core::cmp::min;
 use core::ptr::copy_nonoverlapping;
 
+use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::invoke::{Invocation, InvocationError};
 use crate::kernel::object::obj::KernelObject;
 use crate::kernel::object::op::FileOp;
@@ -16,7 +17,7 @@ unsafe impl Send for FileObj {}
 unsafe impl Sync for FileObj {}
 
 impl KernelObject for FileObj {
-    fn invoke(&self, invocation: crate::kernel::object::invoke::Invocation) -> Result<usize, crate::kernel::object::invoke::InvocationError> {
+    fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => { self.read_file(offset, buffer_ptr, len) },
             _ => Err(InvocationError::UnsupportedOperation),

@@ -3,7 +3,7 @@ use core::ptr::null_mut;
 use alloc::sync::Arc;
 
 use super::priority::ThreadPriority;
-use crate::kernel::{process::pcb::{Process, ProcessControlBlock}, thread::schedule::get_new_tid};
+use crate::{KERNEL_PROCESS, arch::get_core_data, kernel::{process::pcb::{Process, ProcessControlBlock}, thread::schedule::get_new_tid}};
 
 #[derive(Debug, PartialEq)]
 pub enum ThreadState {
@@ -38,20 +38,34 @@ impl PartialEq for ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-    pub fn init(
-        &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority, proc: Process
+        pub fn init(
+            &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, 
+            fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority, proc: Process
     ) {
-        self.thread_id = get_new_tid();
-        self.state = ThreadState::Ready;
-        self.priority = priority;
-        self.total_runtime = 0;
-        self.stack_ptr = stack_ptr;
-        self.stack_base = stack_base;
-        self.stack_size = stack_size;
-        self.extended_context = fpu_ptr;
-        self.home_core = home_core;
-        self.process = proc;
-        self.next = null_mut();
+        unsafe {
+            core::ptr::write(&mut self.thread_id, get_new_tid());
+            core::ptr::write(&mut self.state, ThreadState::Ready);
+            core::ptr::write(&mut self.priority, priority);
+            core::ptr::write(&mut self.wake_time, 0);
+            core::ptr::write(&mut self.total_runtime, 0);
+            core::ptr::write(&mut self.quantum_expiry, 0);
+            core::ptr::write(&mut self.stack_ptr, stack_ptr);
+            core::ptr::write(&mut self.stack_base, stack_base);
+            core::ptr::write(&mut self.stack_size, stack_size);
+            core::ptr::write(&mut self.extended_context, fpu_ptr);
+            core::ptr::write(&mut self.home_core, home_core);
+            core::ptr::write(&mut self.process, proc);
+            core::ptr::write(&mut self.next, null_mut());
+        }
+    }
+}
+
+pub fn get_current_process<'a>() -> Option<&'a Process> {
+    let thread = get_core_data().scheduler.get_current_thread();
+    if thread.is_null() {
+        KERNEL_PROCESS.get()
+    } else {
+        unsafe { Some(&(*thread).process) }
     }
 }
 

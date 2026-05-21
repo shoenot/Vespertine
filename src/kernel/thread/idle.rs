@@ -2,7 +2,7 @@ use core::arch::asm;
 use core::ptr::copy_nonoverlapping;
 use core::sync::atomic::Ordering;
 
-use crate::BOOTSTRAP_ALLOC;
+use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::cpu::gdt::{
     KERNEL_CS,
@@ -66,7 +66,8 @@ pub fn init_idle_thread(core_logical_id: usize) -> *mut ThreadControlBlock {
 
     // init TCB
     unsafe {
-        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, core_logical_id, ThreadPriority::IDLE);
+        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 
+            core_logical_id, ThreadPriority::IDLE, KERNEL_PROCESS.clone());
         (*tcb_ptr).priority = ThreadPriority::IDLE;
     }
 

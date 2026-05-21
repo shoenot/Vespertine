@@ -4,6 +4,9 @@ use crate::{BOOTSTRAP_ALLOC, util::{bitwise::set_bit, read_from_msr, write_to_ms
 
 pub(crate) const KERNEL_CS: u64 = 0x08;
 pub(crate) const KERNEL_SS: u64 = 0x10;
+pub(crate) const USER_SS: u64 = 0x18 | 3;
+pub(crate) const USER_CS: u64 = 0x20 | 3;
+
 const IA32_EFER: u32 = 0xC0000080;
 const IA32_STAR: u32 = 0xC0000081;
 const IA32_LSTAR: u32 = 0xC0000082;
@@ -38,12 +41,12 @@ impl GDTEntry {
 #[derive(Clone, Copy)]
 pub struct TaskStateSegment {
     reserved_1: u32,
-    rsp: [u64; 3],
+    pub rsp: [u64; 3],
     reserved_2: u64,
-    ist: [u64; 7],
+    pub ist: [u64; 7],
     reserved_3: u64,
     reserved_4: u16,
-    iomap_base: u16,
+    pub iomap_base: u16,
 }
 
 impl TaskStateSegment {

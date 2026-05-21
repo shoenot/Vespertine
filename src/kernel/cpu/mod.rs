@@ -38,7 +38,7 @@ pub struct KernelCoreData {
 impl KernelCoreData {
     pub fn new(logical_id: usize) -> Self {
         let mut scheduler = SchedulerState::new();
-        scheduler.init(logical_id);
+        scheduler.init_basic(logical_id);
         Self {
             scheduler,
             work_queue: WorkQueue::new(),

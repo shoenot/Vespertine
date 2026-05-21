@@ -82,12 +82,13 @@ kernel: build/syscall.o
 build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
 	mkdir -p build
 	rm -rf iso_root
+	tar -cf build_deps/ramdisk.tar -C ramdisk . --format=ustar
 	mkdir -p iso_root/boot/limine
 	mkdir -p iso_root/EFI/BOOT
 	
 	# Copy the kernel from the cargo target directory
 	cp $(KERNEL_ELF) iso_root/boot/kernel
-	cp build_deps/filetest.txt iso_root/boot/filetest.txt
+	cp build_deps/ramdisk.tar iso_root/boot/ramdisk.tar
 	cp build_deps/limine.conf iso_root/boot/limine/
 	
 	# x86_64 Specific Limine binaries

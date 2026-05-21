@@ -17,6 +17,7 @@ pub enum InvocationError {
     InvalidHandle,
     InvalidArgument,
     UnsupportedOperation,
+    PathNotFound,
     BufferFull,
 }
 
@@ -28,6 +29,7 @@ impl fmt::Display for InvocationError {
             Self::InvalidArgument => write!(f, "INVOCATION ERROR: Invalid argument"),
             Self::UnsupportedOperation => write!(f, "INVOCATION ERROR: Unsupported operation."),
             Self::BufferFull => write!(f, "INVOCATION ERROR: Buffer full."),
+            Self::PathNotFound => write!(f, "INVOCATION ERROR: Path not found."),
         }
     }
 }

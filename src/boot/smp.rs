@@ -31,9 +31,11 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
     activate_core(core_data_ptr);
     crate::arch::x86_64::cpu::core::init_timer_daemon(core_data_ptr);
 
-    init_fpu(false);
-
     let core_data = get_core_data();
+    let logical_id = core_data.logical_id;
+    core_data.scheduler.init_threads(logical_id);
+
+    init_fpu(false);
 
     match &mut core_data.apic_mode {
         ApicMode::XApic(a) => {

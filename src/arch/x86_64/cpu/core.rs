@@ -5,7 +5,7 @@ use core::ops::{
 };
 
 use super::gdt::*;
-use crate::BOOTSTRAP_ALLOC;
+use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
 use crate::arch::x86_64::apic::lapic::ApicMode;
 use crate::kernel::cpu::KernelCoreData;
 use crate::kernel::thread::dispatch::create_tcb;
@@ -61,7 +61,8 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
 pub fn init_timer_daemon(data_ptr: *mut CPULocalData) {
     unsafe {
         let data = &mut *data_ptr;
-        data.timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH).unwrap();
+        data.timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, 
+            ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
         let timer_daemon_tcb = data.timer_daemon_tcb;
         data.scheduler.push(timer_daemon_tcb);
     }

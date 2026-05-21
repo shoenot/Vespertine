@@ -4,7 +4,7 @@ mod init_pmm;
 pub mod magazine;
 pub mod paging;
 mod pmm;
-mod vmm;
+pub mod vmm;
 pub mod vmo;
 
 pub use bootalloc::*;
@@ -25,9 +25,9 @@ use crate::arch::{
 };
 use crate::kernel::sync::{
     KernelOnceCell,
-    RwLock,
     TicketLock,
 };
+use crate::kernel::thread::get_current_process;
 use crate::{
     HHDM_REQUEST,
     klog,
@@ -42,10 +42,16 @@ pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 pub static GLOBAL_PMM: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 pub static ALLOCATOR: PCAllocator = PCAllocator {};
 pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
-pub static GLOBAL_VMM: RwLock<VirtMemManager> = RwLock::new(VirtMemManager::new(&PAGER, &ALLOCATOR));
 
-pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> { GLOBAL_VMM.read().handle_page_fault(addr, error_code) }
+pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> { 
+    if let Some(proc) = get_current_process() {
+        proc.vmm.read().handle_page_fault(addr, error_code)
+    } else {
+        Err(FaultError::InvalidAddress)
+    }
+}
 
+#[derive(Debug)]
 pub struct PCAllocator {}
 
 impl PCAllocator {
@@ -64,6 +70,10 @@ impl PCAllocator {
         }
     }
 
+    pub fn alloc_order(&self, order: usize) -> Option<usize> {
+        GLOBAL_PMM.lock().alloc_order(order)
+    }
+
     pub fn free(&self, addr: usize, size: BlockSize) {
         match size {
             BlockSize::Huge => {
@@ -78,6 +88,10 @@ impl PCAllocator {
                 }
             }
         }
+    }
+
+    pub fn free_order(&self, addr: usize, order: usize) {
+        GLOBAL_PMM.lock().free_order(addr, order)
     }
 }
 

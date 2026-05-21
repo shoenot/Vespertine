@@ -44,6 +44,14 @@ impl<T> KernelOnceCell<T> {
             }
         }
     }
+
+    pub fn get(&self) -> Option<&T> {
+        if self.state.load(Ordering::Acquire) == READY {
+            unsafe { Some((*self.value.get()).assume_init_ref()) }
+        } else {
+            None
+        }	
+    }
 }
 
 impl<T> Deref for KernelOnceCell<T> {

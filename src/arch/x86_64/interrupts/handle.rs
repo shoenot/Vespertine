@@ -21,10 +21,28 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
     match handle_page_fault(cr2 as usize, frame.error_code as usize) {
         Ok(_) => {},
         Err(e) => {
+            klogln!("");
+            klogln!("!------------- PAGE FAULT DIAGNOSTICS -------------!");
+            klogln!("Faulting Address (CR2): {:#018X}", cr2);
+            klogln!("Instruction Pointer (RIP): {:#018X}", frame.instruction_pointer);
+            klogln!("Error Code: {:#018X}", frame.error_code);
+            klogln!("Stack Frame Dump:");
+            klogln!("  RAX: {:#018X} | RBX: {:#018X}", frame.rax, frame.rbx);
+            klogln!("  RCX: {:#018X} | RDX: {:#018X}", frame.rcx, frame.rdx);
+            klogln!("  RSI: {:#018X} | RDI: {:#018X}", frame.rsi, frame.rdi);
+            klogln!("  RBP: {:#018X} | RSP: {:#018X}", frame.rbp, frame.stack_pointer);
+            klogln!("  R8 : {:#018X} | R9 : {:#018X}", frame.r8, frame.r9);
+            klogln!("  R10: {:#018X} | R11: {:#018X}", frame.r10, frame.r11);
+            klogln!("  R12: {:#018X} | R13: {:#018X}", frame.r12, frame.r13);
+            klogln!("  R14: {:#018X} | R15: {:#018X}", frame.r14, frame.r15);
+            klogln!("  CS : {:#06X} | SS : {:#06X} | RFLAGS: {:#018X}", frame.code_segment, frame.stack_segment, frame.cpu_flags);
+            klogln!("!--------------------------------------------------!");
+
             panic!("Fatal unhandled page fault: {:?}", e);
         }
     }
 }
+
 
 pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &mut InterruptStackFrame) {
     klogln!("General Protection Fault.\nError Code: {:#X}\nStack Frame:\n{:#?}", frame.error_code, frame);

@@ -10,6 +10,9 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use alloc::sync::Arc;
+
+use crate::arch::get_core_data;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
 use crate::kernel::process::pcb::Process;
@@ -24,11 +27,11 @@ use crate::kernel::thread::{
 };
 use crate::kernel::time::{
     get_time,
-    ns_to_ticks,
+    ns_to_ticks, update_hardware_timer,
 };
+use crate::memory::paging::load_cr3;
 use crate::{
-    BOOTSTRAP_ALLOC,
-    impl_queue_methods,
+    BOOTSTRAP_ALLOC, KERNEL_PROCESS, impl_queue_methods
 };
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
@@ -88,9 +91,12 @@ impl SchedulerState {
         }
     }
 
-    pub fn init(&mut self, logical_id: usize) {
-        self.idle_thread = init_idle_thread(logical_id);
+    pub fn init_basic(&mut self, logical_id: usize) {
         self.core_logical_id = logical_id;
+    }
+
+    pub fn init_threads(&mut self, logical_id: usize) {
+        self.idle_thread = init_idle_thread(logical_id);
 
         let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
 
@@ -99,7 +105,7 @@ impl SchedulerState {
         let fpu_ptr = crate::arch::x86_64::task::context::allocate_fpu_context_bootstrap();
 
         unsafe {
-            (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM, Process);
+            (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM, KERNEL_PROCESS.clone());
             (*tcb_ptr).state = ThreadState::Running;
         }
 
@@ -153,10 +159,24 @@ impl SchedulerState {
             (*next_thread).state = ThreadState::Running;
         }
 
-        crate::kernel::time::update_hardware_timer();
+        let next_stack_top = unsafe { (*next_thread).stack_base + (*next_thread).stack_size };
+        let core_data = get_core_data();
+        core_data.core_gdt.tss.rsp[0] = next_stack_top as u64;
+
+        update_hardware_timer();
 
         if prev_thread == next_thread {
             return;
+        }
+
+        unsafe {
+            let current_proc = &(*prev_thread).process;
+            let next_proc = &(*next_thread).process;
+
+            if !Arc::ptr_eq(current_proc, next_proc) {
+                let next_pml4 = next_proc.vmm.read().get_pml4_addr();
+                load_cr3(next_pml4 as u64);
+            }
         }
 
         if !prev_thread.is_null() {

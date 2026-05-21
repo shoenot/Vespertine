@@ -25,6 +25,7 @@ pub struct PageTableEntry(u64);
 #[derive(Copy, Clone)]
 pub struct VirtAddress(pub u64);
 
+#[derive(Debug)]
 pub struct Pager {
     active_l4_addr: u64,
     allocator: &'static PhysAlloc,
@@ -297,6 +298,28 @@ impl Pager {
 
         self.active_l4_addr = pml4_table_frame;
         Some(())
+    }
+
+    pub fn init_process_pager(&mut self) -> Option<()> {
+        let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
+
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
+        new_pml4_table.zero();
+
+        let old_pml4_table_addr = get_cr3() & 0x000F_FFFF_FFFF_F000;
+        let old_pml4_table = unsafe { &*((old_pml4_table_addr + *HHDMOFFSET as u64) as *const PageTable) };
+
+        for idx in 256..512 {
+            new_pml4_table.entries[idx] = old_pml4_table.entries[idx];
+        }
+
+        self.active_l4_addr = pml4_table_frame;
+        Some(())
+    }
+
+    // get pml4 frame addr
+    pub fn get_l4_addr(&self) -> u64 {
+        self.active_l4_addr
     }
 
     pub fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, phys_offset: u64, size: BlockSize) -> Option<()> {

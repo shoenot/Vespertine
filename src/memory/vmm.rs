@@ -90,9 +90,10 @@ pub fn allocate_node() -> *mut VmaNode {
     }
 }
 
+#[derive(Debug)]
 pub struct VirtMemManager {
     head: Option<*mut VmaNode>,
-    pager: &'static TicketLock<Pager>,
+    pager: TicketLock<Pager>,
     allocator: &'static PCAllocator,
 }
 
@@ -102,7 +103,16 @@ unsafe impl Sync for VirtMemManager {}
 fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 
 impl VirtMemManager {
-    pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static PCAllocator) -> Self { Self { head: None, pager, allocator } }
+    pub fn new(allocator: &'static PCAllocator) -> Self { 
+        let mut pager = Pager::new(allocator);
+        pager.init_process_pager().expect("Failed to initialize process pager");
+
+        Self { head: None, pager: TicketLock::new(pager), allocator } 
+    }
+
+    pub fn get_pml4_addr(&self) -> usize {
+        self.pager.lock().get_l4_addr() as usize
+    }
 
     // temp for now
     pub fn mmap(&mut self, size: usize, flags: usize) -> Option<usize> {
@@ -185,6 +195,11 @@ impl VirtMemManager {
         }
         unsafe { dealloc(node_ptr as *mut u8, Layout::new::<VmaNode>()); }
         None
+    }
+
+    pub fn mmap_vmo(&mut self, size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>) -> Option<usize> {
+        let node_ptr = allocate_node();
+        self.mmap_internal(size, flags, Some(backing_vmo), 0, node_ptr)
     }
 
     pub fn munmap(&mut self, start_addr: usize, mut size: usize) -> Result<(), &'static str> {

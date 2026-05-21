@@ -40,7 +40,6 @@ pub fn init_bootstrap_core() {
     let data_ptr = init_core_data(lapic_id as usize, 0, lapic);
     activate_core(data_ptr);
     init_global_apics();
-    init_timer_daemon(data_ptr);
 }
 
 pub fn init_fpu(bsp: bool) {

@@ -1,7 +1,7 @@
 use core::sync::atomic::AtomicUsize;
 
 use alloc::{collections::btree_map::BTreeMap, sync::Arc};
-use crate::kernel::{object::{handle::HandleID, obj::HandleEntry}, sync::RwLock};
+use crate::{kernel::{object::{handle::{HandleID, HandleTable}, obj::HandleEntry}, sync::RwLock}, memory::{ALLOCATOR, vmm::VirtMemManager}};
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 
@@ -14,8 +14,8 @@ pub type Process = Arc<ProcessControlBlock>;
 #[derive(Debug)]
 pub struct ProcessControlBlock {
     pub proc_id: usize,
-    pub proc_handles: RwLock<BTreeMap<HandleID, HandleEntry>>,
-    // pub vmm: RwLock<VirtMemManager>,
+    pub proc_handles: RwLock<HandleTable>,
+    pub vmm: RwLock<VirtMemManager>,
     // pub proc_threads: Vec<&ThreadControlBlock>,
 }
 
@@ -24,7 +24,8 @@ impl ProcessControlBlock {
         Arc::new(
             Self {
                 proc_id: get_new_pid(),
-                proc_handles: RwLock::new(BTreeMap::new()),
+                proc_handles: RwLock::new(HandleTable::new()),
+                vmm: RwLock::new(VirtMemManager::new(&ALLOCATOR)),
             }
         )
     }

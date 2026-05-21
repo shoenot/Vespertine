@@ -12,8 +12,9 @@ use crate::arch::x86_64::cpu::fpu::{
 };
 use crate::arch::x86_64::cpu::gdt::{
     KERNEL_CS,
-    KERNEL_SS,
+    KERNEL_SS, USER_CS, USER_SS,
 };
+use crate::kernel::thread::ThreadError;
 
 #[repr(C, align(16))]
 pub struct ThreadContext {
@@ -71,6 +72,16 @@ impl ThreadContext {
         self.cpu_flags = 0x202; // IF set
         self.rdi = arg;
     }
+
+    pub fn init_user(&mut self, entry_point: u64, stack_top: u64, arg: usize) {
+        self.zero_gp();
+        self.instruction_pointer = entry_point;
+        self.stack_pointer = stack_top;
+        self.code_segment = USER_CS;
+        self.stack_segment = USER_SS;
+        self.cpu_flags = 0x202; // IF set
+        self.rdi = arg;
+    }
 }
 
 #[repr(C)]
@@ -117,8 +128,8 @@ pub(crate) struct SyscallFrame {
 }
 
 pub fn init_thread_stack(
-    entry_point: usize, arg: usize, stack_base: usize, stack_size: usize,
-) -> Result<(usize, *mut u8), crate::kernel::thread::ThreadError> {
+    entry_point: usize, arg: usize, stack_base: usize, stack_size: usize, is_user: bool, user_stack_top: usize,
+) -> Result<(usize, *mut u8), ThreadError> {
     let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
 
     let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
@@ -140,7 +151,11 @@ pub fn init_thread_stack(
     let context_addr = context_addr & !0xF; // align to 16 bytes
     let context = unsafe { &mut *(context_addr as *mut ThreadContext) };
 
-    context.init(entry_point as u64, (stack_top - 8) as u64, arg);
+    if is_user {
+        context.init_user(entry_point as u64, user_stack_top as u64, arg);
+    } else {
+        context.init(entry_point as u64, (stack_top - 8) as u64, arg);
+    }
 
     let switch_addr = context_addr - size_of::<SwitchContext>();
     let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };

@@ -1,11 +1,11 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use alloc::{
     slice,
     str,
-};
-use core::borrow::Borrow;
+}; use core::borrow::Borrow;
 use core::str::Utf8Error;
 use crate::arch::get_core_data;
 use crate::kernel::object::handle::{AccessRights, HandleID};
@@ -15,8 +15,9 @@ use crate::kernel::object::invoke::{
 };
 use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::object::obj::{HandleEntry, KernelObject};
-use crate::kernel::process::pcb::get_new_pid;
+use crate::kernel::object::vfs::kernel_invoke;
 use crate::kernel::sync::RwLock;
+use crate::kernel::thread::get_current_process;
 
 #[derive(Debug)]
 pub struct Directory {
@@ -58,11 +59,11 @@ impl Filename {
 }
 
 impl KernelObject for Directory {
-    fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError> {
+    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => self.link(name, name_len, handle_id),
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => self.unlink(name, name_len),
-            Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len),
+            Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len, calling_rights),
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -93,7 +94,7 @@ impl Directory {
         Ok(0)
     }
 
-    fn lookup(&self, name: *const u8, name_len: usize) -> Result<usize, InvocationError> {
+    fn lookup(&self, name: *const u8, name_len: usize, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         let name_str = unsafe {
             let name_bytes = slice::from_raw_parts(name, name_len);
             str::from_utf8(name_bytes)?
@@ -104,13 +105,12 @@ impl Directory {
             None => return Err(InvocationError::InvalidArgument),
         };
 
-        let current_thread = get_core_data().scheduler.get_current_thread();
-        let proc = unsafe { &(*current_thread).process };
-
-        let mut table = proc.proc_handles.write();
-        let new_id = get_new_pid();
-        table.insert(HandleID(new_id), HandleEntry { rights: AccessRights::MUTATE | AccessRights::READ | AccessRights::WRITE, object: obj_arc });
-
-        Ok(new_id)
+        let rights = AccessRights(calling_rights.0 & (AccessRights::MUTATE | AccessRights::READ | AccessRights::WRITE).0);
+        let handle_id = get_current_process()
+            .ok_or(InvocationError::InvalidHandle)?
+            .proc_handles
+            .write()
+            .insert(obj_arc, rights);
+        Ok(handle_id.0)
     }
 }

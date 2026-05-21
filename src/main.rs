@@ -31,8 +31,11 @@ use memory::{
     BlockSize,
 };
 
+use crate::arch::x86_64::cpu::core::{CPULocalData, init_timer_daemon};
 use crate::drivers::keyboard::init_keyboard_irq;
+use crate::kernel::object::handle::{AccessRights, HandleID};
 use crate::kernel::object::models::directory::Directory;
+use crate::kernel::object::obj::HandleEntry;
 use crate::kernel::object::vfs::ROOT_DIRECTORY;
 use crate::kernel::process::pcb::{Process, ProcessControlBlock};
 use crate::kernel::sync::KernelOnceCell;
@@ -53,14 +56,25 @@ pub extern "C" fn kmain() -> ! {
 
     arch::init();
     arch::init_fpu(true);
+
     arch::init_bootstrap_core();
+
+    let kernel_proc = KERNEL_PROCESS.get_or_init(|| ProcessControlBlock::new());
+
+    kernel_proc.proc_handles.write().insert_at(
+        HandleID(0), 
+        ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone(),
+        AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE
+    );
+
+    get_core_data().scheduler.init_threads(0);
+
     time::init();
+    let data_ptr = get_core_data() as *mut CPULocalData;
+    init_timer_daemon(data_ptr);
 
     let cr3 = get_cr3();
     BSP_CR3.store(cr3, Ordering::Relaxed);
-
-    ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new()));
-    KERNEL_PROCESS.get_or_init(|| ProcessControlBlock::new());
 
     init_smp();
 
