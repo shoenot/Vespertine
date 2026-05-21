@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 
+use crate::arch::get_core_data;
 use crate::kernel::object::handle::{
     AccessRights,
     HandleID,
@@ -8,18 +9,18 @@ use crate::kernel::object::invoke::{
     Invocation,
     InvocationError,
 };
+use crate::kernel::object::models::directory::Directory;
 use crate::kernel::object::obj::{
     KernelHandleTable,
     KernelObject,
 };
 use crate::kernel::object::op::DirectoryOp;
-use crate::kernel::sync::RwLock;
+use crate::kernel::sync::{KernelOnceCell, RwLock};
 use crate::{
     klog, klogln
 };
 
-pub static PRINCIPAL_HANDLE_TABLE: RwLock<KernelHandleTable> = RwLock::new(KernelHandleTable::new());
-pub static ROOT_DIRECTORY: RwLock<Option<HandleID>> = RwLock::new(None);
+pub static ROOT_DIRECTORY: KernelOnceCell<Arc<Directory>> = KernelOnceCell::new();
 
 pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights) -> HandleID {
     let mut table = PRINCIPAL_HANDLE_TABLE.write();
@@ -29,8 +30,17 @@ pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights
 pub fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let demanded_rights = invocation.required_rights();
 
-    let table = PRINCIPAL_HANDLE_TABLE.read();
-    let obj_arc = table.resolve(handle, demanded_rights)?;
+    let current_thread = get_core_data().scheduler.get_current_thread();
+    let process = unsafe { &(*current_thread).process };
+
+    let table = process.proc_handles.read();
+    let entry = table.get(&handle).ok_or(InvocationError::InvalidHandle)?;
+
+    if !entry.rights.contains(demanded_rights) {
+        return Err(InvocationError::AccessDenied);
+    }
+
+    let obj_arc = entry.object.clone();
     drop(table);
 
     obj_arc.invoke(invocation)

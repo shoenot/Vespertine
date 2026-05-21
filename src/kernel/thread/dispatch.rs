@@ -11,6 +11,7 @@ use crate::kernel::cpu::{
     get_core_data_for,
     try_get_core_data_for,
 };
+use crate::kernel::process::pcb::Process;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::{
     ThreadControlBlock,
@@ -18,8 +19,8 @@ use crate::kernel::thread::{
     ThreadState,
 };
 
-pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority) -> *mut ThreadControlBlock {
-    let tcb_ptr = create_tcb(entry_point, arg, priority).expect("Unable to spawn kernel thread");
+pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut ThreadControlBlock {
+    let tcb_ptr = create_tcb(entry_point, arg, priority, proc).expect("Unable to spawn kernel thread");
 
     let mut best_core = 0;
     let mut min_load = usize::MAX;
@@ -76,7 +77,7 @@ pub fn wake_thread(thread: *mut ThreadControlBlock) {
     }
 }
 
-pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority) -> Result<*mut ThreadControlBlock, ThreadError> {
+pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> Result<*mut ThreadControlBlock, ThreadError> {
     let stack_size = 4096 * 4;
     // alloc memory for structs
     let tcb_layout = Layout::new::<ThreadControlBlock>();
@@ -98,7 +99,7 @@ pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority) -> R
 
     // init TCB
     unsafe {
-        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority);
+        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc);
     }
 
     Ok(tcb_ptr)

@@ -1,9 +1,11 @@
 use core::ptr::null_mut;
 
-use super::priority::ThreadPriority;
-use crate::kernel::thread::schedule::get_new_tid;
+use alloc::sync::Arc;
 
-#[derive(PartialEq)]
+use super::priority::ThreadPriority;
+use crate::kernel::{process::pcb::{Process, ProcessControlBlock}, thread::schedule::get_new_tid};
+
+#[derive(Debug, PartialEq)]
 pub enum ThreadState {
     Ready,
     Running,
@@ -12,7 +14,7 @@ pub enum ThreadState {
 }
 
 #[repr(C)]
-#[derive(PartialEq)]
+#[derive(Debug)]
 pub struct ThreadControlBlock {
     pub thread_id: usize,
     pub state: ThreadState,
@@ -25,12 +27,19 @@ pub struct ThreadControlBlock {
     pub stack_size: usize,
     pub extended_context: *mut u8,
     pub home_core: usize,
+    pub process: Arc<ProcessControlBlock>,
     pub next: *mut ThreadControlBlock,
+}
+
+impl PartialEq for ThreadControlBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.thread_id == other.thread_id
+    }
 }
 
 impl ThreadControlBlock {
     pub fn init(
-        &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority,
+        &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority, proc: Process
     ) {
         self.thread_id = get_new_tid();
         self.state = ThreadState::Ready;
@@ -41,6 +50,7 @@ impl ThreadControlBlock {
         self.stack_size = stack_size;
         self.extended_context = fpu_ptr;
         self.home_core = home_core;
+        self.process = proc;
         self.next = null_mut();
     }
 }

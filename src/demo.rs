@@ -24,10 +24,10 @@ pub static THREADS_FINISHED: AtomicUsize = AtomicUsize::new(0);
 pub fn run_demo() -> ! {
     let scheduler = &mut get_core_data().scheduler;
 
-    let tt1 = test_thread as *const ();
-    spawn_kernel_thread(tt1 as usize, 1, ThreadPriority::MEDIUM);
-    let tt2 = test_thread as *const ();
-    spawn_kernel_thread(tt2 as usize, 2, ThreadPriority::MEDIUM);
+    // let tt1 = test_thread as *const ();
+    // spawn_kernel_thread(tt1 as usize, 1, ThreadPriority::MEDIUM);
+    // let tt2 = test_thread as *const ();
+    // spawn_kernel_thread(tt2 as usize, 2, ThreadPriority::MEDIUM);
 
     scheduler.terminate();
     unreachable!()

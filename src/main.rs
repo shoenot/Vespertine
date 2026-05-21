@@ -14,6 +14,7 @@ mod util;
 
 use core::sync::atomic::Ordering;
 
+use alloc::sync::Arc;
 use arch::x86_64::hcf;
 use arch::{
     enable_interrupts,
@@ -31,10 +32,16 @@ use memory::{
 };
 
 use crate::drivers::keyboard::init_keyboard_irq;
+use crate::kernel::object::models::directory::Directory;
+use crate::kernel::object::vfs::ROOT_DIRECTORY;
+use crate::kernel::process::pcb::{Process, ProcessControlBlock};
+use crate::kernel::sync::KernelOnceCell;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::memory::GLOBAL_PMM;
+
+pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -52,6 +59,9 @@ pub extern "C" fn kmain() -> ! {
     let cr3 = get_cr3();
     BSP_CR3.store(cr3, Ordering::Relaxed);
 
+    ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new()));
+    KERNEL_PROCESS.get_or_init(|| ProcessControlBlock::new());
+
     init_smp();
 
     time::init_realtime();
@@ -60,7 +70,7 @@ pub extern "C" fn kmain() -> ! {
     init_keyboard_irq();
     enable_interrupts();
 
-    spawn_kernel_thread(tasks::initializer as *const () as usize, 0, ThreadPriority::MAXIMUM);
+    spawn_kernel_thread(tasks::initializer as *const () as usize, 0, ThreadPriority::MAXIMUM, KERNEL_PROCESS.clone());
 
     terminate_thread!();
 }

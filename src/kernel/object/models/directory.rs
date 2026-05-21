@@ -1,24 +1,26 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
 use alloc::{
     slice,
     str,
 };
 use core::borrow::Borrow;
 use core::str::Utf8Error;
-
-use crate::kernel::object::handle::HandleID;
+use crate::arch::get_core_data;
+use crate::kernel::object::handle::{AccessRights, HandleID};
 use crate::kernel::object::invoke::{
     Invocation,
     InvocationError,
 };
 use crate::kernel::object::op::DirectoryOp;
-use crate::kernel::object::obj::KernelObject;
+use crate::kernel::object::obj::{HandleEntry, KernelObject};
+use crate::kernel::process::pcb::get_new_pid;
 use crate::kernel::sync::RwLock;
 
 #[derive(Debug)]
 pub struct Directory {
-    tree: RwLock<BTreeMap<Filename, HandleID>>,
+    tree: RwLock<BTreeMap<Filename, Arc<dyn KernelObject>>>,
 }
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -71,7 +73,14 @@ impl Directory {
 
     fn link(&self, name: *const u8, name_len: usize, handle_id: HandleID) -> Result<usize, InvocationError> {
         let filename = Filename::new(name, name_len)?;
-        self.tree.write().insert(filename, handle_id);
+        let current_thread = get_core_data().scheduler.get_current_thread();
+        let proc = unsafe { &(*current_thread).process };
+
+        let table = proc.proc_handles.read();
+        let entry = table.get(&handle_id).ok_or(InvocationError::InvalidHandle)?;
+        let obj_arc = entry.object.clone();
+
+        self.tree.write().insert(filename, obj_arc);
         Ok(0)
     }
 
@@ -89,9 +98,19 @@ impl Directory {
             let name_bytes = slice::from_raw_parts(name, name_len);
             str::from_utf8(name_bytes)?
         };
-        match self.tree.read().get(name_str).copied() {
-            Some(h) => Ok(h.0),
-            None => Err(InvocationError::InvalidHandle),
-        }
+
+        let obj_arc = match self.tree.read().get(name_str) {
+            Some(obj) => obj.clone(),
+            None => return Err(InvocationError::InvalidArgument),
+        };
+
+        let current_thread = get_core_data().scheduler.get_current_thread();
+        let proc = unsafe { &(*current_thread).process };
+
+        let mut table = proc.proc_handles.write();
+        let new_id = get_new_pid();
+        table.insert(HandleID(new_id), HandleEntry { rights: AccessRights::MUTATE | AccessRights::READ | AccessRights::WRITE, object: obj_arc });
+
+        Ok(new_id)
     }
 }

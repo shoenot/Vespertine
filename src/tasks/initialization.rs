@@ -20,9 +20,7 @@ use crate::tests::smp_tests::{
     THREADS_FINISHED,
 };
 use crate::{
-    klogln,
-    terminate_thread,
-    tests,
+    KERNEL_PROCESS, klogln, terminate_thread, tests
 };
 
 // Kernel initialization tasks
@@ -33,12 +31,12 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     init_vfs();
 
-    spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER);
+    spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER, KERNEL_PROCESS.clone());
 
     let (kbd_handle, shell_handle) = init_ipc_pipeline();
 
-    spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_handle.0, ThreadPriority::HIGH);
-    spawn_kernel_thread(kernel_shell_thread as *const () as usize, shell_handle.0, ThreadPriority::MEDIUM);
+    spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
+    spawn_kernel_thread(kernel_shell_thread as *const () as usize, shell_handle.0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
 
     terminate_thread!();
 }
@@ -60,7 +58,7 @@ pub extern "C" fn watchdog(threads: usize) -> ! {
 
 pub extern "C" fn time_print_dispatcher(_arg: usize) -> ! {
     loop {
-        spawn_kernel_thread(time_print as *const () as usize, 0, ThreadPriority::MEDIUM);
+        spawn_kernel_thread(time_print as *const () as usize, 0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
         sleep(1_000_000_000);
     }
 }
