@@ -144,7 +144,7 @@ impl KmemCache {
     pub unsafe fn deallocate(&mut self, ptr: *mut u8) {
         unsafe {
             let new_node = ptr as *mut FreeBlock;
-            (*new_node).next = self.freelist_head.map_or(null_mut(), |h| h);
+            (*new_node).next = self.freelist_head.unwrap_or(null_mut());
             self.freelist_head = Some(new_node);
         }
     }

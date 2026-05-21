@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use core::ptr;
+
 use alloc::alloc::{
     Layout,
     alloc,
@@ -17,6 +19,7 @@ use crate::kernel::object::obj::KernelObject;
 use crate::kernel::object::op::VmoOp;
 use crate::kernel::sync::TicketLock;
 use crate::memory::PCAllocator;
+use crate::memory::vmo::PagedBackingStore;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
@@ -28,6 +31,7 @@ pub static VM_FLAG_WRITE_THROUGH: usize = 1 << 6;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
 static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;
+const BATCH_SIZE: usize = 64;
 
 #[derive(Debug)]
 pub enum FaultError {
@@ -71,7 +75,7 @@ pub struct VmaNode {
     pub flags: usize,
     pub prev: Option<*mut VmaNode>,
     pub next: Option<*mut VmaNode>,
-    pub backing_vmo: Option<Arc<dyn KernelObject>>,
+    pub backing_vmo: Option<Arc<dyn PagedBackingStore>>,
     pub vmo_offset: usize,
 }
 
@@ -102,10 +106,11 @@ impl VirtMemManager {
 
     // temp for now
     pub fn mmap(&mut self, size: usize, flags: usize) -> Option<usize> {
-        self.mmap_internal(size, flags, None, 0)
+        let node_ptr = allocate_node();
+        self.mmap_internal(size, flags, None, 0, node_ptr)
     }
 
-    pub fn mmap_internal(&mut self, mut size: usize, flags: usize, backing_vmo: Option<Arc<dyn KernelObject>>, vmo_offset: usize) -> Option<usize> {
+    pub fn mmap_internal(&mut self, mut size: usize, flags: usize, backing_vmo: Option<Arc<dyn PagedBackingStore>>, vmo_offset: usize, node_ptr: *mut VmaNode) -> Option<usize> {
         let mask = if flags & VM_FLAG_HUGE != 0 { HUGE_PAGE_SIZE - 1 } else { NORMAL_PAGE_SIZE - 1 };
 
         size = (size + mask) & !mask;
@@ -160,25 +165,25 @@ impl VirtMemManager {
 
         if let Some(addr) = gap_start {
             unsafe {
-                let new_node_ptr = allocate_node();
-                *new_node_ptr = VmaNode { 
+                ptr::write(node_ptr, VmaNode { 
                     start: addr, size, flags, 
                     prev: prev_ptr, next: current_ptr,
                     backing_vmo, vmo_offset,
-                };
+                });
 
                 if let Some(prev) = prev_ptr {
-                    (*prev).next = Some(new_node_ptr);
+                    (*prev).next = Some(node_ptr);
                 } else {
-                    self.head = Some(new_node_ptr);
+                    self.head = Some(node_ptr);
                 }
 
                 if let Some(next) = current_ptr {
-                    (*next).prev = Some(new_node_ptr);
+                    (*next).prev = Some(node_ptr);
                 }
             }
             return Some(addr);
         }
+        unsafe { dealloc(node_ptr as *mut u8, Layout::new::<VmaNode>()); }
         None
     }
 
@@ -227,25 +232,35 @@ impl VirtMemManager {
         let mut current_page = target_vma.start;
         let end_page = target_vma.start + target_vma.size;
 
+        let mut phys_batch = [0usize; BATCH_SIZE];
+
         while current_page < end_page {
-            let virt = VirtAddress(current_page as u64);
-            let mut phys_to_free = None;
+            let mut batch_count = 0;
+            let batch_start = current_page;
 
             {
                 let mut pagerlock = self.pager.lock();
-                if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
-                    phys_to_free = Some(phys_addr as usize);
-                    pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+
+                while current_page < end_page && batch_count < BATCH_SIZE {
+                    let virt = VirtAddress(current_page as u64);
+
+                    if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
+                        phys_batch[batch_count] = phys_addr as usize;
+                        batch_count += 1;
+                        pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+                    }
+                    current_page += step_size;
                 }
             }
 
-            shootdown(current_page, size);
-
-            if let Some(phys_addr) = phys_to_free {
-                self.allocator.free(phys_addr, block_size);
+            // fire ipis by batches because doing it for every page is bad for performance
+            if batch_count > 0 {
+                let batch_size_bytes = current_page - batch_start;
+                shootdown(batch_start, batch_size_bytes);
+                for i in 0..batch_count {
+                    self.allocator.free(phys_batch[i],block_size);
+                }
             }
-
-            current_page += step_size;
         }
 
         unsafe {
@@ -322,9 +337,6 @@ impl VirtMemManager {
         let is_write = (error_code & (1 << 1)) != 0;
         let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;
 
-        let is_write = (error_code & (1 << 1)) != 0;
-        let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;
-
         if is_write && !vma_allows_write {
             return Err(FaultError::AccessDenied); // tried writing to a read only vma which is very illegal and a real fault
         }
@@ -340,9 +352,9 @@ impl VirtMemManager {
 
         let phys_frame = if let Some(ref obj) = target_vma.backing_vmo {
             // if vmo already has the page then use it 
-            match obj.invoke(Invocation::Vmo(VmoOp::GetPage { offset: vmo_offset })) {
+            match obj.request_page(vmo_offset) {
                 Ok(addr) => addr,
-                Err(e) => return Err(FaultError::Invocation(e)),
+                Err(_) => return Err(FaultError::MappingFailed),
             }
         } else {
             // else get it from the allocator

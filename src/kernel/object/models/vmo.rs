@@ -1,11 +1,11 @@
 use alloc::sync::Arc;
 
-use crate::{kernel::object::{invoke::{Invocation, InvocationError}, obj::KernelObject, op::VmoOp}, memory::vmo::Vmo};
+use crate::{kernel::object::{invoke::{Invocation, InvocationError}, obj::KernelObject, op::VmoOp}, memory::vmo::{PagedBackingStore, Vmo}};
 
 
 #[derive(Debug)]
 pub struct VmoObject {
-    vmo: Arc<Vmo>,
+    vmo: Arc<dyn PagedBackingStore>,
 }
 
 impl KernelObject for VmoObject {
@@ -13,18 +13,16 @@ impl KernelObject for VmoObject {
         if let Invocation::Vmo(vmo_op) = invocation {
             match vmo_op {
                 VmoOp::GetPage { offset } => { 
-                    if offset >= self.vmo.size {
-                        return Err(InvocationError::InvalidArgument);
-                    }
-                    Ok(self.vmo.get_page(offset))
+                    self.vmo.request_page(offset)
+                        .map_err(|_| InvocationError::InvalidArgument)
                 },
                 VmoOp::Resize { new_size } => { 
-                    self.vmo.resize(new_size);
+                    self.vmo.resize_object(new_size)
+                        .map_err(|_| InvocationError::UnsupportedOperation)?;
                     Ok(0)
                 },
                 VmoOp::Clone { offset, len } => { 
-                    let new_handle = self.vmo.clone_range(offset, len);
-                    Ok(new_handle)
+                    Err(InvocationError::UnsupportedOperation)
                 },
             }
         } else {
