@@ -9,6 +9,7 @@ use crate::arch::x86_64::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
+use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
 use crate::kernel::sync::KernelOnceCell;
 use crate::kernel::thread::ThreadState;
 use crate::kernel::thread::priority::ThreadPriority;
@@ -24,6 +25,7 @@ use crate::kernel::time::{
     TimeFn,
     USE_TSC_DEADLINE,
 };
+use crate::klogln;
 use crate::util::write_to_msr;
 
 static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
@@ -129,8 +131,10 @@ pub fn update_hardware_timer() {
         // clamp to 32 bits
         let ticks = if diff > u32::MAX as usize { u32::MAX as usize } else { diff };
 
+        klogln!("arm sleep ticks. next event: {}", next_event);
         arm_sleep_ticks(ticks);
     } else {
+        klogln!("stop timer. next event: {}", next_event);
         core_data.apic_mode.stop_timer();
     }
 }
@@ -155,6 +159,8 @@ pub fn sleep(ns: usize) {
         let mut queue = get_core_data().callout_queue.lock();
         queue.push(callout);
     }
+
+    klogln!("pushed to callout in sleep function");
 
     sched.schedule();
 

@@ -7,6 +7,7 @@ use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
 use crate::arch::x86_64::io;
 use crate::drivers::keyboard;
+use crate::drivers::serial::{log_to_serial, log_u32_to_serial};
 use crate::kernel::thread::tcb::ThreadState;
 use crate::klogln;
 use crate::memory::handle_page_fault;
@@ -58,10 +59,15 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
+    klogln!("core id is {}", core_data.logical_id);
     core_data.apic_mode.eoi();
 
     if core_data.scheduler.idle_thread.is_null() {
+        klogln!("idle thread is null");
+        core_data.apic_mode.arm_oneshot(100_000);
         return;
+    } else {
+        klogln!("idle thread is NOT null");
     }
 
     unsafe {

@@ -29,6 +29,7 @@ use crate::arch::x86_64::cpu::fpu::{
     USE_XSAVE,
     init_xsave,
 };
+use crate::arch::x86_64::cpuid::check_xsave_support;
 use crate::arch::x86_64::timer::read_rtc;
 use crate::kernel::time::datetime::datetime_to_epoch;
 
@@ -45,9 +46,11 @@ pub fn init_bootstrap_core() {
 pub fn init_fpu(bsp: bool) {
     unsafe {
         init_cr4();
-        if bsp {
-            init_default_fpu_cxt();
-        } else if USE_XSAVE.load(Ordering::Relaxed) {
+    }
+    if bsp {
+        init_default_fpu_cxt();
+    } else if check_xsave_support() {
+        unsafe {
             init_xsave();
         }
     }

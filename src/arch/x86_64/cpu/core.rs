@@ -5,7 +5,7 @@ use core::ops::{
 };
 
 use super::gdt::*;
-use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
+use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS, klogln};
 use crate::arch::x86_64::apic::lapic::ApicMode;
 use crate::kernel::cpu::KernelCoreData;
 use crate::kernel::thread::dispatch::create_tcb;
@@ -43,6 +43,7 @@ impl DerefMut for CPULocalData {
 pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {
     unsafe {
         let data_addr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<CPULocalData>(), 8);
+        klogln!("core {} was allocated data addr 0x{:X}", logical_id, data_addr as usize);
         let data_ptr = data_addr as *mut CPULocalData;
 
         let lgdt_ptr = &mut (*data_ptr).core_gdt as *mut CPULocalGDT;

@@ -55,6 +55,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     klogln!("Root:");
     kernel_invoke(HandleID(0), Invocation::Directory(DirectoryOp::List(0))).expect("Cannot print root directory tree");
 
+    sleep(1_000_000_000);
+
     let pm_handle = kernel_walk("/Objects/ProcessManager", HandleID(0)).expect("No Process Manager found");
     let exec_handle = kernel_walk("/Programs/hellotime", HandleID(0)).expect("No program found");
     let root_handle = HandleID(0);

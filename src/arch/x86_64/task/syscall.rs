@@ -2,7 +2,7 @@ use core::{fmt::Display, intrinsics::copy_nonoverlapping, mem::zeroed};
 
 use alloc::{slice, string::String, vec::Vec};
 
-use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, kernel::{object::{handle::HandleID, invoke::Invocation, vfs::kernel_invoke}, thread::get_current_process}, klogln, terminate_thread};
+use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, kernel::{object::{handle::HandleID, invoke::{Invocation, InvocationError}, vfs::kernel_invoke}, thread::get_current_process}, klogln, terminate_thread};
 
 pub enum SysError {
     Success = 0,
@@ -58,6 +58,18 @@ impl SysError {
             25 => SysError::BufferFull,
             41 => SysError::UnknownSyscall,
             _ => SysError::UnknownSyscall,
+        }
+    }
+
+    pub fn from_invocation_err(err: InvocationError) -> Self {
+        match err {
+            InvocationError::AccessDenied => SysError::AccessDenied,
+            InvocationError::InvalidHandle => SysError::InvalidHandle,
+            InvocationError::InvalidArgument => SysError::InvalidArgument,
+            InvocationError::UnsupportedOperation => SysError::UnsupportedOperation,
+            InvocationError::BufferFull => SysError::BufferFull,
+            InvocationError::OutOfMemory => SysError::OutOfMemory,
+            InvocationError::PathNotFound => SysError::BadAddress,
         }
     }
 }
@@ -159,7 +171,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 (*frame).rax = SysError::Success as usize;
                 (*frame).rdx = payload;
             },
-            Err(e) => (*frame).rax = e as usize,
+            Err(e) => (*frame).rax = SysError::from_invocation_err(e) as usize,
         }
     }
 }

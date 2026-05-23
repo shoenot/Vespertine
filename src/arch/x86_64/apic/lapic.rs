@@ -145,7 +145,7 @@ impl ApicDriver for XApicDriver {
         let lower = target_id << 24;
         unsafe {
             self.write_reg(0x310, lower);
-            self.write_reg(0x300, vector);
+            self.write_reg(0x300, vector | 0x4000 );
         }
     }
 }
@@ -207,7 +207,7 @@ impl ApicDriver for X2ApicDriver {
     }
 
     fn send_ipi(&self, target_id: u32, vector: u32) {
-        let val = ((target_id as u64) << 32) | vector as u64;
+        let val = ((target_id as u64) << 32) | 0x4000 | vector as u64;
         unsafe {
             write_to_msr(val, 0x830);
         }
