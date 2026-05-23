@@ -15,7 +15,7 @@ use alloc::sync::Arc;
 use crate::arch::get_core_data;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
-use crate::kernel::process::pcb::Process;
+use crate::kernel::object::models::process::Process;
 use crate::kernel::sync::TicketLock;
 use crate::kernel::thread::idle::*;
 use crate::kernel::thread::priority::ThreadPriority;

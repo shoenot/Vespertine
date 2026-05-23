@@ -2,3 +2,7 @@ pub mod directory;
 pub mod file;
 pub mod channel;
 pub mod vmo;
+pub mod process;
+pub mod procman;
+pub mod memman;
+pub mod mempool;

@@ -91,7 +91,7 @@ unsafe extern "sysv64" {
     fn _syscall_entry();
 }
 
-fn init_syscall_msrs() {
+pub fn init_syscall_msrs() {
     unsafe {
         // EFER = current with bit 0 enabled to activate syscall/sysret
         let efer = read_from_msr(IA32_EFER);
@@ -143,7 +143,5 @@ pub(in crate::arch::x86_64) fn init_core_gdt(lgdt_ptr: *mut CPULocalGDT) {
             limit: (core::mem::size_of::<[GDTEntry; 7]>() - 1) as u16,
             base: &mut (*lgdt_ptr).gdt as *mut [GDTEntry; 7] as u64,
         };
-
-        init_syscall_msrs();
     }
 }

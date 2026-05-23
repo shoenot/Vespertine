@@ -3,11 +3,7 @@ use core::str::Utf8Error;
 
 use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::op::{
-    ChannelOp,
-    DirectoryOp,
-    FileOp,
-    ProcOp,
-    VmoOp,
+    ChannelOp, DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp, ProcOp, VmoOp
 };
 
 #[derive(Debug)]
@@ -18,6 +14,7 @@ pub enum InvocationError {
     UnsupportedOperation,
     PathNotFound,
     BufferFull,
+    OutOfMemory,
 }
 
 impl fmt::Display for InvocationError {
@@ -29,6 +26,7 @@ impl fmt::Display for InvocationError {
             Self::UnsupportedOperation => write!(f, "INVOCATION ERROR: Unsupported operation."),
             Self::BufferFull => write!(f, "INVOCATION ERROR: Buffer full."),
             Self::PathNotFound => write!(f, "INVOCATION ERROR: Path not found."),
+            Self::OutOfMemory => write!(f, "INVOCATION ERROR: Out of memory."),
         }
     }
 }
@@ -47,6 +45,9 @@ pub enum Invocation {
     File(FileOp),
     Vmo(VmoOp),
     Proc(ProcOp),
+    ProcessManager(ProcManOp),
+    MemoryManager(MemManOp),
+    MemPool(MemPoolOp),
 }
 
 impl Invocation {
@@ -68,6 +69,10 @@ impl Invocation {
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
             Invocation::Proc(ProcOp::Kill) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::GetStatus { .. }) => AccessRights::READ,
+            Invocation::ProcessManager(ProcManOp::Spawn { .. }) => AccessRights::CREATE,
+            Invocation::MemoryManager(MemManOp::CreatePool { .. }) => AccessRights::CREATE,
+            Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
+            Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
         }
     }
 }

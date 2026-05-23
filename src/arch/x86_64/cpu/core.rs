@@ -81,6 +81,8 @@ pub fn activate_core(data_ptr: *mut CPULocalData) {
         let data_addr = data_ptr as usize;
         // write GS
         write_to_msr(data_addr as u64, KERNEL_GS_BASE);
+
+        init_syscall_msrs();
     }
 }
 

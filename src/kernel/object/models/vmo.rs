@@ -8,6 +8,12 @@ pub struct VmoObject {
     vmo: Arc<dyn PagedBackingStore>,
 }
 
+impl VmoObject {
+    pub fn new(vmo: Arc<dyn PagedBackingStore>) -> Self {
+        Self { vmo }
+    }
+}
+
 impl KernelObject for VmoObject {
     fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         if let Invocation::Vmo(vmo_op) = invocation {

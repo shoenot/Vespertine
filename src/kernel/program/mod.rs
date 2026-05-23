@@ -12,7 +12,7 @@ use crate::kernel::object::handle::HandleID;
 use crate::kernel::object::invoke::Invocation;
 use crate::kernel::object::op::FileOp;
 use crate::kernel::object::vfs::kernel_invoke;
-use crate::kernel::process::pcb::Process;
+use crate::kernel::object::models::process::Process;
 use crate::memory::{HHDMOFFSET, NORMAL_PAGE_SIZE};
 use crate::memory::vmm::{align_up, VM_FLAG_EXEC, VM_FLAG_USER, VM_FLAG_WRITE};
 use crate::memory::vmo::{PagedBackingStore, Vmo};

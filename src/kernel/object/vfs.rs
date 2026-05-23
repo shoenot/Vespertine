@@ -16,7 +16,7 @@ use crate::kernel::object::obj::{
 use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::sync::{KernelOnceCell, RwLock};
 use crate::kernel::thread::get_current_process;
-use crate::kernel::process::pcb::Process;
+use crate::kernel::object::models::process::Process;
 use crate::{
     klog, klogln
 };

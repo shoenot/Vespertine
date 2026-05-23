@@ -120,7 +120,14 @@ impl Directory {
             None => return Err(InvocationError::InvalidArgument),
         };
 
-        let rights = AccessRights(calling_rights.0 & (AccessRights::MUTATE | AccessRights::READ | AccessRights::WRITE).0);
+        let rights = AccessRights(
+            calling_rights.0 & (
+                AccessRights::MUTATE | 
+                AccessRights::READ | 
+                AccessRights::WRITE |
+                AccessRights::CREATE |
+                AccessRights::EXECUTE
+            ).0);
         let handle_id = get_current_process()
             .ok_or(InvocationError::InvalidHandle)?
             .proc_handles

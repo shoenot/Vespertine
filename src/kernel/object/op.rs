@@ -1,4 +1,4 @@
-use crate::kernel::object::handle::HandleID;
+use crate::kernel::object::{handle::{AccessRights, HandleID}, models::process::ProcStatus};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -36,5 +36,25 @@ pub enum VmoOp {
 #[derive(Debug)]
 pub enum ProcOp {
     Kill,
-    GetStatus { status_ptr: *mut crate::kernel::process::pcb::ProcStatus },
+    GetStatus { status_ptr: *mut ProcStatus },
+}
+
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum ProcManOp {
+    Spawn { exec_handle: HandleID, root_handle: HandleID, root_rights: AccessRights },
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum MemManOp {
+    CreatePool { limit: usize },
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum MemPoolOp {
+    AllocateVmo { size: usize },
+    CreateSubPool { limit: usize },
 }

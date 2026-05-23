@@ -11,7 +11,7 @@ use crate::kernel::cpu::{
     get_core_data_for,
     try_get_core_data_for,
 };
-use crate::kernel::process::pcb::Process;
+use crate::kernel::object::models::process::Process;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::{
     ThreadControlBlock,

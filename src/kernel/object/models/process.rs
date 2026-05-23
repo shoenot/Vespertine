@@ -1,6 +1,6 @@
 use core::{ptr::write_volatile, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{kernel::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, proc_cpy_handle, proc_register_obj}}, sync::RwLock, thread::{get_current_process, dispatch::spawn_user_thread, priority::ThreadPriority}, program::load_elf}, memory::{ALLOCATOR, vmm::{VirtMemManager, VM_FLAG_USER, VM_FLAG_WRITE}}};
+use crate::{kernel::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
 use alloc::sync::Arc;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
@@ -29,8 +29,8 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn new() -> Process {
-        Arc::new(
+    pub fn new(process_root: Arc<dyn KernelObject>, root_rights: AccessRights) -> Process {
+        let proc = Arc::new(
             Self {
                 proc_id: get_new_pid(),
                 proc_handles: RwLock::new(HandleTable::new()),
@@ -38,7 +38,12 @@ impl ProcessControlBlock {
                 active_threads: AtomicUsize::new(0),
                 is_terminated: AtomicBool::new(false),
             }
-        )
+        );
+        
+        // new processes get root at handle 0, self_id at handle 1 
+        proc.proc_handles.write().insert_at(HandleID(0), process_root, root_rights);
+        proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+        proc
     }
 
     pub fn status(&self, ptr: *mut ProcStatus) -> Result<usize, InvocationError> {

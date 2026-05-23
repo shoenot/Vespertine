@@ -1,4 +1,6 @@
 use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
+use crate::kernel::object::models::memman::MemoryManager;
+use crate::kernel::object::models::procman::ProcessManager;
 use crate::{MODULE_REQUEST, klog, klogln};
 use crate::kernel::object::invoke::{Invocation, InvocationError};
 use crate::kernel::object::vfs::{kernel_register_obj, mount_kernel_dir, kernel_invoke};
@@ -37,6 +39,14 @@ pub fn init_vfs() {
     let ptr = get_ramdisk_ptr();
     let size = get_ramdisk_size();
     parse_tar(ptr, size).expect("Failed to parse ramdisk");
+
+    let proc_man = Arc::new(ProcessManager {});
+    let proc_man_handle = kernel_register_obj(proc_man, AccessRights::all());
+    mount_kernel_dir("ProcessManager", proc_man_handle, obj_handle);
+
+    let mem_man = Arc::new(MemoryManager {});
+    let mem_man_handle = kernel_register_obj(mem_man, AccessRights::all());
+    mount_kernel_dir("MemoryManager", mem_man_handle, obj_handle);
 }
 
 

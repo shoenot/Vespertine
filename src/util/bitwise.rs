@@ -38,11 +38,9 @@ macro_rules! define_bitflags {
                 $(#[$flag_meta:meta])*
                 $flag_name:ident = $value:expr;
             )*
-        }
-    ) => {
-        $(#[$meta])*
+        }) => { $(#[$meta])*
         #[repr(transparent)]
-        #[derive(Copy, Clone, Eq, PartialEq, Hash)]
+        #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
         $vis struct $name(pub $ty);
 
         impl $name {
@@ -54,6 +52,11 @@ macro_rules! define_bitflags {
             #[inline(always)]
             pub const fn new() -> Self {
                 Self(0)
+            }
+
+            #[inline(always)]
+            pub const fn all() -> Self {
+                Self(0b11111)
             }
 
             #[inline(always)]
@@ -77,13 +80,13 @@ macro_rules! define_bitflags {
             }
         }
 
-        impl BitOr for $name {
+        impl core::ops::BitOr for $name {
             type Output = Self;
             #[inline(always)]
             fn bitor(self, rhs: Self) -> Self { Self(self.0 | rhs.0) }
         }
 
-        impl BitAnd for $name {
+        impl core::ops::BitAnd for $name {
             type Output = Self;
             #[inline(always)]
             fn bitand(self, rhs: Self) -> Self { Self(self.0 & rhs.0) }

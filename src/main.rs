@@ -35,9 +35,8 @@ use crate::arch::x86_64::cpu::core::{CPULocalData, init_timer_daemon};
 use crate::drivers::keyboard::init_keyboard_irq;
 use crate::kernel::object::handle::{AccessRights, HandleID};
 use crate::kernel::object::models::directory::Directory;
-use crate::kernel::object::obj::HandleEntry;
 use crate::kernel::object::vfs::ROOT_DIRECTORY;
-use crate::kernel::process::pcb::{Process, ProcessControlBlock};
+use crate::kernel::object::models::process::{Process, ProcessControlBlock};
 use crate::kernel::sync::KernelOnceCell;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
@@ -45,6 +44,15 @@ use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::memory::GLOBAL_PMM;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
+
+pub fn init_kernel_process() {
+    KERNEL_PROCESS.get_or_init(|| 
+        ProcessControlBlock::new(
+            ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone(),
+            AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE
+        )
+    );
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -59,13 +67,7 @@ pub extern "C" fn kmain() -> ! {
 
     arch::init_bootstrap_core();
 
-    let kernel_proc = KERNEL_PROCESS.get_or_init(|| ProcessControlBlock::new());
-
-    kernel_proc.proc_handles.write().insert_at(
-        HandleID(0), 
-        ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone(),
-        AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE
-    );
+    init_kernel_process();
 
     get_core_data().scheduler.init_threads(0);
 
