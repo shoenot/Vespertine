@@ -32,24 +32,32 @@ impl SDTArray {
                 let header_ptr = addr as *const ACPISDTHeader;
                 unsafe {
                     let header = *header_ptr;
-                    let len = (header.length as usize - size_of::<ACPISDTHeader>()) / size_of::<u32>();
-                    let array_ptr = (addr + size_of::<ACPISDTHeader>()) as *const u32;
-                    let sdt_addresses = from_raw_parts(array_ptr, len).iter().map(|&ptr| ptr as usize + *HHDMOFFSET).collect();
-
-                    SDTArray { header, sdt_addresses }
+                    let len = (header.length as usize - size_of::<ACPISDTHeader>()) / size_of::<u32>();		
+                    
+                    let mut sdt_addresses = Vec::with_capacity(len);
+                    for i in 0..len {
+                        let ptr = (addr + size_of::<ACPISDTHeader>() + i * size_of::<u32>()) as *const u32;
+                        let sdt_addr = core::ptr::read_unaligned(ptr);
+                        sdt_addresses.push(sdt_addr as usize + *HHDMOFFSET);
+                    }
+                SDTArray { header, sdt_addresses }
                 }
-            }
+            },
             AcpiRoot::XSDT(addr) => {
                 let header_ptr = addr as *const ACPISDTHeader;
                 unsafe {
                     let header = *header_ptr;
-                    let len = (header.length as usize - size_of::<ACPISDTHeader>()) / size_of::<u64>();
-                    let array_ptr = (addr + size_of::<ACPISDTHeader>()) as *const u64;
-                    let sdt_addresses = from_raw_parts(array_ptr, len).iter().map(|&ptr| ptr as usize + *HHDMOFFSET).collect();
-
+                    let len = (header.length as usize - size_of::<ACPISDTHeader>()) / size_of::<u64>();		
+                    
+                    let mut sdt_addresses = Vec::with_capacity(len);
+                    for i in 0..len {
+                        let ptr = (addr + size_of::<ACPISDTHeader>() + i * size_of::<u64>()) as *const u64;
+                        let sdt_addr = core::ptr::read_unaligned(ptr);
+                        sdt_addresses.push(sdt_addr as usize + *HHDMOFFSET);
+                    }
                     SDTArray { header, sdt_addresses }
                 }
-            }
+            },
         }
     }
 

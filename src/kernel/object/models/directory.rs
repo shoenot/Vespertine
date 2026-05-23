@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use alloc::{
     slice,
     str,
@@ -15,7 +14,6 @@ use crate::kernel::object::handle::{AccessRights, HandleID}; use crate::kernel::
 };
 use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::object::obj::{HandleEntry, KernelObject};
-use crate::kernel::object::vfs::kernel_invoke;
 use crate::kernel::sync::RwLock;
 use crate::kernel::thread::get_current_process;
 use crate::{klog, klogln};
@@ -49,15 +47,19 @@ impl PartialOrd<str> for Filename {
 }
 
 impl Filename {
-    pub fn new(ptr: *const u8, len: usize) -> Result<Self, Utf8Error> {
-        unsafe {
-            let name_bytes = slice::from_raw_parts(ptr, len);
-            let name_str = match str::from_utf8(name_bytes) {
-                Ok(s) => s,
-                Err(e) => return Err(e),
-            };
-            Ok(Self { name: Box::from(name_str) })
-        }
+    pub fn new(ptr: *const u8, len: usize) -> Result<Self, InvocationError> {
+        if len > FILENAME_LEN_MAX { return Err(InvocationError::InvalidArgument) };
+        let mut filename = [0u8; 255];
+        let filename_ptr = filename.as_mut_ptr();
+
+        let name_str = unsafe {
+            if !safe_copy_from(filename_ptr, ptr, len) {
+                return Err(InvocationError::InvalidArgument);
+            }
+            let name_bytes = slice::from_raw_parts(filename_ptr, len);
+            str::from_utf8(name_bytes)?
+        };
+        Ok(Self { name: Box::from(name_str), })
     }
 }
 
@@ -94,11 +96,8 @@ impl Directory {
     }
 
     fn unlink(&self, name: *const u8, name_len: usize) -> Result<usize, InvocationError> {
-        let name_str = unsafe {
-            let name_bytes = slice::from_raw_parts(name, name_len);
-            str::from_utf8(name_bytes)?
-        };
-        self.tree.write().remove_entry(name_str);
+        let filename = Filename::new(name, name_len)?.name;
+        self.tree.write().remove_entry(&*filename);
         Ok(0)
     }
 
@@ -107,15 +106,9 @@ impl Directory {
         let mut filename = [0u8; 255];
         let filename_ptr = filename.as_mut_ptr();
 
-        let name_str = unsafe {
-            if !safe_copy_from(filename_ptr, name, name_len) {
-                return Err(InvocationError::InvalidArgument);
-            }
-            let name_bytes = slice::from_raw_parts(name, name_len);
-            str::from_utf8(name_bytes)?
-        };
+        let name_str = Filename::new(name, name_len)?.name;
 
-        let obj_arc = match self.tree.read().get(name_str) {
+        let obj_arc = match self.tree.read().get(&*name_str) {
             Some(obj) => obj.clone(),
             None => return Err(InvocationError::InvalidArgument),
         };

@@ -2,6 +2,7 @@ pub mod directory;
 pub mod file;
 pub mod channel;
 pub mod vmo;
+pub mod clock;
 pub mod process;
 pub mod procman;
 pub mod memman;

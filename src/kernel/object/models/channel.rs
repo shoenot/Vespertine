@@ -1,8 +1,8 @@
-use core::{alloc::Layout, cell::UnsafeCell, intrinsics::copy_nonoverlapping, sync::atomic::{AtomicUsize, Ordering}};
+use core::{alloc::Layout, cell::UnsafeCell, ptr::copy_nonoverlapping, sync::atomic::{AtomicUsize, Ordering}};
 
 use alloc::{alloc::alloc, string::String, sync::Arc};
 use alloc::format;
-use crate::kernel::object::{op::DirectoryOp, vfs::{ROOT_DIRECTORY, mount_kernel_dir}};
+use crate::{arch::x86_64::task::syscall::safe_copy_to, kernel::object::{op::DirectoryOp, vfs::{ROOT_DIRECTORY, mount_kernel_dir}}};
 
 use crate::kernel::{object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}, obj::KernelObject, op::ChannelOp, vfs::{kernel_register_obj, kernel_invoke}}, sync::Semaphore};
 
@@ -170,10 +170,10 @@ impl KernelObject for Channel {
                 }
             },
             Invocation::Channel(ChannelOp::Pull { buffer_ptr }) => {
-                let slot = self.state.recieve(self.side);
+                let mut slot = self.state.recieve(self.side);
 
-                unsafe { 
-                    copy_nonoverlapping(slot.data.as_ptr(), buffer_ptr, slot.len);
+                if !safe_copy_to(buffer_ptr, slot.data.as_mut_ptr(), slot.len) { 
+                    return Err(InvocationError::InvalidArgument); 
                 }
 
                 Ok(slot.len)

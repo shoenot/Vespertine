@@ -13,7 +13,7 @@ QEMUFLAGS   := -smp 2 -m 2G
 AS := nasm
 
 # The path where Cargo will output your kernel ELF
-KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
+KERNEL_ELF := target/$(TARGET_NAME)/debug/$(BIN_NAME)
 
 .PHONY: all
 all: build/$(IMAGE_NAME).iso
@@ -35,6 +35,8 @@ run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom build/$(IMAGE_NAME).iso \
+		-accel kvm \
+		-cpu host,migratable=no,+invtsc \
 		$(QEMUFLAGS) -no-reboot -no-shutdown -d int -D qemu_idt.log -s -S \
 		-serial stdio 
 
@@ -72,7 +74,7 @@ build/syscall.o: src/arch/x86_64/task/syscall.asm build/fpu.o
 
 .PHONY: kernel
 kernel: build/syscall.o
-	cargo build --release --target $(TARGET_NAME)
+	cargo build --target $(TARGET_NAME)
 
 ##############################
 # --- ASSEMBLY FILES DONE ---#

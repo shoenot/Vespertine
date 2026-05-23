@@ -1,6 +1,6 @@
-use core::{ptr::write_volatile, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
+use core::{ptr::{addr_of, write_volatile}, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{kernel::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
+use crate::{arch::x86_64::task::syscall::safe_copy_to, kernel::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
 use alloc::sync::Arc;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
@@ -53,7 +53,8 @@ impl ProcessControlBlock {
             is_terminated: self.is_terminated.load(Ordering::Relaxed),
             memory_usage: self.vmm.read().get_total_allocated_size(),
         };
-        unsafe { write_volatile(ptr, proc_status) };
+        let src_ptr = addr_of!(proc_status) as *const u8;
+        safe_copy_to(ptr as *mut u8, src_ptr, size_of::<ProcStatus>());
         Ok(0)
     }
 }

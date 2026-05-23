@@ -32,8 +32,6 @@ _syscall_entry:
     
     call syscall_dispatch 
 
-    mov rsp, rdi
-
     pop r15 
     pop r14
     pop r13

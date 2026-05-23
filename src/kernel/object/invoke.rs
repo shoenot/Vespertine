@@ -3,7 +3,7 @@ use core::str::Utf8Error;
 
 use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::op::{
-    ChannelOp, DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp, ProcOp, VmoOp
+    ChannelOp, ClockOp, DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp, ProcOp, VmoOp
 };
 
 #[derive(Debug)]
@@ -48,6 +48,7 @@ pub enum Invocation {
     ProcessManager(ProcManOp),
     MemoryManager(MemManOp),
     MemPool(MemPoolOp),
+    Clock(ClockOp),
 }
 
 impl Invocation {
@@ -73,6 +74,7 @@ impl Invocation {
             Invocation::MemoryManager(MemManOp::CreatePool { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
+            Invocation::Clock(ClockOp::GetTimestamp) => AccessRights::READ,
         }
     }
 }

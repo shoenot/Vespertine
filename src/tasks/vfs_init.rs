@@ -1,4 +1,5 @@
 use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
+use crate::kernel::object::models::clock::Clock;
 use crate::kernel::object::models::memman::MemoryManager;
 use crate::kernel::object::models::procman::ProcessManager;
 use crate::{MODULE_REQUEST, klog, klogln};
@@ -47,21 +48,8 @@ pub fn init_vfs() {
     let mem_man = Arc::new(MemoryManager {});
     let mem_man_handle = kernel_register_obj(mem_man, AccessRights::all());
     mount_kernel_dir("MemoryManager", mem_man_handle, obj_handle);
+
+    let clock = Arc::new(Clock {});
+    let clock_handle = kernel_register_obj(clock, AccessRights::all());
+    mount_kernel_dir("Clock", clock_handle, obj_handle);
 }
-
-
-
-//
-// // pub fn test_run() {
-// //     let root_handle = test_vfs_path_res("/docs").expect("File not found (1)");
-// //     load_ramdisk_modules(root_handle);
-// //     let file_handle = test_vfs_path_res("/docs/filetest.txt").expect("File not found (2)");
-// //
-// //     let mut read_buffer = [0u8; 128];
-// //     let invocation = Invocation::File(FileOp::Read { offset: 0, buffer_ptr: read_buffer.as_mut_ptr(), len: read_buffer.len() });
-// //     let bytes_read = kernel_invoke(file_handle, invocation).expect("Failed to read file");
-// //     if let Ok(txt) = str::from_utf8(&read_buffer[..bytes_read]) {
-// //         klogln!("File contents: {}", txt);
-// //     }
-// // }
-// //

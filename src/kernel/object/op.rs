@@ -58,3 +58,9 @@ pub enum MemPoolOp {
     AllocateVmo { size: usize },
     CreateSubPool { limit: usize },
 }
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum ClockOp {
+    GetTimestamp,
+}
