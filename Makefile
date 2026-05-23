@@ -13,7 +13,7 @@ QEMUFLAGS   := -smp 8 -m 2G
 AS := nasm
 
 # The path where Cargo will output your kernel ELF
-KERNEL_ELF := target/$(TARGET_NAME)/debug/$(BIN_NAME)
+KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
 .PHONY: all
 all: build/$(IMAGE_NAME).iso
@@ -74,7 +74,7 @@ build/syscall.o: src/arch/x86_64/task/syscall.asm build/fpu.o
 
 .PHONY: kernel
 kernel: build/syscall.o
-	cargo build --target $(TARGET_NAME)
+	cargo build --release --target $(TARGET_NAME)
 
 ##############################
 # --- ASSEMBLY FILES DONE ---#

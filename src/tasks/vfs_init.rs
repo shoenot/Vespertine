@@ -1,5 +1,6 @@
 use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
 use crate::kernel::object::models::clock::Clock;
+use crate::kernel::object::models::console::ConsoleWriter;
 use crate::kernel::object::models::memman::MemoryManager;
 use crate::kernel::object::models::procman::ProcessManager;
 use crate::{MODULE_REQUEST, klog, klogln};
@@ -52,4 +53,8 @@ pub fn init_vfs() {
     let clock = Arc::new(Clock {});
     let clock_handle = kernel_register_obj(clock, AccessRights::all());
     mount_kernel_dir("Clock", clock_handle, obj_handle);
+
+    let console = Arc::new(ConsoleWriter {});
+    let console_handle = kernel_register_obj(console, AccessRights::all());
+    mount_kernel_dir("ConsoleWriter", console_handle, obj_handle);
 }

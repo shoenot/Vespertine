@@ -16,7 +16,6 @@ pub enum InvocationError {
     BufferFull,
     OutOfMemory,
 }
-
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -64,6 +63,7 @@ impl Invocation {
             Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
             Invocation::Directory(DirectoryOp::List(..)) => AccessRights::READ,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
+            Invocation::File(FileOp::Write { .. }) => AccessRights::WRITE,
             Invocation::File(FileOp::Stat) => AccessRights::READ,
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,

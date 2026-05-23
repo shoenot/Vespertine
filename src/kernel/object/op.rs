@@ -21,6 +21,7 @@ pub enum DirectoryOp {
 #[derive(Debug)]
 pub enum FileOp {
     Read { offset: usize, buffer_ptr: *mut u8, len: usize },
+    Write { offset: usize, buffer_ptr: *mut u8, len: usize },
     Stat,
 }
 

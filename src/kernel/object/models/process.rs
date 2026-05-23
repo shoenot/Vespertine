@@ -1,6 +1,6 @@
 use core::{ptr::{addr_of, write_volatile}, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{arch::x86_64::task::syscall::safe_copy_to, kernel::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
+use crate::{KERNEL_PROCESS, arch::x86_64::task::syscall::safe_copy_to, kernel::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, kernel_walk, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
 use alloc::sync::Arc;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
@@ -41,8 +41,13 @@ impl ProcessControlBlock {
         );
         
         // new processes get root at handle 0, self_id at handle 1 
+        let console_handle = kernel_walk("/Objects/ConsoleWriter", HandleID(0))
+            .expect("Couldn't find console handle");
+        let console_proc = KERNEL_PROCESS.proc_handles.read().resolve(console_handle, AccessRights::WRITE)
+            .expect("Couldn't find console process");
         proc.proc_handles.write().insert_at(HandleID(0), process_root, root_rights);
         proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+        proc.proc_handles.write().insert_at(HandleID(2), console_proc.clone(), root_rights);
         proc
     }
 
