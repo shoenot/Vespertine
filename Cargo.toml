@@ -1,22 +1,11 @@
-[package]
-name = "shoes"
-version = "0.1.0"
-edition = "2024"
-
-[lints.rust]
-dead_code = "allow"
+[workspace]
+members = [
+    "kernel"
+, "libs/mnemosyne-abi"]
+resolver = "2"
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
-
-[[bin]]
-name = "shoes"
-test = false
-bench = false
-
-[dependencies]
-limine = "0.6.3"
-simple-psf = "0.1.2"

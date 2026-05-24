@@ -3,11 +3,11 @@ MAKEFLAGS += -rR --silent
 .SUFFIXES:
 
 # --- Configuration ---
-BIN_NAME    := shoes
+BIN_NAME    := kernel
 KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
 IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS   := -smp 8 -m 2G
+QEMUFLAGS   := -smp 4 -m 2G
 
 # --- Toolchain ---
 AS := nasm
@@ -16,35 +16,35 @@ AS := nasm
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
 .PHONY: all
-all: build/$(IMAGE_NAME).iso
+all: target/build/$(IMAGE_NAME).iso
 
 .PHONY: run
-run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
+run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
-		-cdrom build/$(IMAGE_NAME).iso \
+		-cdrom target/build/$(IMAGE_NAME).iso \
 		-accel kvm \
 		-cpu host,migratable=no,+invtsc \
 		$(QEMUFLAGS) \
 		-serial stdio 
 
 .PHONY: run-debug
-run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
+run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
-		-cdrom build/$(IMAGE_NAME).iso \
+		-cdrom target/build/$(IMAGE_NAME).iso \
 		-accel kvm \
 		-cpu host,migratable=no,+invtsc \
 		$(QEMUFLAGS) -no-reboot -no-shutdown -d int -D qemu_idt.log -s -S \
 		-serial stdio 
 
 .PHONY: run-bios
-run-bios: build/$(IMAGE_NAME).iso
+run-bios: target/build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
-		-cdrom build/$(IMAGE_NAME).iso \
+		-cdrom target/build/$(IMAGE_NAME).iso \
 		-boot d \
 		$(QEMUFLAGS)
 
@@ -52,37 +52,37 @@ run-bios: build/$(IMAGE_NAME).iso
 # --- ASSEMBLY FILES HERE ---#
 ##############################
 
-build/gdt.o: src/arch/x86_64/cpu/gdt.asm
-	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/cpu/gdt.asm -o build/gdt.o
+target/build/gdt.o: kernel/src/arch/x86_64/cpu/gdt.asm
+	mkdir -p target/build/
+	$(AS) -f elf64 kernel/src/arch/x86_64/cpu/gdt.asm -o target/build/gdt.o
 	
-build/idt.o: src/arch/x86_64/interrupts/idt.asm build/gdt.o
-	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/interrupts/idt.asm -o build/idt.o
+target/build/idt.o: kernel/src/arch/x86_64/interrupts/idt.asm target/build/gdt.o
+	mkdir -p target/build/
+	$(AS) -f elf64 kernel/src/arch/x86_64/interrupts/idt.asm -o target/build/idt.o
 	
-build/switch.o: src/arch/x86_64/task/switch.asm build/idt.o
-	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/task/switch.asm -o build/switch.o
+target/build/switch.o: kernel/src/arch/x86_64/task/switch.asm target/build/idt.o
+	mkdir -p target/build/
+	$(AS) -f elf64 kernel/src/arch/x86_64/task/switch.asm -o target/build/switch.o
 
-build/fpu.o: src/arch/x86_64/cpu/fpu.asm build/switch.o
-	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/cpu/fpu.asm -o build/fpu.o
+target/build/fpu.o: kernel/src/arch/x86_64/cpu/fpu.asm target/build/switch.o
+	mkdir -p target/build/
+	$(AS) -f elf64 kernel/src/arch/x86_64/cpu/fpu.asm -o target/build/fpu.o
 
-build/syscall.o: src/arch/x86_64/task/syscall.asm build/fpu.o
-	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/task/syscall.asm -o build/syscall.o
+target/build/syscall.o: kernel/src/arch/x86_64/task/syscall.asm target/build/fpu.o
+	mkdir -p target/build/
+	$(AS) -f elf64 kernel/src/arch/x86_64/task/syscall.asm -o target/build/syscall.o
 
 .PHONY: kernel
-kernel: build/syscall.o
-	cargo build --release --target $(TARGET_NAME)
+kernel: target/build/syscall.o
+	cargo build -p kernel --release --target $(TARGET_NAME)
 
 ##############################
 # --- ASSEMBLY FILES DONE ---#
 ##############################
 
 # ISO Creation (Hybrid BIOS/UEFI)
-build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
-	mkdir -p build
+target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
+	mkdir -p target/build
 	rm -rf iso_root
 	tar -cf build_deps/ramdisk.tar -C ramdisk . --format=ustar
 	mkdir -p iso_root/boot/limine
@@ -102,9 +102,9 @@ build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot boot/limine/limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
-		iso_root -o build/$(IMAGE_NAME).iso
+		iso_root -o target/build/$(IMAGE_NAME).iso
 	
-	./build_deps/limine/limine bios-install build/$(IMAGE_NAME).iso
+	./build_deps/limine/limine bios-install target/build/$(IMAGE_NAME).iso
 	rm -rf iso_root
 
 # External Dependencies (Limine and OVMF)
@@ -121,7 +121,7 @@ build_deps/edk2-ovmf/ovmf-code-x86_64.fd:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -rf iso_root build
+	rm -rf iso_root target/build
 
 .PHONY: distclean
 distclean: clean

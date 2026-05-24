@@ -4,11 +4,11 @@ target = "x86_64-unknown-none"
 [target.x86_64-unknown-none]
 rustflags = [
     "-C", "link-arg=-Tscripts/linker.ld",
-    "-C", "link-arg=build/gdt.o",
-    "-C", "link-arg=build/idt.o",
-    "-C", "link-arg=build/switch.o",
-    "-C", "link-arg=build/fpu.o",
-    "-C", "link-arg=build/syscall.o",
+    "-C", "link-arg=target/build/gdt.o",
+    "-C", "link-arg=target/build/idt.o",
+    "-C", "link-arg=target/build/switch.o",
+    "-C", "link-arg=target/build/fpu.o",
+    "-C", "link-arg=target/build/syscall.o",
     "-C", "no-redzone=yes",
     "-C", "target-feature=-sse,-sse2,-sse3,-sse4.1,-sse4.2,-avx,-avx2",
     "-C", "relocation-model=static",

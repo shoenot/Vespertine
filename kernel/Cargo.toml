@@ -1,0 +1,16 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2024"
+
+[lints.rust]
+dead_code = "allow"
+
+[[bin]]
+name = "kernel"
+test = false
+bench = false
+
+[dependencies]
+limine = "0.6.3"
+simple-psf = "0.1.2"
