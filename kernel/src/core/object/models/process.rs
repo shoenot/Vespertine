@@ -1,11 +1,11 @@
-use core::{ptr::{addr_of, write_volatile}, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
+use core::{ptr::addr_of, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{KERNEL_PROCESS, arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, vfs::{ROOT_DIRECTORY, kernel_duplicate, kernel_walk, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
+use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::{Invocation, InvocationError}, obj::KernelObject}, sync::RwLock}, memory::{vmm::VirtMemManager, ALLOCATOR}};
 use alloc::sync::Arc;
 
-use mnemosyne_abi::{HandleID, AccessRights};
 use mnemosyne_abi::op::ProcOp;
 use mnemosyne_abi::ProcStatus;
+use mnemosyne_abi::{AccessRights, HandleID};
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 
@@ -65,6 +65,9 @@ impl KernelObject for ProcessControlBlock {
         match invocation {
             Invocation::Proc(ProcOp::Kill) => { self.is_terminated.store(true, Ordering::SeqCst); Ok(0) },
             Invocation::Proc(ProcOp::GetStatus { status_ptr }) => self.status(status_ptr),
+            Invocation::Proc(ProcOp::Unmap { vaddr, len } ) => {
+                self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

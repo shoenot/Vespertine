@@ -12,16 +12,16 @@ use super::graphics::{
     SyncFramebuffer,
 };
 use super::serial::{
-    SerialWriter,
     init_serial,
     log_to_serial,
+    SerialWriter,
 };
 use crate::boot::FRAMEBUFFER_REQUEST;
-use crate::drivers::graphics::WriterLine;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
+use crate::drivers::graphics::WriterLine;
 
 const FONT_DATA: &[u8] = include_bytes!("../../../build_deps/zap-ext-light16.psf");
 static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();

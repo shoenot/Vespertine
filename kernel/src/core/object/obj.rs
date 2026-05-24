@@ -1,19 +1,11 @@
-use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
-use core::fmt::{
-    Debug,
-    Display,
-};
-use core::sync::atomic::{
-    AtomicUsize,
-    Ordering,
-};
+use core::fmt::Debug;
 
-use mnemosyne_abi::{HandleID, AccessRights};
 use crate::core::object::invoke::{
     Invocation,
     InvocationError,
 };
+use mnemosyne_abi::AccessRights;
 
 pub trait KernelObject: Send + Sync + Debug {
     fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;

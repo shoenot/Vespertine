@@ -14,12 +14,12 @@ use crate::arch::x86_64::timer::tsc::read_tsc_direct;
 use crate::core::acpi::hpet::get_hpet_base_addr;
 use crate::core::time::{
     ClockSource,
+    TimeSource,
     GET_TIME_FN,
     HPET_BASE_ADDR,
     LAPIC_FQ,
     TIME_SOURCE,
     TIME_SRC_FQ,
-    TimeSource,
     USE_TSC_DEADLINE,
 };
 use crate::memory::PAGER;

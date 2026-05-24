@@ -7,8 +7,8 @@ use crate::arch::x86_64::cpu::fpu::{
     FPU_CXT_SIZE,
     USE_XSAVE,
 };
-use crate::core::thread::ThreadControlBlock;
 use crate::core::thread::schedule::GRAVEYARD;
+use crate::core::thread::ThreadControlBlock;
 use crate::core::time::sleep;
 
 pub extern "C" fn reaper_daemon(_arg: usize) -> ! {

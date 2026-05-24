@@ -18,7 +18,7 @@ use crate::arch::x86_64::interrupts::shootdown::shootdown;
 use crate::core::object::invoke::InvocationError;
 use crate::core::sync::TicketLock;
 use crate::memory::vmo::PagedBackingStore;
-use crate::memory::{GLOBAL_PMM, PCAllocator};
+use crate::memory::{PCAllocator, GLOBAL_PMM};
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;

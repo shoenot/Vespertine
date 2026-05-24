@@ -12,13 +12,13 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::BOOTSTRAP_ALLOC;
 use crate::arch::x86_64::cpuid::{
     check_xsave_support,
     get_xsave_details,
 };
 use crate::core::sync::TicketLock;
 use crate::core::thread::ThreadError;
+use crate::BOOTSTRAP_ALLOC;
 
 pub(crate) static CLEAN_FPU_CXT: AtomicPtr<u8> = AtomicPtr::new(null_mut() as *mut u8);
 pub(crate) static CLEAN_LEGACY_FPU_CXT: TicketLock<Option<LegacyXtCxt>> = TicketLock::new(None);

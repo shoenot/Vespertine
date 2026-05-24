@@ -1,6 +1,7 @@
 use core::str::from_utf8;
 
-use crate::{core::object::{handle::HandleID, invoke::Invocation, op::ChannelOp, vfs::{debug_dump_handles, kernel_invoke}}, klogln};
+use mnemosyne_abi::ChannelOp;
+use crate::{core::object::{handle::HandleID, invoke::Invocation, vfs::{debug_dump_handles, kernel_invoke}}, klogln};
 
 pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);

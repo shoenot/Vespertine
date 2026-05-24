@@ -1,4 +1,4 @@
-use crate::{core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, time::get_realtime}, klogln};
+use crate::core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, time::get_realtime};
 
 use mnemosyne_abi::op::ClockOp;
 

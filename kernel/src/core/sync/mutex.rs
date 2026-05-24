@@ -15,9 +15,9 @@ use crate::arch::x86_64::interrupts::{
     enable_interrupts,
 };
 use crate::core::sync::TicketLock;
-use crate::core::thread::ThreadState;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
+use crate::core::thread::ThreadState;
 
 pub struct Mutex<T> {
     is_locked: AtomicBool,

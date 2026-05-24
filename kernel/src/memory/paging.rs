@@ -4,8 +4,8 @@ use core::arch::asm;
 
 use super::pmm::*;
 use crate::memory::{
-    GLOBAL_PMM,
     PCAllocator,
+    GLOBAL_PMM,
 };
 
 type PhysAlloc = PCAllocator;

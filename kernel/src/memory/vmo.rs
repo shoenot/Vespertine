@@ -2,7 +2,7 @@ use core::{fmt::Debug, intrinsics::copy_nonoverlapping, sync::atomic::{AtomicUsi
 
 use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 
-use crate::{core::sync::TicketLock, memory::{ALLOCATOR, BlockSize, HHDMOFFSET, pmm::NORMAL_PAGE_SIZE}};
+use crate::{core::sync::TicketLock, memory::{pmm::NORMAL_PAGE_SIZE, BlockSize, ALLOCATOR, HHDMOFFSET}};
 
 #[derive(Debug)]
 pub struct Vmo {

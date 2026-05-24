@@ -40,6 +40,7 @@ pub enum VmoOp {
 pub enum ProcOp {
     Kill,
     GetStatus { status_ptr: *mut ProcStatus },
+    Unmap { vaddr: usize, len: usize },
 }
 
 

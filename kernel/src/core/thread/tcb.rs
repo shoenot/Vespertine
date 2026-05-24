@@ -3,7 +3,7 @@ use core::ptr::null_mut;
 use alloc::sync::Arc;
 
 use super::priority::ThreadPriority;
-use crate::{KERNEL_PROCESS, arch::get_core_data, core::{object::models::process::{Process, ProcessControlBlock}, thread::schedule::get_new_tid}};
+use crate::{arch::get_core_data, core::{object::models::process::{Process, ProcessControlBlock}, thread::schedule::get_new_tid}, KERNEL_PROCESS};
 
 #[derive(Debug, PartialEq)]
 pub enum ThreadState {

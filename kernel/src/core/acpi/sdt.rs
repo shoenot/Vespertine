@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use alloc::vec::Vec;
-use core::slice::from_raw_parts;
 
 use super::rsdp::AcpiRoot;
 use crate::memory::HHDMOFFSET;

@@ -9,6 +9,7 @@ pub mod vmo;
 
 pub use bootalloc::*;
 use heap::*;
+use mnemosyne_common::slab::SlabAllocator;
 use paging::*;
 use pmm::*;
 pub use pmm::{
@@ -30,15 +31,15 @@ use crate::core::sync::{
 };
 use crate::core::thread::get_current_process;
 use crate::{
-    HHDM_REQUEST,
     klog,
     klogln,
+    HHDM_REQUEST,
 };
 
 pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
 #[global_allocator]
-pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
+pub static KERNEL_ALLOCATOR: KernelAllocator = SlabAllocator::new(KernelPageProvider);
 
 pub static GLOBAL_PMM: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 pub static ALLOCATOR: PCAllocator = PCAllocator {};

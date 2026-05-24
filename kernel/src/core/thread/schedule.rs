@@ -15,15 +15,14 @@ use alloc::sync::Arc;
 use crate::arch::get_core_data;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
-use crate::core::object::models::process::Process;
 use crate::core::sync::TicketLock;
 use crate::core::thread::idle::*;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::{
-    ThreadControlBlock,
-    ThreadState,
     switch_threads_avx,
     switch_threads_legacy,
+    ThreadControlBlock,
+    ThreadState,
 };
 use crate::core::time::{
     get_time,
@@ -31,7 +30,7 @@ use crate::core::time::{
 };
 use crate::memory::paging::load_cr3;
 use crate::{
-    BOOTSTRAP_ALLOC, KERNEL_PROCESS, impl_queue_methods
+    impl_queue_methods, BOOTSTRAP_ALLOC, KERNEL_PROCESS
 };
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);

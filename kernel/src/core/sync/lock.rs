@@ -4,91 +4,15 @@ use core::ops::{
     Deref,
     DerefMut,
 };
-use core::sync::atomic::Ordering::{
-    Acquire,
-    Relaxed,
-    Release,
-};
-use core::sync::atomic::{
-    AtomicBool,
-    AtomicUsize,
-};
-
 use crate::arch::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 
-pub trait RawLock {
-    fn lock(&self);
-    fn unlock(&self);
-    // ONLY USE DURING KERNEL PANICS. NEVER EVER EVER OTHERWISE PLZ.
-    unsafe fn force_unlock(&self);
-}
+use mnemosyne_common::lock::{RawLock, RawSpinLock, RawTicketLock};
 
-// Raw SpinLock
-
-#[derive(Debug)]
-pub struct RawSpinLock {
-    locked: AtomicBool,
-}
-
-impl RawSpinLock {
-    pub const fn new() -> Self { Self { locked: AtomicBool::new(false) } }
-}
-
-impl RawLock for RawSpinLock {
-    fn lock(&self) {
-        loop {
-            if !self.locked.swap(true, Acquire) {
-                break;
-            }
-
-            while self.locked.load(Relaxed) {
-                spin_loop();
-            }
-        }
-    }
-
-    fn unlock(&self) { self.locked.store(false, Release) }
-
-    unsafe fn force_unlock(&self) { self.locked.store(false, Release); }
-}
-
-// Raw TicketLock
-
-#[derive(Debug)]
-pub struct RawTicketLock {
-    ticket: AtomicUsize,
-    serving: AtomicUsize,
-}
-
-impl RawTicketLock {
-    pub const fn new() -> Self { Self { ticket: AtomicUsize::new(0), serving: AtomicUsize::new(0) } }
-}
-
-impl RawLock for RawTicketLock {
-    fn lock(&self) {
-        let ticket = self.ticket.fetch_add(1, Relaxed);
-
-        while self.serving.load(Acquire) != ticket {
-            spin_loop();
-        }
-    }
-
-    fn unlock(&self) {
-        let successor = self.serving.load(Relaxed) + 1;
-        self.serving.store(successor, Release);
-    }
-
-    unsafe fn force_unlock(&self) { self.serving.store(self.ticket.load(Relaxed), Release); }
-}
-
-unsafe impl Send for RawTicketLock {}
-unsafe impl Sync for RawTicketLock {}
-
-// Generic Lock
+// Kernel version of the generic lock
 
 #[derive(Debug)]
 pub struct Lock<R: RawLock, T> {

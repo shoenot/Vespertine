@@ -1,5 +1,3 @@
-use core::arch::asm;
-
 unsafe extern "C" {
     static __extable_start: u8;
     static __extable_end: u8;

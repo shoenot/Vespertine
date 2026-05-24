@@ -4,19 +4,20 @@ use alloc::sync::Arc;
 use alloc::{
     slice,
     str,
-}; use core::borrow::Borrow;
+};
 use crate::arch::get_core_data;
-use crate::arch::x86_64::task::syscall::{copy_from_user, safe_copy_from};
+use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::{
     Invocation,
     InvocationError,
 };
-use mnemosyne_abi::{HandleID, AccessRights};
-use mnemosyne_abi::op::DirectoryOp;
-use crate::core::object::obj::{HandleEntry, KernelObject};
+use crate::core::object::obj::KernelObject;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::{klog, klogln};
+use core::borrow::Borrow;
+use mnemosyne_abi::op::DirectoryOp;
+use mnemosyne_abi::{AccessRights, HandleID};
 
 pub const FILENAME_LEN_MAX: usize = 255;
 

@@ -2,7 +2,6 @@ use core::arch::asm;
 use core::ptr::copy_nonoverlapping;
 use core::sync::atomic::Ordering;
 
-use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::cpu::gdt::{
     KERNEL_CS,
@@ -10,9 +9,10 @@ use crate::arch::x86_64::cpu::gdt::{
 };
 use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::task::context::*;
-use crate::core::thread::ThreadControlBlock;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::schedule::RFLAGS_IF;
+use crate::core::thread::ThreadControlBlock;
+use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
 
 fn idle_loop() -> ! {
     unsafe {

@@ -9,23 +9,21 @@ use crate::arch::x86_64::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
-use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::ThreadState;
 use crate::core::thread::priority::ThreadPriority;
+use crate::core::thread::ThreadState;
 use crate::core::time::callout::{
     Callout,
     CalloutPayload,
 };
 use crate::core::time::{
+    TimeFn,
     GET_TIME_FN,
     IA32_TSC_DEADLINE,
     LAPIC_FQ,
     TIME_SRC_FQ,
-    TimeFn,
     USE_TSC_DEADLINE,
 };
-use crate::klogln;
 use crate::util::write_to_msr;
 
 static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();

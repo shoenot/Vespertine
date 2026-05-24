@@ -14,6 +14,8 @@ mod syscall;
 
 use ::core::sync::atomic::Ordering;
 
+use crate::core::cpu::init_smp;
+use crate::core::time;
 use alloc::sync::Arc;
 use arch::x86_64::hcf;
 use arch::{
@@ -23,24 +25,22 @@ use arch::{
 use boot::smp::BSP_CR3;
 pub use boot::*;
 use drivers::logger::LOGGER;
-use crate::core::cpu::init_smp;
-use crate::core::time;
 use memory::paging::get_cr3;
 use memory::{
-    BOOTSTRAP_ALLOC,
     BlockSize,
+    BOOTSTRAP_ALLOC,
 };
 
-use crate::arch::x86_64::cpu::core::{CPULocalData, init_timer_daemon};
-use crate::drivers::keyboard::init_keyboard_irq;
-use crate::core::object::handle::{AccessRights, HandleID};
+use crate::arch::x86_64::cpu::core::{init_timer_daemon, CPULocalData};
+use crate::core::object::handle::AccessRights;
 use crate::core::object::models::directory::Directory;
-use crate::core::object::vfs::ROOT_DIRECTORY;
 use crate::core::object::models::process::{Process, ProcessControlBlock};
+use crate::core::object::vfs::ROOT_DIRECTORY;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::datetime::epoch_to_datetime;
+use crate::drivers::keyboard::init_keyboard_irq;
 use crate::memory::GLOBAL_PMM;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
@@ -49,7 +49,7 @@ pub fn init_kernel_process() {
     KERNEL_PROCESS.get_or_init(|| 
         ProcessControlBlock::new(
             ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone(),
-            AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE
+            AccessRights::all()
         )
     );
 }

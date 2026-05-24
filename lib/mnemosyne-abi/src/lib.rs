@@ -4,7 +4,7 @@ pub mod op;
 mod bitwise;
 
 use core::fmt::Debug;
-use op::*;
+pub use op::*;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -22,6 +22,7 @@ pub enum Invocation {
     Clock(ClockOp),
 }
 
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HandleID(pub usize);
 

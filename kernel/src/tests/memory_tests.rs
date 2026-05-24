@@ -1,7 +1,7 @@
 use alloc::alloc::{
-    Layout,
     alloc,
     dealloc,
+    Layout,
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;

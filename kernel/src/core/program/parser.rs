@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
-use core::mem::size_of;
 use super::LoaderError;
+use core::mem::size_of;
 
 pub type Elf64_Addr = u64;              // u prog addr
 pub type Elf64_Off = u64;               // u file offset

@@ -5,17 +5,13 @@ use core::ops::{
 };
 
 use super::gdt::*;
-use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS, klogln};
 use crate::arch::x86_64::apic::lapic::ApicMode;
 use crate::core::cpu::KernelCoreData;
 use crate::core::thread::dispatch::create_tcb;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::callout::timer_daemon;
-use crate::util::bitwise::set_bit;
-use crate::util::{
-    read_from_msr,
-    write_to_msr,
-};
+use crate::util::write_to_msr;
+use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 

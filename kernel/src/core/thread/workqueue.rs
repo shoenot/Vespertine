@@ -7,11 +7,11 @@ use core::sync::atomic::{
 };
 
 use crate::arch::get_core_data;
-use crate::impl_queue_methods;
 use crate::core::sync::{
     Semaphore,
     TicketLock,
 };
+use crate::impl_queue_methods;
 
 // deferred work func signature
 type WorkFunction = fn(*mut u8);

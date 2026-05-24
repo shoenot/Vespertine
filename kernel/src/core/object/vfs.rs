@@ -1,22 +1,20 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use mnemosyne_abi::{HandleID, AccessRights};
 use crate::core::object::invoke::{
     Invocation,
     InvocationError,
 };
 use crate::core::object::models::directory::Directory;
-use crate::core::object::obj::{
-    HandleEntry, KernelObject
-};
-use mnemosyne_abi::op::DirectoryOp;
-use crate::core::sync::{KernelOnceCell, RwLock};
-use crate::core::thread::get_current_process;
 use crate::core::object::models::process::Process;
+use crate::core::object::obj::KernelObject;
+use crate::core::sync::KernelOnceCell;
+use crate::core::thread::get_current_process;
 use crate::{
     klog, klogln
 };
+use mnemosyne_abi::op::DirectoryOp;
+use mnemosyne_abi::{AccessRights, HandleID};
 
 pub static ROOT_DIRECTORY: KernelOnceCell<Arc<Directory>> = KernelOnceCell::new();
 

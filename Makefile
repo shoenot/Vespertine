@@ -12,8 +12,9 @@ QEMUFLAGS   := -smp 4 -m 2G
 # --- Toolchain ---
 AS := nasm
 
-# The path where Cargo will output your kernel ELF
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
+
+USER_PROGS := shell
 
 .PHONY: all
 all: target/build/$(IMAGE_NAME).iso
@@ -76,12 +77,23 @@ target/build/syscall.o: kernel/src/arch/x86_64/task/syscall.asm target/build/fpu
 kernel: target/build/syscall.o
 	cargo build -p kernel --release --target $(TARGET_NAME)
 
+# Build all userspace programs listed in USER_PROGS with custom userland RUSTFLAGS
+.PHONY: userland
+userland: scripts/userland.ld
+	mkdir -p ramdisk/Programs/
+	for prog in $(USER_PROGS); do \
+		echo "Building userland program: $$prog"; \
+		RUSTFLAGS="-C relocation-model=static -C link-arg=-Tscripts/userland.ld" \
+			cargo build -p $$prog --release --target $(TARGET_NAME) || exit 1; \
+		cp target/$(TARGET_NAME)/release/$$prog ramdisk/Programs/$$prog; \
+	done
+
 ##############################
 # --- ASSEMBLY FILES DONE ---#
 ##############################
 
 # ISO Creation (Hybrid BIOS/UEFI)
-target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
+target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel userland
 	mkdir -p target/build
 	rm -rf iso_root
 	tar -cf build_deps/ramdisk.tar -C ramdisk . --format=ustar

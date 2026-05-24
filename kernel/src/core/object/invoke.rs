@@ -1,10 +1,10 @@
 use core::fmt;
 use core::str::Utf8Error;
 
-use mnemosyne_abi::{HandleID, AccessRights};
 use mnemosyne_abi::op::{
     ChannelOp, ClockOp, DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp, ProcOp, VmoOp
 };
+use mnemosyne_abi::AccessRights;
 
 #[derive(Debug)]
 pub enum InvocationError {
@@ -71,6 +71,7 @@ impl Invocation {
             Invocation::Vmo(VmoOp::MapIntoProc { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::Kill) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::GetStatus { .. }) => AccessRights::READ,
+            Invocation::Proc(ProcOp::Unmap { .. }) => AccessRights::MUTATE,
             Invocation::ProcessManager(ProcManOp::Spawn { .. }) => AccessRights::CREATE,
             Invocation::MemoryManager(MemManOp::CreatePool { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,

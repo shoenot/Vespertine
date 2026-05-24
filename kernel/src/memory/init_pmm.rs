@@ -2,12 +2,12 @@ use core::ops::Deref;
 
 use limine::memmap::*;
 
-use crate::MEMMAP_REQUEST;
 use crate::drivers::serial::{
     log_to_serial,
     log_u64_to_serial,
 };
 use crate::memory::HHDMOFFSET;
+use crate::MEMMAP_REQUEST;
 
 static PAGE_SIZE: usize = 4096;
 

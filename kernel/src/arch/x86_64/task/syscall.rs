@@ -1,8 +1,8 @@
 use core::{fmt::Display, intrinsics::copy_nonoverlapping, mem::zeroed};
 
-use alloc::{slice, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 
-use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::{Invocation, InvocationError}, vfs::kernel_invoke}, thread::get_current_process}, klogln, terminate_thread};
+use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::{Invocation, InvocationError}, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, terminate_thread};
 
 pub enum SysError {
     Success = 0,
@@ -126,13 +126,12 @@ pub fn safe_copy_to(dst: *mut u8, src: *const u8, len: usize) -> bool {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
-    klogln!("point 1");
     unsafe {
         let syscall_number = (*frame).rax;
         let handle_id = (*frame).rdi;
         let uspace_inv_ptr = (*frame).rsi as *const Invocation;
 
-        klogln!("point 2: syscall number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
+        klogln!("SYSCALL: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
         let ret = match syscall_number {
             0 => {
                 if uspace_inv_ptr as usize >= 0xFFFF_8000_0000_0000 {
@@ -155,8 +154,13 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
 
                 kernel_invoke(HandleID(handle_id), kspace_inv)
             },
-            1 | 2 => { 
-                klogln!("\n!!!!! ---- terminating userspace thread ---- !!!!!");
+            1 => {
+                match kernel_close(HandleID(handle_id)) {
+                    Ok(_) => Ok(0),
+                    Err(e) => Err(e),
+                }
+            }
+            2 | 3 => { 
                 terminate_thread!();
             },
             _ => {
@@ -164,7 +168,6 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 return;
             },
         };
-        klogln!("point 3");
 
         match ret {
             Ok(payload) => {

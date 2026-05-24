@@ -1,6 +1,6 @@
 use crate::core::sync::TicketLock;
-use crate::memory::HHDMOFFSET;
 use crate::memory::pmm::HUGE_PAGE_SIZE;
+use crate::memory::HHDMOFFSET;
 
 pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());
 

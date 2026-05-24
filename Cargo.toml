@@ -1,7 +1,10 @@
 [workspace]
 members = [
-    "kernel"
-, "libs/mnemosyne-abi"]
+    "kernel", 
+    "lib/mnemosyne-abi", 
+    "lib/mnemosyne-common", 
+    "lib/mnemosyne-rt", "userland/shell"]
+
 resolver = "2"
 
 [profile.dev]

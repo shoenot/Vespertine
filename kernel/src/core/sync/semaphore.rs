@@ -11,9 +11,9 @@ use crate::arch::{
     interrupts_enabled,
 };
 use crate::core::sync::TicketLock;
-use crate::core::thread::ThreadState;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
+use crate::core::thread::ThreadState;
 
 pub struct Semaphore {
     counter: AtomicIsize,

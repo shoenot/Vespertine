@@ -4,11 +4,11 @@ use core::ptr::copy_nonoverlapping;
 use core::sync::atomic::Ordering;
 
 use crate::arch::x86_64::cpu::fpu::{
+    gen_avx_dummy_fpu,
+    LegacyXtCxt,
     CLEAN_LEGACY_FPU_CXT,
     FPU_CXT_SIZE,
-    LegacyXtCxt,
     USE_XSAVE,
-    gen_avx_dummy_fpu,
 };
 use crate::arch::x86_64::cpu::gdt::{
     KERNEL_CS,

@@ -1,13 +1,11 @@
 pub mod x86_64;
 
-use core::sync::atomic::Ordering;
-
 use x86_64::apic::lapic::init_local_apic;
 pub use x86_64::cpu::core::get_core_data;
 use x86_64::cpu::core::{
     activate_core,
-    init_core_data,
-    init_timer_daemon,
+    init_core_data
+    ,
 };
 use x86_64::cpu::fpu::{
     init_cr4,
@@ -25,10 +23,7 @@ use x86_64::{
 };
 
 use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::cpu::fpu::{
-    USE_XSAVE,
-    init_xsave,
-};
+use crate::arch::x86_64::cpu::fpu::init_xsave;
 use crate::arch::x86_64::cpuid::check_xsave_support;
 use crate::arch::x86_64::timer::read_rtc;
 use crate::core::time::datetime::datetime_to_epoch;

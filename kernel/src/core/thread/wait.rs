@@ -4,8 +4,8 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::impl_queue_methods;
 use crate::core::thread::ThreadControlBlock;
+use crate::impl_queue_methods;
 
 #[derive(Debug)]
 pub struct WaitQueue {

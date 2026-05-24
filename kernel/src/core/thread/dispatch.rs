@@ -7,9 +7,9 @@ use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::task::context::init_thread_stack;
 use crate::core::cpu::{
-    NUM_CORES,
     get_core_data_for,
     try_get_core_data_for,
+    NUM_CORES,
 };
 use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;

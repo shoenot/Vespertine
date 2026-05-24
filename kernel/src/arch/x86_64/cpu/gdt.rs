@@ -1,6 +1,6 @@
 use core::ptr::write_volatile;
 
-use crate::{BOOTSTRAP_ALLOC, util::{bitwise::set_bit, read_from_msr, write_to_msr}};
+use crate::{util::{bitwise::set_bit, read_from_msr, write_to_msr}, BOOTSTRAP_ALLOC};
 
 pub(crate) const KERNEL_CS: u64 = 0x08;
 pub(crate) const KERNEL_SS: u64 = 0x10;

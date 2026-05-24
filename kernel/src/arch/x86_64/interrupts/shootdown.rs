@@ -7,8 +7,8 @@ use core::sync::atomic::{
 use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::core::cpu::{
-    NUM_CORES,
     get_core_data_for,
+    NUM_CORES,
 };
 use crate::core::sync::TicketLock;
 use crate::memory::paging::flush_tlb;

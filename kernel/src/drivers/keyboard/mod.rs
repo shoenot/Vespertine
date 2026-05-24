@@ -8,23 +8,23 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::x86_64::IO_APIC;
 use crate::arch::x86_64::io::{
     inb,
     outb,
 };
-use crate::drivers::logger::LOGGER;
+use crate::arch::x86_64::IO_APIC;
 use crate::core::acpi;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::Invocation;
-use mnemosyne_abi::op::ChannelOp;
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::Semaphore;
-use crate::{klog, klogln};
+use crate::drivers::logger::LOGGER;
 use crate::util::bitwise::{
     set_bit,
     unset_bit,
 };
+use crate::{klog, klogln};
+use mnemosyne_abi::op::ChannelOp;
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);
 static EDGE: AtomicBool = AtomicBool::new(true);

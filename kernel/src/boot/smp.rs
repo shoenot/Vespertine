@@ -12,9 +12,9 @@ use crate::arch::x86_64::apic::lapic::{
     TimerMode,
 };
 use crate::arch::x86_64::cpu::core::{
-    CPULocalData,
     activate_core,
     get_core_data,
+    CPULocalData,
 };
 use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::interrupts::idt::load_idt;

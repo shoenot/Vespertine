@@ -4,8 +4,8 @@ use alloc::sync::Arc;
 
 use crate::{core::{object::{invoke::{Invocation, InvocationError}, models::vmo::VmoObject, obj::KernelObject}, thread::get_current_process}, memory::vmo::Vmo};
 
-use mnemosyne_abi::{HandleID, AccessRights};
-use mnemosyne_abi::op::{MemManOp, MemPoolOp};
+use mnemosyne_abi::op::MemPoolOp;
+use mnemosyne_abi::AccessRights;
 #[derive(Debug)]
 pub struct PoolState {
     limit: Option<usize>,

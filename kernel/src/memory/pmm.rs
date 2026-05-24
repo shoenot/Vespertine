@@ -1,7 +1,7 @@
 use core::{slice::from_raw_parts_mut, sync::atomic::{AtomicU16, AtomicU32, Ordering}};
 
-pub use crate::memory::HHDMOFFSET;
 use crate::memory::init_pmm::*;
+pub use crate::memory::HHDMOFFSET;
 
 static ORDER_MAX: usize = 11;
 pub static HUGE_PAGE_SIZE: usize = 0x20_0000;

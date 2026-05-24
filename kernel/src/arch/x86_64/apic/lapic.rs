@@ -1,4 +1,3 @@
-use core::arch::asm;
 use core::arch::x86_64::__cpuid;
 use core::ptr::{
     read_volatile,

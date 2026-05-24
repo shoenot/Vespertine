@@ -1,11 +1,5 @@
 #![allow(dead_code)]
 
-use core::{cmp, ptr::{
-    copy,
-    write_bytes,
-}};
-
-use alloc::vec::Vec;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 

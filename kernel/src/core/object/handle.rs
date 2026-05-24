@@ -1,8 +1,8 @@
 use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 
-use crate::{core::object::{invoke::InvocationError, obj::{HandleEntry, KernelObject}}};
+use crate::core::object::{invoke::InvocationError, obj::{HandleEntry, KernelObject}};
 
-use mnemosyne_abi::{HandleID, AccessRights};
+pub use mnemosyne_abi::{AccessRights, HandleID};
 
 #[derive(Debug)]
 pub struct HandleTable {

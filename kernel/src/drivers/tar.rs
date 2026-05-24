@@ -2,7 +2,7 @@ use core::str::from_utf8;
 
 use alloc::sync::Arc;
 
-use crate::{MODULE_REQUEST, core::object::{handle::{AccessRights, HandleID}, invoke::InvocationError, models::{directory::Directory, file::FileObj}, vfs::{ROOT_DIRECTORY, kernel_close, kernel_register_obj, kernel_walk, mount_kernel_dir}}};
+use crate::{core::object::{handle::{AccessRights, HandleID}, invoke::InvocationError, models::{directory::Directory, file::FileObj}, vfs::{kernel_close, kernel_register_obj, kernel_walk, mount_kernel_dir}}, MODULE_REQUEST};
 
 #[repr(C)]
 struct TarHeader {

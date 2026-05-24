@@ -1,14 +1,14 @@
-use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
+use crate::core::object::handle::{AccessRights, HandleID};
+use crate::core::object::invoke::{Invocation, InvocationError};
 use crate::core::object::models::clock::Clock;
 use crate::core::object::models::console::ConsoleWriter;
+use crate::core::object::models::directory::*;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::procman::ProcessManager;
-use crate::{MODULE_REQUEST, klog, klogln};
-use crate::core::object::invoke::{Invocation, InvocationError};
-use crate::core::object::vfs::{kernel_register_obj, mount_kernel_dir, kernel_invoke};
 use crate::core::object::obj::KernelObject;
-use crate::core::object::handle::{AccessRights, HandleID};
-use crate::core::object::models::directory::*;
+use crate::core::object::vfs::{kernel_register_obj, mount_kernel_dir};
+use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
+use crate::klogln;
 
 use alloc::sync::Arc;
 #[derive(Debug)]

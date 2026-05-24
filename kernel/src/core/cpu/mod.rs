@@ -9,19 +9,19 @@ use core::sync::atomic::{
 use limine::mp::MpGotoFunction;
 
 use crate::arch::x86_64::cpu::core::{
-    CPULocalData,
     get_core_data,
     init_core_data,
+    CPULocalData,
 };
-use crate::boot::MP_REQUEST;
 use crate::boot::smp::ap_entry;
+use crate::boot::MP_REQUEST;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::core::thread::ThreadControlBlock;
 use crate::core::thread::schedule::SchedulerState;
 use crate::core::thread::workqueue::WorkQueue;
+use crate::core::thread::ThreadControlBlock;
 use crate::core::time::callout::Callout;
 use crate::klogln;
 use crate::memory::magazine::Magazine;
