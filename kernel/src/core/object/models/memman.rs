@@ -1,7 +1,9 @@
 use alloc::sync::Arc;
 
-use crate::core::{object::{handle::AccessRights, invoke::{Invocation, InvocationError}, models::mempool::MemPool, obj::KernelObject, op::MemManOp}, thread::get_current_process};
+use crate::core::{object::{invoke::{Invocation, InvocationError}, models::mempool::MemPool, obj::KernelObject}, thread::get_current_process};
 
+use mnemosyne_abi::{HandleID, AccessRights};
+use mnemosyne_abi::op::MemManOp;
 
 #[derive(Debug)]
 pub struct MemoryManager;

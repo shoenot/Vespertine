@@ -1,8 +1,8 @@
 use core::fmt;
 use core::str::Utf8Error;
 
-use crate::kernel::object::handle::AccessRights;
-use crate::kernel::object::op::{
+use mnemosyne_abi::{HandleID, AccessRights};
+use mnemosyne_abi::op::{
     ChannelOp, ClockOp, DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp, ProcOp, VmoOp
 };
 

@@ -1,5 +1,7 @@
-use crate::{KERNEL_PROCESS, core::{object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}, models::process::ProcessControlBlock, obj::KernelObject, op::ProcManOp, vfs::kernel_walk}, program::load_elf, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::vmm::{VM_FLAG_USER, VM_FLAG_WRITE}};
+use crate::{KERNEL_PROCESS, core::{object::{invoke::{Invocation, InvocationError}, models::process::ProcessControlBlock, obj::KernelObject, vfs::kernel_walk}, program::load_elf, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::vmm::{VM_FLAG_USER, VM_FLAG_WRITE}};
 
+use mnemosyne_abi::{AccessRights, HandleID};
+use mnemosyne_abi::op::ProcManOp;
 
 #[derive(Debug)]
 pub struct ProcessManager {}

@@ -2,10 +2,10 @@ use core::cmp::min;
 use core::ptr::copy_nonoverlapping;
 
 use crate::arch::x86_64::task::syscall::{copy_to_user, give_user_string, safe_copy_to};
-use crate::core::object::handle::AccessRights;
+use mnemosyne_abi::{HandleID, AccessRights};
 use crate::core::object::invoke::{Invocation, InvocationError};
 use crate::core::object::obj::KernelObject;
-use crate::core::object::op::FileOp;
+use mnemosyne_abi::op::FileOp;
 
 #[repr(C)]
 #[derive(Debug)] 

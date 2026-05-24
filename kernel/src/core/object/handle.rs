@@ -1,24 +1,8 @@
-use core::ops::{
-    BitAnd,
-    BitOr,
-};
-
 use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 
-use crate::{define_bitflags, core::object::{invoke::InvocationError, obj::{HandleEntry, KernelObject}}};
+use crate::{core::object::{invoke::InvocationError, obj::{HandleEntry, KernelObject}}};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct HandleID(pub usize);
-
-define_bitflags! {
-    pub struct AccessRights(u8) {
-        READ            = 1 << 0;
-        WRITE           = 1 << 1;
-        EXECUTE         = 1 << 2;
-        CREATE          = 1 << 3;
-        MUTATE          = 1 << 4;
-    }
-}
+use mnemosyne_abi::{HandleID, AccessRights};
 
 #[derive(Debug)]
 pub struct HandleTable {

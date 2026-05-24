@@ -1,4 +1,6 @@
-use crate::{core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject, op::ClockOp}, time::get_realtime}, klogln};
+use crate::{core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, time::get_realtime}, klogln};
+
+use mnemosyne_abi::op::ClockOp;
 
 #[derive(Debug)]
 pub struct Clock {}

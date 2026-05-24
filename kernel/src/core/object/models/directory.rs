@@ -5,14 +5,14 @@ use alloc::{
     slice,
     str,
 }; use core::borrow::Borrow;
-use core::str::Utf8Error;
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::{copy_from_user, safe_copy_from};
-use crate::core::object::handle::{AccessRights, HandleID}; use crate::core::object::invoke::{
+use crate::core::object::invoke::{
     Invocation,
     InvocationError,
 };
-use crate::core::object::op::DirectoryOp;
+use mnemosyne_abi::{HandleID, AccessRights};
+use mnemosyne_abi::op::DirectoryOp;
 use crate::core::object::obj::{HandleEntry, KernelObject};
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;

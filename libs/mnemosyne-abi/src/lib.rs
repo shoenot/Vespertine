@@ -1,7 +1,10 @@
-mod op;
+#![no_std]
+#![no_main]
+pub mod op;
+mod bitwise;
 
 use core::fmt::Debug;
-use core::derive;
+use op::*;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -32,4 +35,9 @@ define_bitflags! {
     }
 }
 
-
+pub struct ProcStatus {
+    pub pid: usize,
+    pub active_threads: usize,
+    pub is_terminated: bool,
+    pub memory_usage: usize,
+}

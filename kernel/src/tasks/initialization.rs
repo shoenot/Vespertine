@@ -11,7 +11,7 @@ use crate::drivers::keyboard::kbd_processor_thread;
 use crate::core::object::handle::{AccessRights, HandleID};
 use crate::core::object::invoke::{Invocation, InvocationError};
 use crate::core::object::models::channel::init_ipc_pipeline;
-use crate::core::object::op::{DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp};
+use mnemosyne_abi::op::{DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp};
 use crate::core::object::vfs::{ROOT_DIRECTORY, kernel_close, kernel_invoke, kernel_walk, proc_cpy_handle};
 use crate::core::shell::kernel_shell_thread;
 use crate::core::thread::dispatch::{spawn_kernel_thread, spawn_user_thread};

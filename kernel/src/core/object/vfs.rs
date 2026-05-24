@@ -1,10 +1,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::core::object::handle::{
-    AccessRights,
-    HandleID, HandleTable,
-};
+use mnemosyne_abi::{HandleID, AccessRights};
 use crate::core::object::invoke::{
     Invocation,
     InvocationError,
@@ -13,7 +10,7 @@ use crate::core::object::models::directory::Directory;
 use crate::core::object::obj::{
     HandleEntry, KernelObject
 };
-use crate::core::object::op::DirectoryOp;
+use mnemosyne_abi::op::DirectoryOp;
 use crate::core::sync::{KernelOnceCell, RwLock};
 use crate::core::thread::get_current_process;
 use crate::core::object::models::process::Process;

@@ -1,7 +1,11 @@
 use core::{ptr::{addr_of, write_volatile}, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{KERNEL_PROCESS, arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::{AccessRights, HandleID, HandleTable}, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, op::ProcOp, vfs::{ROOT_DIRECTORY, kernel_duplicate, kernel_walk, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
+use crate::{KERNEL_PROCESS, arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::{Invocation, InvocationError}, models::directory::Directory, obj::{HandleEntry, KernelObject}, vfs::{ROOT_DIRECTORY, kernel_duplicate, kernel_walk, proc_cpy_handle, proc_register_obj}}, program::load_elf, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::{VM_FLAG_USER, VM_FLAG_WRITE, VirtMemManager}}};
 use alloc::sync::Arc;
+
+use mnemosyne_abi::{HandleID, AccessRights};
+use mnemosyne_abi::op::ProcOp;
+use mnemosyne_abi::ProcStatus;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 
@@ -10,13 +14,6 @@ pub fn get_new_pid() -> usize {
 }
 
 pub type Process = Arc<ProcessControlBlock>;
-
-pub struct ProcStatus {
-    pub pid: usize,
-    pub active_threads: usize,
-    pub is_terminated: bool,
-    pub memory_usage: usize,
-}
 
 #[repr(C)]
 #[derive(Debug)]

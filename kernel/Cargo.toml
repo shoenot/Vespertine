@@ -14,3 +14,4 @@ bench = false
 [dependencies]
 limine = "0.6.3"
 simple-psf = "0.1.2"
+mnemosyne-abi = { path = "../libs/mnemosyne-abi/" }

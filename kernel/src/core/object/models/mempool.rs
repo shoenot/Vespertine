@@ -2,8 +2,10 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::sync::Arc;
 
-use crate::{core::{object::{handle::AccessRights, invoke::{Invocation, InvocationError}, models::vmo::VmoObject, obj::KernelObject, op::{MemManOp, MemPoolOp}}, thread::get_current_process}, memory::vmo::Vmo};
+use crate::{core::{object::{invoke::{Invocation, InvocationError}, models::vmo::VmoObject, obj::KernelObject}, thread::get_current_process}, memory::vmo::Vmo};
 
+use mnemosyne_abi::{HandleID, AccessRights};
+use mnemosyne_abi::op::{MemManOp, MemPoolOp};
 #[derive(Debug)]
 pub struct PoolState {
     limit: Option<usize>,

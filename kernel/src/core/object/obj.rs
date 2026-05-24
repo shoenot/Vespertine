@@ -9,10 +9,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::core::object::handle::{
-    AccessRights,
-    HandleID,
-};
+use mnemosyne_abi::{HandleID, AccessRights};
 use crate::core::object::invoke::{
     Invocation,
     InvocationError,

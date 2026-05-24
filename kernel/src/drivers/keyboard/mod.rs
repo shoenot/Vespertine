@@ -17,7 +17,7 @@ use crate::drivers::logger::LOGGER;
 use crate::core::acpi;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::Invocation;
-use crate::core::object::op::ChannelOp;
+use mnemosyne_abi::op::ChannelOp;
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::Semaphore;
 use crate::{klog, klogln};
