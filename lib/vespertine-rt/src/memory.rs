@@ -1,7 +1,7 @@
 
 use vespertine_abi::{HandleID, Invocation, MemManOp, MemPoolOp, VmoOp, ProcOp};
 use vespertine_common::slab::PageProvider;
-use crate::syscall::{SysError, sys_close, sys_invoke, sys_lookup};
+use crate::{rt_print, syscall::{SysError, sys_close, sys_invoke, sys_lookup}};
 
 pub fn get_memory_manager() -> Result<HandleID, SysError> {
     let root = HandleID(0);
@@ -30,7 +30,7 @@ impl PageProvider for UserPageProvider {
         let map_op = Invocation::Vmo(VmoOp::MapIntoProc { 
             vaddr: 0, 
             len: size, 
-            vm_flags: 1 | 2 // write and read
+            vm_flags: 5
         });
 
         let mapped_addr = sys_invoke(vmo_handle, &map_op)

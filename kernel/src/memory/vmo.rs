@@ -70,7 +70,7 @@ impl PagedBackingStore for Vmo {
     }
 
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()> {
-        let mut pages = self.pages.lock();
+        let pages = self.pages.lock();
         let current_size = self.size.load(Ordering::Relaxed);
 
         if offset + len > current_size {

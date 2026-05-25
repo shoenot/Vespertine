@@ -25,7 +25,7 @@ impl KernelObject for ConsoleWriter {
 }
 
 impl ConsoleWriter {
-    pub fn console_log(&self, offset: usize, buffer_ptr: *mut u8, len: usize) -> Result<usize, InvocationError> {
+    pub fn console_log(&self, _offset: usize, buffer_ptr: *mut u8, len: usize) -> Result<usize, InvocationError> {
         if len > 255 { return Err(InvocationError::InvalidArgument) };
         let mut console_str = [0u8; 255];
         let str_ptr = console_str.as_mut_ptr() ;

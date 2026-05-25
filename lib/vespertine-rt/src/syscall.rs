@@ -51,6 +51,8 @@ pub fn sys_invoke(handle: HandleID, op: &Invocation) -> Result<usize, SysError> 
             in("rsi") op as *const Invocation as usize,
             lateout("rax") ret,
             lateout("rdx") payload,
+            out("rcx") _, // clobbered
+            out("r11") _, // clobbered
         );
     }
 
@@ -78,6 +80,9 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
             "syscall",
             in("rdi") handle.0,
             lateout("rax") ret,
+            out("rdx") _,   // clobbered
+            out("rcx") _,   // clobbered
+            out("r11") _,   // clobbered
         );
     }
     if ret == 0 { Ok(()) } else { Err(SysError::from(ret)) }

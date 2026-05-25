@@ -10,17 +10,25 @@ use vespertine_abi::HandleID;
 use vespertine_abi::Invocation;
 use vespertine_rt::syscall::sys_invoke;
 
-fn console_write(mut text: String) -> Invocation {
-    let text_ptr = text.as_mut_ptr();
-    let text_len = text.len();
+fn console_write(text: &str) -> Invocation {
     Invocation::File(FileOp::Write { 
         offset: 0, 
-        buffer_ptr: text_ptr,
-        len: text_len 
+        buffer_ptr: text.as_ptr() as *mut u8,
+        len: text.len() 
+    })
+}
+
+fn console_write_static(text: &str) -> Invocation {
+   Invocation::File(FileOp::Write { 
+        offset: 0, 
+        buffer_ptr: text.as_ptr() as *mut u8,
+        len: text.len() 
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "sysv64" fn main(root: HandleID, console:HandleID) {
-    let _ = sys_invoke(console, &console_write("Hello from userland program 1".to_string()));
+pub extern "sysv64" fn main(_root: HandleID, _self: HandleID, console: HandleID) {
+    let text = "Hello from userland program 1".to_string();
+    let op = console_write(&text);
+    let _ = sys_invoke(console, &op);
 }

@@ -23,9 +23,9 @@ use crate::tests::smp_tests::{
     THREADS_FINISHED,
 };
 use crate::{
-    KERNEL_PROCESS, klog, klogln, terminate_thread, tests
+    KERNEL_PROCESS, klogln, terminate_thread, tests
 };
-use vespertine_abi::op::{DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp};
+use vespertine_abi::op::{FileOp, ProcManOp};
 
 // Kernel initialization tasks
 

@@ -105,7 +105,7 @@ impl Directory {
     fn lookup(&self, name: *const u8, name_len: usize, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         if name_len > FILENAME_LEN_MAX { return Err(InvocationError::InvalidArgument) };
         let mut filename = [0u8; 255];
-        let filename_ptr = filename.as_mut_ptr();
+        let _filename_ptr = filename.as_mut_ptr();
 
         let name_str = Filename::new(name, name_len)?.name;
 

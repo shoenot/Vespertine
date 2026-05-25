@@ -20,7 +20,7 @@ struct FreeBlock {
 }
 
 pub struct SlabAllocator<P: PageProvider> {
-    caches: [TicketLock<MemCache>; 10],
+    pub caches: [TicketLock<MemCache>; 10],
     provider: P
 }
 
@@ -74,7 +74,7 @@ unsafe impl<P: PageProvider> GlobalAlloc for SlabAllocator<P> {
 }
 
 pub struct MemCache {
-    object_size: usize,
+    pub object_size: usize,
     freelist_head: Option<*mut FreeBlock>,
 }
 

@@ -16,6 +16,16 @@ pub struct GlobalUserAlloc {
 unsafe impl Send for GlobalUserAlloc {}
 unsafe impl Sync for GlobalUserAlloc {}
 
+pub fn rt_print(text: &str) {
+    let op = vespertine_abi::Invocation::File(vespertine_abi::FileOp::Write {
+        offset: 0,
+        buffer_ptr: text.as_ptr() as *mut u8,
+        len: text.len(),
+    });
+    let console = vespertine_abi::HandleID(2);
+    let _ = crate::syscall::sys_invoke(console, &op);
+}
+
 unsafe impl GlobalAlloc for GlobalUserAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let lock = self.inner.lock();
@@ -55,7 +65,9 @@ pub extern "sysv64" fn _start() -> ! {
 
     init_heap();
 
-    main(root_handle, self_handle, console_handle);
+    unsafe {
+        main(root_handle, self_handle, console_handle);
+    }
 
     unsafe {
         asm!(
@@ -66,22 +78,8 @@ pub extern "sysv64" fn _start() -> ! {
     }
 }
 
-fn main(root_handle: HandleID, self_handle: HandleID, console_handle:HandleID) {
-    let msg = "Hello from Vespertine Userspace!\n";
-    let write_op = Invocation::File(FileOp::Write { 
-        offset: 0, 
-        buffer_ptr: msg.as_ptr() as *mut u8, 
-        len: msg.len(),
-    });
-
-    unsafe {
-        asm!(
-            "mov rax, 0",           // syscall 0 (invoke)
-            "syscall",
-            in("rdi") console_handle.0,
-            in("rsi") &write_op as *const _ as usize,
-        );
-    }
+unsafe extern "sysv64" {
+    pub fn main(r: HandleID, s: HandleID, c: HandleID);
 }
 
 #[panic_handler]

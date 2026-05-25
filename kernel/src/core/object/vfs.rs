@@ -10,9 +10,7 @@ use crate::core::object::models::process::Process;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::get_current_process;
-use crate::{
-    klog, klogln
-};
+use crate::klogln;
 use vespertine_abi::op::DirectoryOp;
 use vespertine_abi::{AccessRights, HandleID};
 

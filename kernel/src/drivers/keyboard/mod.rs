@@ -23,7 +23,7 @@ use crate::util::bitwise::{
     set_bit,
     unset_bit,
 };
-use crate::{klog, klogln};
+use crate::klogln;
 use vespertine_abi::op::ChannelOp;
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);
