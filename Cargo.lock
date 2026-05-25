@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "hesper"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-rt",
+]
+
+[[package]]
 name = "kernel"
 version = "0.1.0"
 dependencies = [

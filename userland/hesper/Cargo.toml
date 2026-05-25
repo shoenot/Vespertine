@@ -1,0 +1,13 @@
+[package]
+name = "hesper"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "hesper"
+test = false
+bench = false
+
+[dependencies]
+vespertine-rt = { path = "../../lib/vespertine-rt" }
+vespertine-abi = { path = "../../lib/vespertine-abi" }

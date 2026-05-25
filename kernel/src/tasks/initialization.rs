@@ -41,8 +41,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     let console_handle = kernel_walk("/Objects/ConsoleWriter", HandleID(0)).expect("[FATAL] No ConsoleWriter found");
 
     // socket pair for keyboard
-    let (kbd_write_handle, shell_read_handle) = init_ipc_pipeline();
-    spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_write_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
+    let (kbd_source_handle, kbd_sink_handle) = init_ipc_pipeline();
+    spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_sink_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
 
     let file_handle = kernel_walk("/Documents/filetest.txt", HandleID(0)).expect("[FATAL] File not found!");
     let mut buf = [0u8; 64];
@@ -55,10 +55,10 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     let pm_handle = kernel_walk("/Objects/ProcessManager", HandleID(0)).expect("[FATAL] No Process Manager found");
 
     // userspace shell proc
-    let exec_handle = kernel_walk("/Programs/shell", HandleID(0)).expect("[FATAL] No program found");
+    let exec_handle = kernel_walk("/Programs/hesper", HandleID(0)).expect("[FATAL] No program found");
     let root_handle = HandleID(0);
     let root_rights = AccessRights::all();
-    let source = shell_read_handle;
+    let source = kbd_sink_handle;
     let sink = console_handle;
     let spawn_op = ProcManOp::Spawn { exec_handle, root_handle, root_rights, source, sink };
 

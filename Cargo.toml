@@ -3,7 +3,7 @@ members = [
     "kernel",
     "lib/vespertine-abi",
     "lib/vespertine-common",
-    "lib/vespertine-rt", "userland/shell"]
+    "lib/vespertine-rt", "userland/hesper", "userland/shell"]
 
 resolver = "2"
 

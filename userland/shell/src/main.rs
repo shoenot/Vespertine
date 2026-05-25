@@ -27,8 +27,8 @@ fn console_write_static(text: &str) -> Invocation {
 }
 
 #[unsafe(no_mangle)]
-pub extern "sysv64" fn main(_root: HandleID, _self: HandleID, _source: HandleID, console: HandleID) {
+pub extern "sysv64" fn main(_root: HandleID, _self: HandleID, _source: HandleID, sink: HandleID) {
     let text = "Hello from userland program 1".to_string();
     let op = console_write(&text);
-    let _ = sys_invoke(console, &op);
+    let _ = sys_invoke(sink, &op);
 }
