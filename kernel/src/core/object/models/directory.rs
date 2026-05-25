@@ -7,10 +7,8 @@ use alloc::{
 };
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::safe_copy_from;
-use crate::core::object::invoke::{
-    Invocation,
-    InvocationError,
-};
+use crate::core::object::invoke::InvocationError;
+use vespertine_abi::Invocation;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;

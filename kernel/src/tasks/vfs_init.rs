@@ -1,5 +1,5 @@
-use crate::core::object::handle::{AccessRights, HandleID};
-use crate::core::object::invoke::{Invocation, InvocationError};
+use vespertine_abi::{AccessRights, HandleID, Invocation};
+use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::clock::Clock;
 use crate::core::object::models::console::ConsoleWriter;
 use crate::core::object::models::directory::*;

@@ -14,8 +14,7 @@ use crate::arch::x86_64::io::{
 };
 use crate::arch::x86_64::IO_APIC;
 use crate::core::acpi;
-use crate::core::object::handle::HandleID;
-use crate::core::object::invoke::Invocation;
+use vespertine_abi::{HandleID, Invocation, op::FileOp};
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::Semaphore;
 use crate::drivers::logger::LOGGER;
@@ -156,18 +155,17 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                         }
                         writer.erase_cursor(writer.line.len as u32);
                         writer.line.clear();
-                    }
-                    klogln!("");
+                        }
+                        klogln!("");
 
-                    let push_op = Invocation::Channel(ChannelOp::PushSmall { 
-                        data: byte_buffer, 
-                        len: byte_len as u8,
-                    });
-                    let _ = kernel_invoke(chan_handle, push_op);
+                        let write_op = Invocation::File(FileOp::Write { 
+                        offset: 0,
+                        buffer_ptr: byte_buffer.as_mut_ptr(),
+                        len: byte_len,
+                        });
+                        let _ = kernel_invoke(chan_handle, write_op);
+                        } else if c == '\x08' {
 
-                    let pull_op = Invocation::Channel(ChannelOp::Pull { buffer_ptr: null_mut() });
-                    let _ = kernel_invoke(chan_handle, pull_op);
-                } else if c == '\x08' {
                     let mut logger = LOGGER.lock();
                     let writer = unsafe { logger.graphics_writer.assume_init_mut() };
                     writer.backspace();

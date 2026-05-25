@@ -1,6 +1,6 @@
 pub mod directory;
 pub mod file;
-pub mod channel;
+pub mod socket;
 pub mod vmo;
 pub mod clock;
 pub mod process;

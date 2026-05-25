@@ -1,7 +1,8 @@
 use core::cmp::min;
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
-use crate::core::object::invoke::{Invocation, InvocationError};
+use crate::core::object::invoke::InvocationError;
+use vespertine_abi::Invocation;
 use crate::core::object::obj::KernelObject;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::AccessRights;

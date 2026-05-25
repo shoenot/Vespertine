@@ -19,10 +19,20 @@ use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
 use crate::core::thread::ThreadState;
 
+use core::fmt;
+
 pub struct Mutex<T> {
     is_locked: AtomicBool,
     wait_queue: TicketLock<WaitQueue>,
     data: UnsafeCell<T>,
+}
+
+impl<T> fmt::Debug for Mutex<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Mutex")
+            .field("is_locked", &self.is_locked)
+            .finish_non_exhaustive()
+    }
 }
 
 unsafe impl<T: Send> Sync for Mutex<T> {}

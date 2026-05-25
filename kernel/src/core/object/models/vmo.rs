@@ -1,6 +1,7 @@
 use alloc::sync::Arc;
 
-use crate::{core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, thread::get_current_process}, memory::vmo::PagedBackingStore};
+use crate::{core::{object::{invoke::InvocationError, obj::KernelObject}, thread::get_current_process}, memory::vmo::PagedBackingStore};
+use vespertine_abi::Invocation;
 
 use vespertine_abi::op::VmoOp;
 use vespertine_abi::AccessRights;

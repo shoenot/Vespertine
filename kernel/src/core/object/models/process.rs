@@ -1,6 +1,7 @@
 use core::{ptr::addr_of, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::{Invocation, InvocationError}, obj::KernelObject}, sync::RwLock}, memory::{vmm::VirtMemManager, ALLOCATOR}};
+use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::InvocationError, obj::KernelObject}, sync::RwLock}, memory::{vmm::VirtMemManager, ALLOCATOR}};
+use vespertine_abi::Invocation;
 use alloc::sync::Arc;
 
 use vespertine_abi::op::ProcOp;
@@ -26,21 +27,16 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn new(process_root: Arc<dyn KernelObject>, root_rights: AccessRights) -> Process {
-        let proc = Arc::new(
+    pub fn new(init_table: HandleTable) -> Process {
+        Arc::new(
             Self {
                 proc_id: get_new_pid(),
-                proc_handles: RwLock::new(HandleTable::new()),
+                proc_handles: RwLock::new(init_table),
                 vmm: RwLock::new(VirtMemManager::new(&ALLOCATOR)),
                 active_threads: AtomicUsize::new(0),
                 is_terminated: AtomicBool::new(false),
             }
-        );
-        
-        // new processes get root at handle 0, self_id at handle 1 
-        proc.proc_handles.write().insert_at(HandleID(0), process_root, root_rights);
-        proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
-        proc
+        )
     }
 
     pub fn status(&self, ptr: *mut ProcStatus) -> Result<usize, InvocationError> {

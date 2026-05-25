@@ -1,7 +1,7 @@
 
 use vespertine_abi::{HandleID, Invocation, MemManOp, MemPoolOp, VmoOp, ProcOp};
 use vespertine_common::slab::PageProvider;
-use crate::{rt_print, syscall::{SysError, sys_close, sys_invoke, sys_lookup}};
+use crate::syscall::{SysError, sys_close, sys_invoke, sys_lookup};
 
 pub fn get_memory_manager() -> Result<HandleID, SysError> {
     let root = HandleID(0);

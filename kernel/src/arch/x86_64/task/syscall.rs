@@ -2,7 +2,8 @@ use core::{fmt::Display, intrinsics::copy_nonoverlapping, mem::zeroed};
 
 use alloc::{string::String, vec::Vec};
 
-use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::{Invocation, InvocationError}, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, terminate_thread};
+use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::InvocationError, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, terminate_thread};
+use vespertine_abi::Invocation;
 
 pub enum SysError {
     Success = 0,

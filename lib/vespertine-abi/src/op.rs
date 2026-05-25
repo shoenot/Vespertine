@@ -11,6 +11,12 @@ pub enum ChannelOp {
 
 #[repr(C)]
 #[derive(Debug)]
+pub enum SocketOp {
+    Create { sourceproc: HandleID, sinkproc: HandleID },
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub enum DirectoryOp {
     Link { name: *const u8, name_len: usize, handle_id: HandleID },
     Unlink { name: *const u8, name_len: usize },
@@ -47,7 +53,13 @@ pub enum ProcOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum ProcManOp {
-    Spawn { exec_handle: HandleID, root_handle: HandleID, root_rights: AccessRights },
+    Spawn { 
+        exec_handle: HandleID, 
+        root_handle: HandleID, 
+        root_rights: AccessRights,
+        source: HandleID,
+        sink: HandleID,
+    },
 }
 
 #[repr(C)]

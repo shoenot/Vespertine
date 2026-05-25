@@ -1,10 +1,8 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::core::object::invoke::{
-    Invocation,
-    InvocationError,
-};
+use crate::core::object::invoke::InvocationError;
+use vespertine_abi::Invocation;
 use crate::core::object::models::directory::Directory;
 use crate::core::object::models::process::Process;
 use crate::core::object::obj::KernelObject;

@@ -1,4 +1,5 @@
-use crate::{arch::x86_64::task::syscall::SysError, core::object::invoke::Invocation, klogln};
+use crate::{arch::x86_64::task::syscall::SysError, klogln};
+use vespertine_abi::Invocation;
 use core::arch::asm;
 
 pub fn sys_invoke(handle_id: usize, invocation: Invocation) -> Result<usize, SysError> {

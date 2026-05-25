@@ -6,8 +6,7 @@ use alloc::alloc::{alloc, Layout};
 use core::intrinsics::{copy_nonoverlapping, write_bytes};
 use core::slice::from_raw_parts;
 
-use crate::core::object::handle::HandleID;
-use crate::core::object::invoke::Invocation;
+use vespertine_abi::{HandleID, Invocation};
 use crate::core::object::models::process::Process;
 use vespertine_abi::FileOp;
 use crate::core::object::vfs::kernel_invoke;

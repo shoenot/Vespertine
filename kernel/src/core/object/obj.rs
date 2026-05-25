@@ -1,11 +1,8 @@
 use alloc::sync::Arc;
 use core::fmt::Debug;
 
-use crate::core::object::invoke::{
-    Invocation,
-    InvocationError,
-};
-use vespertine_abi::AccessRights;
+use crate::core::object::invoke::InvocationError;
+use vespertine_abi::{AccessRights, Invocation};
 
 pub trait KernelObject: Send + Sync + Debug {
     fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;

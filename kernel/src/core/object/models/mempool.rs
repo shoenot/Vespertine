@@ -2,7 +2,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::sync::Arc;
 
-use crate::{core::{object::{invoke::{Invocation, InvocationError}, models::vmo::VmoObject, obj::KernelObject}, thread::get_current_process}, memory::vmo::Vmo};
+use crate::{core::{object::{invoke::InvocationError, models::vmo::VmoObject, obj::KernelObject}, thread::get_current_process}, memory::vmo::Vmo};
+use vespertine_abi::Invocation;
 
 use vespertine_abi::op::MemPoolOp;
 use vespertine_abi::AccessRights;

@@ -32,7 +32,8 @@ use memory::{
 };
 
 use crate::arch::x86_64::cpu::core::{init_timer_daemon, CPULocalData};
-use crate::core::object::handle::AccessRights;
+use crate::core::object::handle::{AccessRights, HandleTable};
+use vespertine_abi::HandleID;
 use crate::core::object::models::directory::Directory;
 use crate::core::object::models::process::{Process, ProcessControlBlock};
 use crate::core::object::vfs::ROOT_DIRECTORY;
@@ -46,12 +47,13 @@ use crate::memory::GLOBAL_PMM;
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
 pub fn init_kernel_process() {
-    KERNEL_PROCESS.get_or_init(|| 
-        ProcessControlBlock::new(
-            ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone(),
-            AccessRights::all()
-        )
-    );
+    KERNEL_PROCESS.get_or_init(|| {
+        let proc = ProcessControlBlock::new(HandleTable::new());
+        let root = ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone();
+        proc.proc_handles.write().insert_at(HandleID(0), root, AccessRights::all());
+        proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::all());
+        proc
+    });
 }
 
 #[unsafe(no_mangle)]

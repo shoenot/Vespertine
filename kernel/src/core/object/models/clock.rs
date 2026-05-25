@@ -1,4 +1,5 @@
-use crate::core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, time::get_realtime};
+use crate::core::{object::{invoke::InvocationError, obj::KernelObject}, time::get_realtime};
+use vespertine_abi::Invocation;
 
 use vespertine_abi::op::ClockOp;
 
@@ -10,7 +11,7 @@ impl KernelObject for Clock {
         "Clock"
     }
 
-    fn invoke(&self, invocation: crate::core::object::invoke::Invocation, _calling_rights: crate::core::object::handle::AccessRights) -> Result<usize, crate::core::object::invoke::InvocationError> {
+    fn invoke(&self, invocation: Invocation, _calling_rights: crate::core::object::handle::AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Clock(ClockOp::GetTimestamp) =>  { Ok(get_realtime() as usize) },
             _ => Err(InvocationError::UnsupportedOperation),

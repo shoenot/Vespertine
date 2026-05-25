@@ -16,16 +16,6 @@ pub struct GlobalUserAlloc {
 unsafe impl Send for GlobalUserAlloc {}
 unsafe impl Sync for GlobalUserAlloc {}
 
-pub fn rt_print(text: &str) {
-    let op = vespertine_abi::Invocation::File(vespertine_abi::FileOp::Write {
-        offset: 0,
-        buffer_ptr: text.as_ptr() as *mut u8,
-        len: text.len(),
-    });
-    let console = vespertine_abi::HandleID(2);
-    let _ = crate::syscall::sys_invoke(console, &op);
-}
-
 unsafe impl GlobalAlloc for GlobalUserAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let lock = self.inner.lock();
@@ -61,12 +51,13 @@ pub fn init_heap() {
 pub extern "sysv64" fn _start() -> ! {
     let root_handle = HandleID(0);
     let self_handle = HandleID(1);
-    let console_handle = HandleID(2);
+    let source_handle = HandleID(2);
+    let sink_handle = HandleID(3);
 
     init_heap();
 
     unsafe {
-        main(root_handle, self_handle, console_handle);
+        main(root_handle, self_handle, source_handle, sink_handle);
     }
 
     unsafe {
@@ -79,7 +70,7 @@ pub extern "sysv64" fn _start() -> ! {
 }
 
 unsafe extern "sysv64" {
-    pub fn main(r: HandleID, s: HandleID, c: HandleID);
+    pub fn main(r: HandleID, s: HandleID, src: HandleID, snk: HandleID);
 }
 
 #[panic_handler]
