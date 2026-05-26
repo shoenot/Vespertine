@@ -2,7 +2,7 @@ use core::{fmt::Display, ptr::copy_nonoverlapping, mem::zeroed};
 
 use alloc::{string::String, vec::Vec};
 
-use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::InvocationError, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, terminate_thread};
+use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::InvocationError, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, klogln_serial, terminate_thread};
 use vespertine_abi::Invocation;
 
 pub enum SysError {
@@ -132,7 +132,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
         let handle_id = (*frame).rdi;
         let uspace_inv_ptr = (*frame).rsi as *const Invocation;
 
-        klogln!("[INFO] *SYSCALL*: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
+        klogln_serial!("[INFO] *SYSCALL*: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
         let ret = match syscall_number {
             0 => {
                 if uspace_inv_ptr as usize >= 0xFFFF_8000_0000_0000 {

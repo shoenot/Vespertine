@@ -65,9 +65,13 @@ pub extern "C" fn kmain() -> ! {
     BOOTSTRAP_ALLOC.lock().init(bootstrap_page);
 
     arch::init();
+    arch::init_bootstrap_core();
+
+    klogln!("[INFO] GS Base initialized. Starting FPU...");
     arch::init_fpu(true);
 
-    arch::init_bootstrap_core();
+    klogln!("[INFO] FPU initialized. Starting Global APICs...");
+    arch::init_global_apics();
 
     init_kernel_process();
 
@@ -78,7 +82,7 @@ pub extern "C" fn kmain() -> ! {
     init_timer_daemon(data_ptr);
 
     let cr3 = get_cr3();
-    BSP_CR3.store(cr3, Ordering::Relaxed);
+    BSP_CR3.store(cr3, Ordering::Release);
 
     init_smp();
 

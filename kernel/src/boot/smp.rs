@@ -26,7 +26,7 @@ pub static BSP_CR3: AtomicU64 = AtomicU64::new(0);
 
 pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
     let core_data_ptr = mp_info.extra_argument() as *mut CPULocalData;
-    load_cr3(BSP_CR3.load(Ordering::Relaxed));
+    load_cr3(BSP_CR3.load(Ordering::Acquire));
     load_idt();
     activate_core(core_data_ptr);
     crate::arch::x86_64::cpu::core::init_timer_daemon(core_data_ptr);

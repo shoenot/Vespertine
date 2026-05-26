@@ -2,6 +2,7 @@
 #![no_main]
 pub mod op;
 pub mod tag;
+pub mod protocol;
 mod bitwise;
 
 use core::{fmt::Debug, option::Iter, slice};

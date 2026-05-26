@@ -2,12 +2,17 @@ use core::fmt;
 
 use vespertine_abi::{FileOp, HandleID, Invocation};
 
-use crate::syscall::sys_invoke;
+use crate::{get_init_pkg, syscall::sys_invoke};
 
 pub struct SinkWriter;
 
 impl fmt::Write for SinkWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
+        let pkg_ptr = get_init_pkg();
+        let handle = if pkg_ptr.is_null() { HandleID(3) } else {
+            unsafe { (*pkg_ptr).sink_handle }
+        };
+
         let op = Invocation::File(
             FileOp::Write { 
                 offset: 0, 
@@ -15,7 +20,8 @@ impl fmt::Write for SinkWriter {
                 len: s.len() 
             }
         );
-        let _ = sys_invoke(HandleID(3), &op);
+
+        let _ = sys_invoke(handle, &op);
         Ok(())
     }
 }

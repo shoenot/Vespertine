@@ -5,7 +5,7 @@ pub mod sink;
 pub mod source;
 mod memory;
 
-use core::{alloc::{GlobalAlloc, Layout}, arch::asm, panic::PanicInfo, ptr::null_mut};
+use core::{alloc::{GlobalAlloc, Layout}, arch::asm, panic::PanicInfo, ptr::{null, null_mut}};
 use vespertine_abi::{FileOp, HandleID, Invocation, ProcessInitPackage};
 use vespertine_common::{lock::TicketLock, slab::SlabAllocator};
 
@@ -49,8 +49,18 @@ pub fn init_heap() {
     *lock = Some(allocator);
 }
 
+static mut INITIAL_PACKAGE: *const ProcessInitPackage = null();
+
+pub fn get_init_pkg() -> *const ProcessInitPackage {
+    unsafe { INITIAL_PACKAGE }
+}
+
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn _start(initpkg_ptr: *const ProcessInitPackage) -> ! {
+    unsafe {
+        INITIAL_PACKAGE = initpkg_ptr;
+    }
+
     init_heap();
 
     unsafe {

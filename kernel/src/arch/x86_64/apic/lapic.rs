@@ -152,6 +152,13 @@ impl X2ApicDriver {
     pub(crate) fn init(&mut self) {
         unsafe {
             pic8259::disable();
+
+            // ensure x2apic is enabled on this core
+            if !check_bit(get_apic_flags(), 10) {
+                let newbase = get_apic_base() | get_apic_flags() | (1 << 10);
+                write_to_msr(newbase as u64, IA32_APIC_BASE as u32);
+            }
+
             LAPIC_BASE_ADDR.get_or_init(|| 0x800);
             self.base_addr = 0x800;
             self.write_reg(SV_OFFSET, self.read_reg(SV_OFFSET) | (1 << 8) | 0xFF);

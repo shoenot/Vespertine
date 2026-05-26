@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use vespertine_abi::{DirectoryOp, HandleID, Invocation, SocketOp};
+use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, SocketOp};
 
 #[derive(Debug)]
 pub enum SysError { Success = 0,
@@ -79,6 +79,16 @@ pub fn sys_lookup(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
     Ok(HandleID(child_handle))
 }
 
+pub fn sys_read(handle: HandleID, buffer_ptr: *mut u8, len: usize, offset: usize) -> Result<usize, SysError> {
+    let op = FileOp::Read { offset, buffer_ptr, len };
+    sys_invoke(handle, &Invocation::File(op))
+}
+
+pub fn sys_write(handle: HandleID, buffer_ptr: *const u8, len: usize, offset: usize) -> Result<usize, SysError> {
+    let op = FileOp::Write { offset, buffer_ptr: buffer_ptr as *mut u8, len };
+    sys_invoke(handle, &Invocation::File(op))
+}
+
 pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
     let ret: usize;
     unsafe {
@@ -93,16 +103,5 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
         );
     }
     if ret == 0 { Ok(()) } else { Err(SysError::from(ret)) }
-}
-
-pub fn walk_path(path: &str, root: HandleID) -> Result<HandleID, SysError> {
-    let mut current = root;
-    for segment in path.split('/').filter(|s| !s.is_empty()) {
-        let op = Invocation::Directory(DirectoryOp::Lookup { name: segment.as_ptr(), name_len: segment.len() });
-        let next = HandleID(sys_invoke(current, &op)?);
-        if current != root { sys_close(current)?; }
-        current = next;
-    }
-    Ok(current)
 }
 

@@ -11,3 +11,4 @@ bench = false
 [dependencies]
 vespertine-rt = { path = "../../lib/vespertine-rt" }
 vespertine-abi = { path = "../../lib/vespertine-abi" }
+vespertine-std = { path = "../../lib/vespertine-std" }

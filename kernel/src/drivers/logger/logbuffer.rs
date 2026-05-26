@@ -36,6 +36,9 @@ impl KernelObject for LogBuffer {
                 }
                 Ok(n)
             },
+            Invocation::File(FileOp::Stat) => {
+                Ok(self.buf.lock().len())
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

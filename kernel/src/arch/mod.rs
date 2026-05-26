@@ -17,7 +17,7 @@ pub(crate) use x86_64::interrupts::{
     enable_interrupts,
     interrupts_enabled,
 };
-use x86_64::{
+pub use x86_64::{
     init_global_apics,
     init_interrupts,
 };
@@ -35,7 +35,6 @@ pub fn init_bootstrap_core() {
     let lapic_id = lapic.id();
     let data_ptr = init_core_data(lapic_id as usize, 0, lapic);
     activate_core(data_ptr);
-    init_global_apics();
 }
 
 pub fn init_fpu(bsp: bool) {

@@ -104,6 +104,10 @@ impl Logger {
             let _ = self.graphics_writer.assume_init_mut().write_str(s);
         }
     }
+
+    pub fn write_serial_only(&mut self, s: &str) -> fmt::Result {
+        unsafe { self.serial_writer.assume_init_mut().write_str(s) }
+    }
 }
 
 impl Write for Logger {
@@ -132,3 +136,29 @@ macro_rules! klogln {
 
 #[doc(hidden)]
 pub fn _klog(args: fmt::Arguments) { LOGGER.lock().write_fmt(args).unwrap(); }
+
+
+#[macro_export]
+macro_rules! klog_serial {
+    ($($arg:tt)*) => ($crate::drivers::logger::_klog_serial(format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! klogln_serial {
+    () => ($crate::klog_serial!("\n"));
+    ($($arg:tt)*) => ($crate::klog_serial!("{}\n", format_args!($($arg)*)));
+}
+
+#[doc(hidden)]
+pub fn _klog_serial(args: fmt::Arguments) {
+    struct SerialOnlyFormatter<'a>(&'a mut Logger);
+    impl<'a> core::fmt::Write for SerialOnlyFormatter<'a> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            self.0.write_serial_only(s)
+        }
+    }
+
+    let mut logger = LOGGER.lock();
+    let mut formatter = SerialOnlyFormatter(&mut *logger);
+    core::fmt::write(&mut formatter, args).unwrap();
+}

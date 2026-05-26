@@ -1,0 +1,13 @@
+[package]
+name = "vespertine-std"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+test = false
+bench = false
+
+[dependencies]
+vespertine-abi = { path = "../vespertine-abi/" }
+vespertine-common = { path = "../vespertine-common/" }
+vespertine-rt = { path = "../vespertine-rt/" }

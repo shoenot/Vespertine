@@ -5,17 +5,18 @@ use core::ptr::null;
 
 use vespertine_abi::{AccessRights, FileOp, HandleGrant, Invocation, ProcManOp, ProcessInitPackage, tag::*};
 use vespertine_rt::{println, syscall::{sys_invoke, sys_lookup}};
+use vespertine_std::env::find_tag;
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let pkg = unsafe { &*pkg_ptr };
     // userspace shell proc
-    let pm_handle = match find_tag(pkg.ext(), TAG_SYS_PROCMAN) {
+    let pm_handle = match find_tag(TAG_SYS_PROCMAN) {
         Some(g) => g,
         None => panic!("Hesper reqires the ProcessManager handle to be injected"),
     }.id;
 
-    let sf_handle = match find_tag(pkg.ext(), TAG_SYS_SOCKFAC) {
+    let sf_handle = match find_tag(TAG_SYS_SOCKFAC) {
         Some(g) => g,
         None => panic!("Hesper reqires the SocketFactory handle to be injected"),
     }.id;

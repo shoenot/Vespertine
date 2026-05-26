@@ -341,11 +341,11 @@ impl GraphicsWriter {
     }
 
     pub fn backspace(&mut self) {
-        self.erase_cursor(self.line.cursor as u32);
+        self.erase_cursor(self.prompt_col + self.line.cursor as u32);
         if let Some(action) = self.line.backspace() {
             self.apply_render(action);
         }
-        self.draw_cursor(self.line.cursor as u32);
+        self.draw_cursor(self.prompt_col + self.line.cursor as u32);
     }
 
     fn apply_render(&mut self, action: RenderLine) {

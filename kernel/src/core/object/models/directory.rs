@@ -1,12 +1,11 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::{
     slice,
     str,
-    format
 };
+use vespertine_abi::protocol::{AbiDirEntry, DirEntryType, PacketFlags, PacketHeader, VESPER_MAGIC};
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
@@ -14,12 +13,13 @@ use vespertine_abi::{FileOp, Invocation};
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
-use crate::{klog, klogln};
 use core::borrow::Borrow;
+use core::cmp;
+use core::ptr::copy_nonoverlapping;
 use vespertine_abi::op::DirectoryOp;
 use vespertine_abi::{AccessRights, HandleID};
 
-pub const FILENAME_LEN_MAX: usize = 255;
+pub const FILENAME_LEN_MAX: usize = 254;
 
 #[derive(Debug)]
 pub struct Directory {
@@ -134,27 +134,53 @@ impl Directory {
         let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
         let sink_obj = proc.proc_handles.read().resolve(sink, AccessRights::WRITE)?;
 
-        for (k, v) in &*(self.tree.read()) {
-            let indent: String = (0..offset).map(|_| ' ').collect();
-            let line = format!("{}{}\n", indent, k.name);
-            sink_obj.invoke(
-                Invocation::File(
-                    FileOp::Write { 
-                        offset: 0, 
-                        buffer_ptr: line.as_ptr() as *mut u8, 
-                        len: line.len() 
-                    }
-                ),
-                AccessRights::WRITE,
-            )?;
+        let tree = self.tree.read();
+        let mut iter = tree.iter().peekable();
 
-            if v.type_name() == "Directory" {
-                v.invoke(
-                    Invocation::Directory(DirectoryOp::List { offset: offset + 4, sink }), 
-                    AccessRights::WRITE
-                )?;
+        while let Some((name, obj)) = iter.next() {
+            // prepare payload
+            let mut entry = AbiDirEntry {
+                entry_type: match obj.type_name() {
+                    "Directory" => DirEntryType::Directory as u8,
+                    "File" => DirEntryType::File as u8,
+                    _ => DirEntryType::Object as u8,
+                },
+                name_len: cmp::min(name.name.len(), 254) as u8,
+                name: [0u8; 254],
+            };
+            let len = entry.name_len as usize;
+            entry.name[..len].copy_from_slice(&name.name.as_bytes()[..len]);
+
+            // prepare packet header 
+            let mut flags = PacketFlags::IS_STREAM;
+            if iter.peek().is_some() {
+                flags = flags.insert(PacketFlags::HAS_NEXT);
             }
+
+            let header = PacketHeader {
+                magic: VESPER_MAGIC,
+                version: 1,
+                packet_flags: flags,
+                packet_type: 1,
+                payload_len: size_of::<AbiDirEntry>() as u32,
+                reserved: 0
+            };
+            
+            // write header + payload to sink 
+            let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<AbiDirEntry>()];
+            let header_size = size_of::<PacketHeader>();
+            let entry_size = size_of::<AbiDirEntry>();
+            unsafe {
+                let header_ptr = &header as *const _ as *const u8;
+                let entry_ptr = &entry as *const _ as *const u8;
+                copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
+                copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
+            }
+
+            let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr(), len: buffer.len() };
+            sink_obj.invoke(Invocation::File(op), AccessRights::WRITE)?;
         }
+
         Ok(0)
     }
 }

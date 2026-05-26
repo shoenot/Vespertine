@@ -3,7 +3,7 @@ use core::alloc::Layout;
 use core::arch::asm;
 use core::ptr::{
     copy_nonoverlapping,
-    null_mut,
+    null_mut, write_bytes,
 };
 use core::sync::atomic::{
     AtomicBool,
@@ -90,6 +90,9 @@ fn init_default_fpu_avx_cxt() -> Option<()> {
                 let (_, ebx, _) = get_xsave_details();
                 FPU_CXT_SIZE.store(ebx, Ordering::Relaxed);
                 let clean_fpu_cxt = BOOTSTRAP_ALLOC.lock().alloc(ebx, 64) as *mut u8;
+
+                write_bytes(clean_fpu_cxt, 0, ebx);
+
                 init_clean_fpu_state(clean_fpu_cxt);
                 CLEAN_FPU_CXT.store(clean_fpu_cxt, Ordering::Relaxed);
                 return Some(());

@@ -13,8 +13,3 @@ pub const TAG_SYS_CONFIG: usize = 0x2001;
 pub const TAG_SYS_PROCMAN: usize = 0x2002;
 pub const TAG_SYS_SOCKFAC: usize = 0x2003;
 
-pub fn find_tag(grants: &[HandleGrant], tag: usize) -> Option<&HandleGrant> {
-    let ret = grants.iter()
-        .find(|g| g.tag == tag);
-    ret
-}

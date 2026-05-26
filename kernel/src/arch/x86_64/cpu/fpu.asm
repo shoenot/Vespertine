@@ -19,8 +19,21 @@ init_xsave:
     ret
 
 init_clean_fpu_state:
+    ; rdi = ptr to fpu context buffer
+    ; zero out the header first (offset 512 to 576)
+    push rdi 
+    push rcx
+    push rax
+
+    add rdi, 512 
+    mov rcx, 8 
     xor rax, rax
-    mov [rdi + 512], rax ; clear xstate_bv
+    rep stosq
+
+    pop rax 
+    pop rcx
+    pop rdi
+
     mov eax, 0x7
     xor edx, edx         ; same as above
     xrstor64 [rdi]
@@ -31,8 +44,8 @@ init_clean_fpu_state:
     ldmxcsr [rsp]
     add rsp, 8
 
-    mov eax, 0xFFFFFFFF
-    mov edx, 0xFFFFFFFF
+    mov eax, 0x7
+    xor edx, edx
     xsave64 [rdi]
 
     ret
@@ -40,5 +53,6 @@ init_clean_fpu_state:
 init_cr4: 
     mov rax, cr4
     bts rax, 9
+    bts rax, 10
     mov cr4, rax
     ret

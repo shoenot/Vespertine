@@ -1,0 +1,147 @@
+use core::fmt::Display;
+
+use vespertine_abi::protocol::{AbiDirEntry, DirEntryType, PacketFlags, PacketType, VESPER_MAGIC};
+use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, protocol::PacketHeader, tag::TAG_SYS_SOCKFAC};
+use vespertine_rt::syscall::{sys_close, sys_create_socket, sys_invoke, sys_read};
+
+use crate::{Error, ErrorKind, env::find_tag, fs::walk_path};
+
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::vec::Vec;
+
+pub struct Dir(HandleID);
+
+#[repr(C)]
+pub struct DirEntry {
+    pub name: String,
+    pub kind: EntryKind,
+}
+
+impl Display for DirEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.kind {
+            EntryKind::File => write!(f, "{}", self.name),
+            EntryKind::Directory => write!(f, "{}/", self.name),
+            EntryKind::Object => write!(f, "*{}*", self.name),
+        }
+    }
+}
+
+#[repr(C)]
+pub enum EntryKind {
+    File,
+    Directory,
+    Object,
+}
+
+impl Display for EntryKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::File => write!(f, "file"),
+            Self::Directory => write!(f, "directory"),
+            Self::Object => write!(f, "object"),
+        }
+    }
+}
+
+pub struct ReadDir {
+    read_handle: HandleID,
+    finished: bool,
+}
+
+impl Iterator for ReadDir {
+    type Item = DirEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished { return None };
+
+        let mut header = PacketHeader { 
+            magic: 0, 
+            version: 0, 
+            packet_flags: PacketFlags::new(),
+            packet_type: 0, 
+            payload_len: 0, 
+            reserved: 0,
+        };
+
+        // read header
+        let header_ptr = &mut header as *mut _ as *mut u8;
+        let header_len = size_of::<PacketHeader>();
+
+        match sys_read(self.read_handle, header_ptr, header_len, 0) {
+            Ok(n) if n == header_len => {},
+            _ => {
+                self.finished = true;
+                return None;
+            }
+        }
+
+        // verify magic number 
+        if header.magic != VESPER_MAGIC {
+            self.finished = true;
+            return None;
+        }
+
+        // read payload
+        let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0u8; 254], };
+        let entry_ptr = &mut entry as *mut _ as *mut u8;
+        let entry_len = size_of::<AbiDirEntry>();
+
+        match sys_read(self.read_handle, entry_ptr, entry_len, 0) {
+            Ok(n) if n == entry_len => {},
+            _ => {
+                self.finished = true;
+                return None;
+            }
+        }
+
+        if !header.packet_flags.contains(PacketFlags::HAS_NEXT) {
+            self.finished = true;
+        }
+
+        let name_bytes = &entry.name[..entry.name_len as usize];
+        let name = str::from_utf8(name_bytes)
+            .unwrap_or("Invalid UTF-8")
+            .into();
+
+        let kind = match entry.entry_type {
+            1 => EntryKind::Directory,
+            2 => EntryKind::File,
+            _ => EntryKind::Object
+        };
+
+        Some(DirEntry { name, kind })
+    }
+}
+
+impl Drop for ReadDir {
+    fn drop(&mut self) {
+        let _ = sys_close(self.read_handle);
+    }
+}
+
+impl Dir {
+    pub fn open(path: &str) -> Result<Self, Error> {
+        walk_path(path, HandleID(0))
+            .map(Dir)
+            .map_err(Error::from)
+    }
+
+    pub fn from(handle: HandleID) -> Self {
+        Dir(handle)
+    }
+
+    pub fn list(&self) -> Result<ReadDir, Error> {
+        let sf = find_tag(TAG_SYS_SOCKFAC)
+            .ok_or(Error { kind: ErrorKind::NotFound, message: "Socket factory not found" })?;
+        let (read_end, write_end) = sys_create_socket(sf.id)?;
+
+        let op = DirectoryOp::List { offset: 0, sink: write_end };
+        sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
+        let _ = sys_close(write_end);
+
+        Ok(ReadDir { read_handle: read_end, finished: false })
+    }
+}

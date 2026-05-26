@@ -1,5 +1,7 @@
 use core::arch::asm;
 
+use crate::arch::hcf;
+use crate::arch::x86_64::apic::lapic::send_apic_eoi;
 use crate::arch::x86_64::interrupts::handle;
 use crate::core::sync::KernelOnceCell;
 use crate::klogln;
@@ -115,6 +117,8 @@ pub(crate) struct InterruptStackFrame {
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
     match frame.interrupt_number {
+        6 => panic!("INVALID OPCODE (#UD): {:#?}", frame),
+        8 => panic!("DOUBLE FAULT: {:#?}", frame),
         13 => handle::gpf_handler(frame),
         14 => handle::page_fault_handler(frame),
         15 => handle::unexpected_interrupt_handler(frame),
@@ -124,8 +128,8 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         65 => handle::shootdown_handler(),
         _ => {
             if frame.interrupt_number >= 32 {
-                klogln!("Spurious IRQ: {}", frame.interrupt_number);
-                crate::arch::x86_64::apic::lapic::send_apic_eoi();
+                klogln!("unshandled exception: {}", frame.interrupt_number);
+                hcf()
             }
         }
     }

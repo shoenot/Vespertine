@@ -4,28 +4,30 @@
 extern crate alloc;
 
 use alloc::str;
-use vespertine_abi::DirectoryOp;
+use alloc::vec::Vec;
 use vespertine_abi::FileOp;
 use vespertine_abi::HandleID;
 use vespertine_abi::Invocation;
 use vespertine_abi::ProcessInitPackage;
 use vespertine_abi::tag::TAG_SYS_PROCMAN;
 use vespertine_abi::tag::TAG_SYS_SOCKFAC;
-use vespertine_abi::tag::find_tag;
 use vespertine_rt::print;
 use vespertine_rt::println;
 use vespertine_rt::source::read_line;
-use vespertine_rt::syscall::SysError;
-use vespertine_rt::syscall::sys_close;
-use vespertine_rt::syscall::sys_create_socket;
 use vespertine_rt::syscall::sys_invoke;
-use vespertine_rt::syscall::walk_path;
+use vespertine_std::Read;
+use vespertine_std::env::root;
+use vespertine_std::fs::Dir;
+use vespertine_std::fs::DirEntry;
+use vespertine_std::fs::File;
+use vespertine_std::fs::walk_path;
+use vespertine_std::env;
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let pkg = unsafe { &*pkg_ptr };
-    let pm = find_tag(pkg.ext(), TAG_SYS_PROCMAN).map(|g| g.id);
-    let sf = find_tag(pkg.ext(), TAG_SYS_SOCKFAC).map(|g| g.id);
+    let pm = env::find_tag(TAG_SYS_PROCMAN).map(|g| g.id);
+    let sf = env::find_tag(TAG_SYS_SOCKFAC).map(|g| g.id);
 
     loop {
         print!(">> ");
@@ -43,18 +45,18 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
         match cmd {
             "" => {},
             "ls" => {
-                let (read_end, write_end) = sys_create_socket(sf.unwrap())
-                    .expect("Shell could not invoke SocketFactory");
-
-                let op = Invocation::Directory(
-                    DirectoryOp::List { offset: 0, sink: write_end }
-                );
-                let _ = sys_invoke(pkg.root_handle, &op);
-                let _ = sys_close(write_end);
-                pipe_to_sink(read_end, pkg.sink_handle);
-                let _ = sys_close(read_end);
+                let dir = if arg.is_empty() { 
+                    Dir::from(env::root()) 
+                } else { 
+                    Dir::open(arg).expect("Could not resolve path")
+                };
+                let dir_iter = dir.list().expect("Failed to read dir");
+                let contents: Vec<DirEntry> = dir_iter.collect();
+                for entry in contents {
+                    println!("{}", entry);
+                }
             },
-            "cat" => cmd_cat(arg, pkg),
+            "cat" => cmd_cat(arg),
             "echo" => cmd_echo(arg),
             other => {println!("unknown command: {}", other)},
         }
@@ -65,29 +67,16 @@ fn cmd_echo(text: &str) {
     println!("{}", text);
 }
 
-fn cmd_cat(path: &str, pkg: &ProcessInitPackage) {
-    let handle = match walk_path(path, pkg.root_handle) {
-        Ok(h) => h,
-        Err(_) => { println!("cat: no such file: {}", path); return; }
-    };
-
-    let mut buf = [0u8; 256];
-    let mut offset = 0;
-    loop {
-        let op = Invocation::File(
-            FileOp::Read { offset, buffer_ptr: buf.as_mut_ptr(), len: buf.len() }
-        );
-        match sys_invoke(handle, &op) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-                let op = Invocation::File(
-                    FileOp::Write { offset: 0, buffer_ptr: buf.as_mut_ptr(), len: buf.len() }
-                );
-                let _ = sys_invoke(pkg.sink_handle, &op);
-                offset += n;
-            },
-        }
+pub fn print_stream<R: Read>(stream: &R) {
+    match stream.read_to_string() {
+        Ok(text) => print!("{}", text),
+        Err(_) => println!("Error reading stream"),
     }
+}
+
+fn cmd_cat(path: &str) {
+    let file = File::open(path).expect("No such file!");
+    print_stream(&file);
 }
 
 pub fn pipe_to_sink(source: HandleID, sink: HandleID) {
