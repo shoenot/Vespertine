@@ -81,13 +81,7 @@ unsafe extern "sysv64" {
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    let msg = "[PANIC] USERLAND PANIC\n";
-    let op = Invocation::File(FileOp::Write { 
-        offset: 0, buffer_ptr: msg.as_ptr() as *mut u8, len: msg.len()
-    });
-
-    let _ = sys_invoke(HandleID(3), &op);
-
+fn panic(info: &PanicInfo) -> ! {
+    println!("\n[PANIC] Userland panic: {}", info);
     loop {}
 }

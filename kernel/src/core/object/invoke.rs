@@ -11,6 +11,7 @@ pub enum InvocationError {
     PathNotFound,
     BufferFull,
     OutOfMemory,
+    WouldBlock,
 }
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -23,6 +24,7 @@ impl fmt::Display for InvocationError {
             Self::BufferFull => write!(f, "INVOCATION ERROR: Buffer full."),
             Self::PathNotFound => write!(f, "INVOCATION ERROR: Path not found."),
             Self::OutOfMemory => write!(f, "INVOCATION ERROR: Out of memory."),
+            Self::WouldBlock => write!(f, "INVOCATION ERROR: Would block."),
         }
     }
 }

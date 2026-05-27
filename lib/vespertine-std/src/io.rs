@@ -42,4 +42,9 @@ pub trait Write {
         }
         Ok(())
     }
+
+    fn write_string(&self, s: String) -> Result<(), Error> {
+        let bytes = s.as_bytes();
+        self.write_all(bytes)
+    }
 }

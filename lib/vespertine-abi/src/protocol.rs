@@ -1,4 +1,4 @@
-use crate::define_bitflags;
+use crate::{HandleID, define_bitflags};
 
 
 pub static VESPER_MAGIC: u32 = 0xc001ca75;  // cool cats
@@ -36,15 +36,28 @@ define_bitflags! {
     }
 }
 
+#[repr(C)]
 pub struct AbiDirEntry {
     pub entry_type: u8,
     pub name_len: u8,
     pub name: [u8; 254],
 }
 
+#[repr(C)]
 pub enum DirEntryType {
     Unknown = 0,
     Directory = 1,
     File = 2,
     Object = 3,
+}
+
+#[repr(C)]
+pub struct MemoryRequest {
+    pub requested_bytes: usize,
+    pub pool_handle: HandleID,
+}
+
+#[repr(C)]
+pub struct ResourceResponse {
+    pub status: u8
 }

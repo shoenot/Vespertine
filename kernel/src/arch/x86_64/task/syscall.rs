@@ -19,6 +19,7 @@ pub enum SysError {
     InvalidArgument = 23,
     UnsupportedOperation = 24,
     BufferFull = 25,
+    WouldBlock = 26,
 
     // System Errors
     UnknownSyscall = 41,
@@ -38,6 +39,7 @@ impl Display for SysError {
             SysError::InvalidArgument => write!(f, "SYSCALL ERROR: Invalid argument"),
             SysError::UnsupportedOperation => write!(f, "SYSCALL ERROR: Unsupported operation"),
             SysError::BufferFull => write!(f, "SYSCALL ERROR: Buffer full"),
+            SysError::WouldBlock => write!(f, "SYSCALL ERROR: IO operation would block right now"),
 
             SysError::UnknownSyscall => write!(f, "SYSCALL ERROR: Unknown syscall"),
 
@@ -57,6 +59,7 @@ impl SysError {
             23 => SysError::InvalidArgument,
             24 => SysError::UnsupportedOperation,
             25 => SysError::BufferFull,
+            26 => SysError::WouldBlock,
             41 => SysError::UnknownSyscall,
             _ => SysError::UnknownSyscall,
         }
@@ -72,6 +75,7 @@ impl SysError {
             InvocationError::BufferFull => SysError::BufferFull,
             InvocationError::OutOfMemory => SysError::OutOfMemory,
             InvocationError::PathNotFound => SysError::BadAddress,
+            InvocationError::WouldBlock => SysError::WouldBlock,
         }
     }
 }

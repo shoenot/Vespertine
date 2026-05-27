@@ -9,3 +9,6 @@ pub mod socket;
 mod io;
 pub use error::*;
 pub use io::*;
+mod exec;
+pub use exec::*;
+

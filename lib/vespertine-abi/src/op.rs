@@ -13,6 +13,7 @@ pub enum ChannelOp {
 #[derive(Debug)]
 pub enum SocketOp {
     Create { sourceproc: HandleID, sinkproc: HandleID },
+    SetNB { nb: bool },   // non blocking not non binary. but could be non binary. up to u.
 }
 
 #[repr(C)]

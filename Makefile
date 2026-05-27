@@ -14,7 +14,7 @@ AS := nasm
 
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
-USER_PROGS := shell hesper
+USER_PROGS := shell hesper ns
 
 .PHONY: all
 all: target/build/$(IMAGE_NAME).iso

@@ -6,7 +6,7 @@ pub struct Error {
     pub message: &'static str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ErrorKind {
     NotFound,
     AccessDenied,
@@ -15,6 +15,7 @@ pub enum ErrorKind {
     InvalidPointer,
     OutOfMemory,
     BrokenSocket,
+    WouldBlock,
     Unknown,
 }
 
@@ -25,6 +26,7 @@ impl From<SysError> for Error {
             SysError::AccessDenied => ErrorKind::AccessDenied,
             SysError::InvalidArgument => ErrorKind::InvalidArgument,
             SysError::OutOfMemory => ErrorKind::OutOfMemory,
+            SysError::WouldBlock => ErrorKind::WouldBlock,
             _ => ErrorKind::Unknown,
         };
         Error { kind, message: "" }

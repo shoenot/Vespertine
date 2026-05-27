@@ -144,4 +144,16 @@ impl Dir {
 
         Ok(ReadDir { read_handle: read_end, finished: false })
     }
+
+    pub fn subdir(&self, name: &'static str) -> Result<Dir, Error> {
+        let op = DirectoryOp::Lookup { name: name.as_ptr(), name_len: name.len() };
+        let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
+        Ok(Dir::from(HandleID(handle)))
+    }
+
+    pub fn lookup(&self, name: &'static str) -> Result<HandleID, Error> {
+        let op = DirectoryOp::Lookup { name: name.as_ptr(), name_len: name.len() };
+        let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
+        Ok(HandleID(handle))
+    }
 }

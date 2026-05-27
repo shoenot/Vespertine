@@ -14,6 +14,8 @@ pub struct WaitQueue {
     tail: *mut ThreadControlBlock,
 }
 
+unsafe impl Send for WaitQueue {}
+
 impl WaitQueue {
     pub const fn new() -> Self { Self { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() } }
 }

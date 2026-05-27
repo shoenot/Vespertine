@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, SocketOp};
+use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, Signal, SocketOp};
 
 #[derive(Debug)]
 pub enum SysError { Success = 0,
@@ -16,6 +16,7 @@ pub enum SysError { Success = 0,
     InvalidArgument = 23,
     UnsupportedOperation = 24,
     BufferFull = 25,
+    WouldBlock = 26,
 
     // System Errors
     UnknownSyscall = 41,
@@ -33,6 +34,7 @@ impl SysError {
             23 => SysError::InvalidArgument,
             24 => SysError::UnsupportedOperation,
             25 => SysError::BufferFull,
+            26 => SysError::WouldBlock,
             _ => SysError::UnknownSyscall,
         }
     }
@@ -105,3 +107,10 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
     if ret == 0 { Ok(()) } else { Err(SysError::from(ret)) }
 }
 
+pub fn sys_set_nb(handle: HandleID, nb: bool) -> Result<usize, SysError> {
+    sys_invoke(handle, &Invocation::Socket(SocketOp::SetNB { nb }))
+}
+
+pub fn sys_wait(handle: HandleID, signal: Signal) -> Result<usize, SysError> {
+    sys_invoke(handle, &Invocation::Wait(signal))
+}

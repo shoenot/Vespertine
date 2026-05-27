@@ -23,6 +23,7 @@ pub enum Invocation {
     MemPool(MemPoolOp),
     Clock(ClockOp),
     Socket(SocketOp),
+    Wait(Signal),
 }
 
 impl Invocation {
@@ -53,6 +54,8 @@ impl Invocation {
             Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
             Invocation::Clock(ClockOp::GetTimestamp) => AccessRights::READ,
             Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
+            Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
+            Invocation::Wait(..) => AccessRights::READ,
         }
     }
 }
@@ -68,6 +71,14 @@ define_bitflags! {
         EXECUTE         = 1 << 2;
         CREATE          = 1 << 3;
         MUTATE          = 1 << 4;
+    }
+}
+
+define_bitflags! {
+    pub struct Signal(u32) {
+        READABLE    = 1 << 0;
+        WRITABLE    = 1 << 1;
+        PEER_CLOSED = 1 << 2;
     }
 }
 
