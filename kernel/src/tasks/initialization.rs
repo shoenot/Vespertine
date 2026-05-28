@@ -6,6 +6,8 @@ use crate::arch::{
     enable_interrupts,
     get_core_data,
 };
+
+use crate::core::asynchronous::executor_thread;
 use crate::drivers::logger::{LOGGER, LogBuffer, LogTarget};
 use alloc::sync::Arc;
 use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
@@ -46,6 +48,9 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     // socket pair for keyboard
     let (kbd_source_handle, kbd_sink_handle) = init_ipc_pipeline();
     spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_sink_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
+
+    spawn_kernel_thread(executor_thread as *const () as usize, 0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
+    klogln!("[INFO] Launched async executor thread.");
 
     let file_handle = kernel_walk("/Documents/filetest.txt", HandleID(0)).expect("[FATAL] File not found!");
     let mut buf = [0u8; 64];

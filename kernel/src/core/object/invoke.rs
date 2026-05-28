@@ -1,7 +1,7 @@
 use core::fmt;
 use core::str::Utf8Error;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InvocationError {
     AccessDenied,
     InvalidHandle,
@@ -12,6 +12,10 @@ pub enum InvocationError {
     BufferFull,
     OutOfMemory,
     WouldBlock,
+    PoolExhausted,
+    NameTooLong,
+    InvalidEncoding,
+    NotMapped,
 }
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -25,6 +29,10 @@ impl fmt::Display for InvocationError {
             Self::PathNotFound => write!(f, "INVOCATION ERROR: Path not found."),
             Self::OutOfMemory => write!(f, "INVOCATION ERROR: Out of memory."),
             Self::WouldBlock => write!(f, "INVOCATION ERROR: Would block."),
+            Self::PoolExhausted => write!(f, "INVOCATION ERROR: Pool exhausted."),
+            Self::NameTooLong => write!(f, "INVOCATION ERROR: Name too long."),
+            Self::InvalidEncoding => write!(f, "INVOCATION ERROR: Invalid encoding."),
+            Self::NotMapped => write!(f, "INVOCATION ERROR: Not mapped."),
         }
     }
 }

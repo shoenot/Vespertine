@@ -282,6 +282,11 @@ impl SchedulerState {
         self.push(thread);
     }
 
+    pub fn block(&mut self, thread: *mut ThreadControlBlock) {
+        unsafe { (*thread).state = ThreadState::Blocked; }
+        self.schedule();
+    }
+
     pub fn terminate(&mut self) {
         unsafe {
             disable_interrupts();

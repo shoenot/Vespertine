@@ -1,4 +1,5 @@
 use core::fmt::Display;
+use core::ptr::copy_nonoverlapping;
 
 use vespertine_abi::protocol::{AbiDirEntry, DirEntryType, PacketFlags, PacketType, VESPER_MAGIC};
 use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, protocol::PacketHeader, tag::TAG_SYS_SOCKFAC};
@@ -49,13 +50,45 @@ impl Display for EntryKind {
 pub struct ReadDir {
     read_handle: HandleID,
     finished: bool,
+    buffer: [u8; 4096],
+    cursor: usize,
+    limit: usize,
 }
+
+pub static FULL_ENTRY: usize = size_of::<PacketHeader>() + size_of::<AbiDirEntry>();
 
 impl Iterator for ReadDir {
     type Item = DirEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished { return None };
+
+        let remaining = self.limit - self.cursor;
+        // ensure buffer holds at least one complete entry
+        if remaining < FULL_ENTRY {
+            // shift unparsed leftovers to front
+            if remaining > 0 {
+                self.buffer.copy_within(self.cursor..self.limit, 0);
+            }
+            self.cursor = 0;
+            self.limit = remaining;
+
+            let to_read = 4096 - self.limit;
+            let read_ptr = unsafe { self.buffer.as_mut_ptr().add(self.limit) };
+
+            match sys_read(self.read_handle, read_ptr, to_read, 0) {
+                Ok(n) if n > 0 => {
+                    self.limit += n;
+                },
+                _ => {
+                    // eof or read error
+                    if self.limit - self.cursor < 280 {
+                        self.finished = true;
+                        return None;
+                    }
+                }
+            }
+        }
 
         let mut header = PacketHeader { 
             magic: 0, 
@@ -67,16 +100,16 @@ impl Iterator for ReadDir {
         };
 
         // read header
-        let header_ptr = &mut header as *mut _ as *mut u8;
         let header_len = size_of::<PacketHeader>();
 
-        match sys_read(self.read_handle, header_ptr, header_len, 0) {
-            Ok(n) if n == header_len => {},
-            _ => {
-                self.finished = true;
-                return None;
-            }
+        unsafe {
+            copy_nonoverlapping(
+                self.buffer.as_ptr().add(self.cursor), 
+                &mut header as *mut _ as *mut u8, 
+                header_len
+            );
         }
+        self.cursor += header_len;
 
         // verify magic number 
         if header.magic != VESPER_MAGIC {
@@ -86,16 +119,15 @@ impl Iterator for ReadDir {
 
         // read payload
         let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0u8; 254], };
-        let entry_ptr = &mut entry as *mut _ as *mut u8;
         let entry_len = size_of::<AbiDirEntry>();
-
-        match sys_read(self.read_handle, entry_ptr, entry_len, 0) {
-            Ok(n) if n == entry_len => {},
-            _ => {
-                self.finished = true;
-                return None;
-            }
+        unsafe {
+            copy_nonoverlapping(
+                self.buffer.as_ptr().add(self.cursor), 
+                &mut entry as *mut _ as *mut u8, 
+                entry_len
+            );
         }
+        self.cursor += entry_len;
 
         if !header.packet_flags.contains(PacketFlags::HAS_NEXT) {
             self.finished = true;
@@ -142,7 +174,13 @@ impl Dir {
         sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         let _ = sys_close(write_end);
 
-        Ok(ReadDir { read_handle: read_end, finished: false })
+        Ok(ReadDir { 
+            read_handle: read_end, 
+            finished: false,
+            buffer: [0u8; 4096],
+            cursor: 0,
+            limit: 0,
+        })
     }
 
     pub fn subdir(&self, name: &'static str) -> Result<Dir, Error> {

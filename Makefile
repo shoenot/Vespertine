@@ -7,7 +7,7 @@ BIN_NAME    := kernel
 KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
 IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS   := -smp 4 -m 2G
+QEMUFLAGS   := -smp 2 -m 2G
 
 # --- Toolchain ---
 AS := nasm
@@ -25,6 +25,8 @@ run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom target/build/$(IMAGE_NAME).iso \
+		-drive file=disk.img,format=raw,id=disk0,if=none \
+		-device virtio-blk-pci,drive=disk0,disable-legacy=on \
 		-accel kvm \
 		-cpu host,migratable=no,+invtsc \
 		$(QEMUFLAGS) \
@@ -36,6 +38,8 @@ run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).i
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom target/build/$(IMAGE_NAME).iso \
+		-drive file=disk.img,format=raw,id=disk0,if=none \
+		-device virtio-blk-pci,drive=disk0,disable-legacy=on \
 		-accel kvm \
 		-cpu host,migratable=no,+invtsc \
 		$(QEMUFLAGS) -no-reboot -no-shutdown -d int -D qemu_idt.log -s -S \

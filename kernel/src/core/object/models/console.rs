@@ -29,13 +29,13 @@ impl KernelObject for ConsoleWriter {
 
 impl ConsoleWriter {
     pub fn console_log(&self, _offset: usize, buffer_ptr: *mut u8, len: usize) -> Result<usize, InvocationError> {
-        if len > 255 { return Err(InvocationError::InvalidArgument) };
-        let mut console_str = [0u8; 255];
+        if len > 1024 { return Err(InvocationError::BufferFull) };
+        let mut console_str = [0u8; 1024];
         let str_ptr = console_str.as_mut_ptr() ;
 
         let console_str = unsafe {
             if !safe_copy_from(str_ptr, buffer_ptr, len) {
-                return Err(InvocationError::InvalidArgument);
+                return Err(InvocationError::InvalidPointer);
             }
             let str_bytes = slice::from_raw_parts(str_ptr, len);
             str::from_utf8(str_bytes)?

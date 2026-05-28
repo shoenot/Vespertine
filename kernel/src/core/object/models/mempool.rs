@@ -20,7 +20,7 @@ impl PoolState {
         loop {
             if let Some(lim) = self.limit {
                 if current + size > lim {
-                    return Err(InvocationError::BufferFull);
+                    return Err(InvocationError::PoolExhausted);
                 }
             }
             match self.allocated.compare_exchange_weak(

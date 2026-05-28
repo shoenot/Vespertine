@@ -43,9 +43,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             } else { 
                 Dir::open(optional_args.unwrap().as_str())?
             };
-            let dir_iter = dir.list()?;
-            let contents: Vec<DirEntry> = dir_iter.collect();
-            for entry in contents {
+            let mut dir_iter = dir.list()?;
+            while let Some(entry) = dir_iter.next() {
                 println!("{}", entry);
             }
         },

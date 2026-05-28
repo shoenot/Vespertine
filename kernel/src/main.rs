@@ -12,10 +12,15 @@ mod tests;
 mod util;
 mod syscall;
 
+use ::core::ptr::read_volatile;
 use ::core::sync::atomic::Ordering;
 
+use crate::core::asynchronous::Executor;
 use crate::core::cpu::init_smp;
 use crate::core::time;
+use crate::drivers::pci::{PCI_DEVICES, enumerate_pci_devices};
+use crate::drivers::virtio::blk::{VirtioBlockDevice, init_block_device, virtio_blk_poll_thread};
+use crate::drivers::virtio::mmio::init_virtio;
 use alloc::sync::Arc;
 use arch::x86_64::hcf;
 use arch::{
@@ -42,7 +47,7 @@ use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::datetime::epoch_to_datetime;
 use crate::drivers::keyboard::init_keyboard_irq;
-use crate::memory::GLOBAL_PMM;
+use crate::memory::{ALLOCATOR, GLOBAL_PMM, HHDMOFFSET};
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
@@ -85,6 +90,57 @@ pub extern "C" fn kmain() -> ! {
     BSP_CR3.store(cr3, Ordering::Release);
 
     init_smp();
+
+    enumerate_pci_devices();
+    for dev in &*PCI_DEVICES.lock() {
+        klogln!("{}", dev);
+    }
+
+    init_virtio();
+
+    let mut blk = init_block_device().unwrap();
+
+    let blk_ptr = &mut blk as *mut VirtioBlockDevice as usize;
+    spawn_kernel_thread(
+        virtio_blk_poll_thread as *const () as usize,
+        blk_ptr, 
+        ThreadPriority::HIGH, 
+        KERNEL_PROCESS.clone(),
+    );
+
+    let executor = Executor::new();
+
+    executor.spawn(async move {
+        klogln!("[INFO] Async read verification task started");
+
+        let buf_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        let buf_virt = buf_phys + *HHDMOFFSET;
+
+        let blk_dev = blk_ptr as *mut VirtioBlockDevice;
+        match unsafe { (*blk_dev).read_sectors_async(0, 1, buf_phys as u64) } {
+            Ok(future) => {
+                klogln!("[INFO] Waiting for read future...");
+                if future.await.is_ok() {
+                    klogln!("[SUCCESS] Async read success. Sector 0 data:");
+                    let mut data = [0u8; 16];
+                    for i in 0..16 {
+                        let addr = buf_virt + i;
+                        let byte = unsafe {
+                            read_volatile(addr as *const u8)
+                        };
+                        data[i] = byte;
+                    }
+                    klogln!("{}", str::from_utf8(&data).expect(""));
+                } else {
+                    klogln!("[ERROR] Async read failed");
+                }
+            },
+            Err(_) => {
+                klogln!("[ERROR] Async read failed");
+            }
+        }
+    }); 
+
 
     time::init_realtime();
     klogln!("[SUCCESS] Initialized Real Time Clock.");

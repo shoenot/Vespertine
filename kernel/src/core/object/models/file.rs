@@ -49,7 +49,7 @@ impl FileObj {
 
         unsafe { 
             let ptr = self.addr.add(offset);
-            if !safe_copy_to(buffer_ptr, ptr, read_len) { return Err(InvocationError::InvalidArgument) };
+            if !safe_copy_to(buffer_ptr, ptr, read_len) { return Err(InvocationError::InvalidPointer) };
         }
         Ok(read_len)
     }

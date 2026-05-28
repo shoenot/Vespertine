@@ -194,7 +194,7 @@ impl SocketEndpoint {
                     count = bus.pop_slice(&mut temp_buf[..to_read]);
 
                     if !safe_copy_to(buffer_ptr, temp_buf.as_ptr(), count) {
-                        return Err(InvocationError::InvalidArgument);
+                        return Err(InvocationError::InvalidPointer);
                     }
                     has_data = true;
                 } else if self.read_bus.is_closed.load(Ordering::SeqCst) {
@@ -242,7 +242,7 @@ impl SocketEndpoint {
         let to_write = min(len, temp_buf.len());
 
         if !safe_copy_from(temp_buf.as_mut_ptr(), buffer_ptr, to_write) {
-            return Err(InvocationError::InvalidArgument);
+            return Err(InvocationError::InvalidPointer);
         }
 
         loop { 

@@ -20,6 +20,10 @@ pub enum SysError {
     UnsupportedOperation = 24,
     BufferFull = 25,
     WouldBlock = 26,
+    PoolExhausted = 27,
+    NameTooLong = 28,
+    InvalidEncoding = 29,
+    NotMapped = 30,
 
     // System Errors
     UnknownSyscall = 41,
@@ -40,6 +44,10 @@ impl Display for SysError {
             SysError::UnsupportedOperation => write!(f, "SYSCALL ERROR: Unsupported operation"),
             SysError::BufferFull => write!(f, "SYSCALL ERROR: Buffer full"),
             SysError::WouldBlock => write!(f, "SYSCALL ERROR: IO operation would block right now"),
+            SysError::PoolExhausted => write!(f, "SYSCALL ERROR: Memory pool exhausted"),
+            SysError::NameTooLong => write!(f, "SYSCALL ERROR: Name too long"),
+            SysError::InvalidEncoding => write!(f, "SYSCALL ERROR: Invalid encoding"),
+            SysError::NotMapped => write!(f, "SYSCALL ERROR: Not mapped"),
 
             SysError::UnknownSyscall => write!(f, "SYSCALL ERROR: Unknown syscall"),
 
@@ -60,6 +68,10 @@ impl SysError {
             24 => SysError::UnsupportedOperation,
             25 => SysError::BufferFull,
             26 => SysError::WouldBlock,
+            27 => SysError::PoolExhausted,
+            28 => SysError::NameTooLong,
+            29 => SysError::InvalidEncoding,
+            30 => SysError::NotMapped,
             41 => SysError::UnknownSyscall,
             _ => SysError::UnknownSyscall,
         }
@@ -76,6 +88,10 @@ impl SysError {
             InvocationError::OutOfMemory => SysError::OutOfMemory,
             InvocationError::PathNotFound => SysError::BadAddress,
             InvocationError::WouldBlock => SysError::WouldBlock,
+            InvocationError::PoolExhausted => SysError::PoolExhausted,
+            InvocationError::NameTooLong => SysError::NameTooLong,
+            InvocationError::InvalidEncoding => SysError::InvalidEncoding,
+            InvocationError::NotMapped => SysError::NotMapped,
         }
     }
 }
@@ -136,7 +152,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
         let handle_id = (*frame).rdi;
         let uspace_inv_ptr = (*frame).rsi as *const Invocation;
 
-        klogln_serial!("[INFO] *SYSCALL*: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
+        // klogln_serial!("[INFO] *SYSCALL*: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
         let ret = match syscall_number {
             0 => {
                 if uspace_inv_ptr as usize >= 0xFFFF_8000_0000_0000 {

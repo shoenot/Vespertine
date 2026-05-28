@@ -1,8 +1,8 @@
-use core::{fmt::Debug, intrinsics::copy_nonoverlapping, sync::atomic::{AtomicUsize, Ordering}};
+use core::{fmt::Debug, ptr::copy_nonoverlapping, sync::atomic::{AtomicUsize, Ordering}};
 
 use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 
-use crate::{core::sync::TicketLock, memory::{pmm::NORMAL_PAGE_SIZE, BlockSize, ALLOCATOR, HHDMOFFSET}};
+use crate::{core::sync::TicketLock, memory::{ALLOCATOR, BlockSize, GLOBAL_PMM, HHDMOFFSET, pmm::{NORMAL_PAGE_SIZE, PF_PINNED}}};
 
 #[derive(Debug)]
 pub struct Vmo {
@@ -14,6 +14,7 @@ pub trait PagedBackingStore: Send + Sync + Debug {
     fn request_page(&self, offset: usize) -> Result<usize, ()>;
     fn resize_object(&self, new_size: usize) -> Result<(), ()>;
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()>;
+    fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()>;
 }
 
 impl PagedBackingStore for Vmo {
@@ -103,6 +104,32 @@ impl PagedBackingStore for Vmo {
             pages: TicketLock::new(child_pages),
         }))
     }
+
+    fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()> {
+        let current_size = self.size.load(Ordering::Relaxed);
+        if offset + len > current_size {
+            return Err(());
+        }
+
+        let start_page = offset / NORMAL_PAGE_SIZE;
+        let end_page = (offset + len).div_ceil(NORMAL_PAGE_SIZE);
+        let mut phys_addrs = Vec::new();
+
+        for i in start_page..end_page {
+            let page_offset = i * NORMAL_PAGE_SIZE;
+            let addr = self.request_page(page_offset)?;
+            phys_addrs.push(addr);
+        }
+
+        let pmm = GLOBAL_PMM.lock();
+        for &addr in &phys_addrs {
+            let pfn = addr / NORMAL_PAGE_SIZE;
+            if pfn < pmm.pfndb.len() {
+                pmm.pfndb[pfn].flags.fetch_or(PF_PINNED, Ordering::SeqCst);
+            }
+        }
+        Ok(PinnedVmo { vmo: self, phys_addrs })
+    }
 }
 
 
@@ -119,5 +146,31 @@ impl Vmo {
             size: AtomicUsize::new(size), 
             pages: TicketLock::new(pages),
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct PinnedVmo {
+    vmo: Arc<dyn PagedBackingStore>,
+    phys_addrs: Vec<usize>,
+}
+
+impl PinnedVmo {
+    pub fn phys_addrs(&self) -> &[usize] {
+        &self.phys_addrs
+    }
+}
+
+impl Drop for PinnedVmo {
+    fn drop(&mut self) {
+        let pmm = GLOBAL_PMM.lock();
+
+        for &addr in &self.phys_addrs {
+            let pfn = addr / NORMAL_PAGE_SIZE;
+            if pfn < pmm.pfndb.len() {
+                // clear the pf pinned flag 
+                pmm.pfndb[pfn].flags.fetch_and(!PF_PINNED, Ordering::SeqCst);
+            }
+        }
     }
 }

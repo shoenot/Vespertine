@@ -16,6 +16,11 @@ pub enum ErrorKind {
     OutOfMemory,
     BrokenSocket,
     WouldBlock,
+    BufferFull,
+    PoolExhausted,
+    NameTooLong,
+    InvalidEncoding,
+    NotMapped,
     Unknown,
 }
 
@@ -27,6 +32,11 @@ impl From<SysError> for Error {
             SysError::InvalidArgument => ErrorKind::InvalidArgument,
             SysError::OutOfMemory => ErrorKind::OutOfMemory,
             SysError::WouldBlock => ErrorKind::WouldBlock,
+            SysError::BufferFull => ErrorKind::BufferFull,
+            SysError::PoolExhausted => ErrorKind::PoolExhausted,
+            SysError::NameTooLong => ErrorKind::NameTooLong,
+            SysError::InvalidEncoding => ErrorKind::InvalidEncoding,
+            SysError::NotMapped => ErrorKind::NotMapped,
             _ => ErrorKind::Unknown,
         };
         Error { kind, message: "" }

@@ -49,13 +49,13 @@ impl PartialOrd<str> for Filename {
 
 impl Filename {
     pub fn new(ptr: *const u8, len: usize) -> Result<Self, InvocationError> {
-        if len > FILENAME_LEN_MAX { return Err(InvocationError::InvalidArgument) };
+        if len > FILENAME_LEN_MAX { return Err(InvocationError::NameTooLong) };
         let mut filename = [0u8; 255];
         let filename_ptr = filename.as_mut_ptr();
 
         let name_str = unsafe {
             if !safe_copy_from(filename_ptr, ptr, len) {
-                return Err(InvocationError::InvalidArgument);
+                return Err(InvocationError::InvalidPointer);
             }
             let name_bytes = slice::from_raw_parts(filename_ptr, len);
             str::from_utf8(name_bytes)?
@@ -103,7 +103,7 @@ impl Directory {
     }
 
     fn lookup(&self, name: *const u8, name_len: usize, calling_rights: AccessRights) -> Result<usize, InvocationError> {
-        if name_len > FILENAME_LEN_MAX { return Err(InvocationError::InvalidArgument) };
+        if name_len > FILENAME_LEN_MAX { return Err(InvocationError::NameTooLong) };
         let mut filename = [0u8; 255];
         let _filename_ptr = filename.as_mut_ptr();
 
@@ -111,7 +111,7 @@ impl Directory {
 
         let obj_arc = match self.tree.read().get(&*name_str) {
             Some(obj) => obj.clone(),
-            None => return Err(InvocationError::InvalidArgument),
+            None => return Err(InvocationError::PathNotFound),
         };
 
         let rights = AccessRights(

@@ -17,6 +17,10 @@ pub enum SysError { Success = 0,
     UnsupportedOperation = 24,
     BufferFull = 25,
     WouldBlock = 26,
+    PoolExhausted = 27,
+    NameTooLong = 28,
+    InvalidEncoding = 29,
+    NotMapped = 30,
 
     // System Errors
     UnknownSyscall = 41,
@@ -35,6 +39,10 @@ impl SysError {
             24 => SysError::UnsupportedOperation,
             25 => SysError::BufferFull,
             26 => SysError::WouldBlock,
+            27 => SysError::PoolExhausted,
+            28 => SysError::NameTooLong,
+            29 => SysError::InvalidEncoding,
+            30 => SysError::NotMapped,
             _ => SysError::UnknownSyscall,
         }
     }
