@@ -14,6 +14,10 @@ impl ThreadPriority {
 
     #[inline(always)]
     pub fn as_usize(&self) -> usize { self.0 as usize }
+
+    pub fn from(priority: u8) -> Self {
+        ThreadPriority(priority)
+    }
 }
 
 impl PartialEq for ThreadPriority {

@@ -48,8 +48,16 @@ pub enum ProcOp {
     Kill,
     GetStatus { status_ptr: *mut ProcStatus },
     Unmap { vaddr: usize, len: usize },
+    SpawnThread { entry: usize, stack_top: usize, arg: usize, priority: u8 },
 }
 
+#[repr(C)]
+#[derive(Debug)]
+pub enum ThreadOp {
+    Kill,
+    Join,
+    GetID,
+}
 
 #[repr(C)]
 #[derive(Debug)]

@@ -1,6 +1,6 @@
 use core::{ptr::addr_of, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
-use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::InvocationError, obj::KernelObject}, sync::RwLock}, memory::{vmm::VirtMemManager, ALLOCATOR}};
+use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::InvocationError, models::thread::Thread, obj::KernelObject}, sync::RwLock, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{ALLOCATOR, vmm::VirtMemManager}};
 use vespertine_abi::Invocation;
 use alloc::sync::Arc;
 
@@ -63,6 +63,15 @@ impl KernelObject for ProcessControlBlock {
             Invocation::Proc(ProcOp::GetStatus { status_ptr }) => self.status(status_ptr),
             Invocation::Proc(ProcOp::Unmap { vaddr, len } ) => {
                 self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
+            },
+            Invocation::Proc(ProcOp::SpawnThread { entry, stack_top, arg, priority }) => {
+                let tp = ThreadPriority::from(priority);
+                let proc = get_current_process().ok_or(InvocationError::ThreadSpawnFail)?;
+                let thread = spawn_user_thread(entry, stack_top, arg, tp, proc.clone());
+                self.active_threads.fetch_add(1, Ordering::Relaxed);
+                let obj = Arc::new(Thread { tcb: thread });
+                let id = self.proc_handles.write().insert(obj, AccessRights::all());
+                Ok(id.0)
             },
             _ => Err(InvocationError::UnsupportedOperation),
         }

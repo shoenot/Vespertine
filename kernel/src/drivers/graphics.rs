@@ -3,7 +3,6 @@
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
-// Premium Charcoal & Carbon Colors
 pub const COLOR_BG: u32 = 0x11080d;       
 pub const COLOR_FG: u32 = 0xe0ddd8;       
 pub const COLOR_FANCY_FG: u32 = 0xad687d;       

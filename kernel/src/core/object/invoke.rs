@@ -16,6 +16,7 @@ pub enum InvocationError {
     NameTooLong,
     InvalidEncoding,
     NotMapped,
+    ThreadSpawnFail,
 }
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,6 +34,7 @@ impl fmt::Display for InvocationError {
             Self::NameTooLong => write!(f, "INVOCATION ERROR: Name too long."),
             Self::InvalidEncoding => write!(f, "INVOCATION ERROR: Invalid encoding."),
             Self::NotMapped => write!(f, "INVOCATION ERROR: Not mapped."),
+            Self::ThreadSpawnFail => write!(f, "INVOCATION ERROR: Failed to spawn thread."),
         }
     }
 }

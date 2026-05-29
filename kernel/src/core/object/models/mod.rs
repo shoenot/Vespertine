@@ -8,3 +8,5 @@ pub mod procman;
 pub mod memman;
 pub mod mempool;
 pub mod console;
+pub mod thread;
+

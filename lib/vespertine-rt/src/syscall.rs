@@ -24,6 +24,9 @@ pub enum SysError { Success = 0,
 
     // System Errors
     UnknownSyscall = 41,
+
+    // Thread Errors
+    ThreadSpawnFail = 50,
 }
 
 impl SysError {
@@ -43,6 +46,7 @@ impl SysError {
             28 => SysError::NameTooLong,
             29 => SysError::InvalidEncoding,
             30 => SysError::NotMapped,
+            50 => SysError::ThreadSpawnFail,
             _ => SysError::UnknownSyscall,
         }
     }

@@ -27,6 +27,8 @@ pub enum SysError {
 
     // System Errors
     UnknownSyscall = 41,
+
+    ThreadSpawnFail = 50
 }
 
 impl Display for SysError {
@@ -51,6 +53,7 @@ impl Display for SysError {
 
             SysError::UnknownSyscall => write!(f, "SYSCALL ERROR: Unknown syscall"),
 
+            SysError::ThreadSpawnFail => write!(f, "SYSCALL ERROR: Thread spawn failed"),
         }
     }
 }
@@ -73,6 +76,7 @@ impl SysError {
             29 => SysError::InvalidEncoding,
             30 => SysError::NotMapped,
             41 => SysError::UnknownSyscall,
+            50 => SysError::ThreadSpawnFail,
             _ => SysError::UnknownSyscall,
         }
     }
@@ -92,6 +96,7 @@ impl SysError {
             InvocationError::NameTooLong => SysError::NameTooLong,
             InvocationError::InvalidEncoding => SysError::InvalidEncoding,
             InvocationError::NotMapped => SysError::NotMapped,
+            InvocationError::ThreadSpawnFail => SysError::ThreadSpawnFail,
         }
     }
 }
