@@ -59,11 +59,11 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             while let Some(entry) = dir_iter.next() {
                 println!("{}", entry);
             }
-        },
+        }
         "read" | "cat" => {
             let file = File::open(optional_args.unwrap().as_str())?;
             print_stream(&file)?;
-        },
+        }
         "newdir" | "mkdir" => {
             let errmsg = String::from(format!("{} needs a directory path to create", opstr));
             let path = optional_args.ok_or(Error {
@@ -72,7 +72,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             })?;
             Dir::create_dir(path.as_str())?;
             println!("Directory created successfully");
-        },
+        }
         "newfile" | "touch" => {
             let errmsg = String::from(format!("{} needs a path to create a file at", opstr));
             let path = optional_args.ok_or(Error {
@@ -81,7 +81,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             })?;
             File::create(path.as_str())?;
             println!("File created successfully");
-        },
+        }
         "delete" | "rm" => {
             let errmsg = String::from(format!("{} needs a path to remove", opstr));
             let path = optional_args.ok_or(Error {
@@ -90,38 +90,39 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             })?;
             Dir::remove(path.as_str())?;
             println!("File created successfully");
-        },
+        }
         "write" => {
             if args.len() < 4 {
                 return Err(Error {
-             kind: ErrorKind::InvalidArgument,
-             message: "write needs a path and the text content to write".into(),
+                    kind: ErrorKind::InvalidArgument,
+                    message: "write needs a path and the text content to write".into(),
                 });
             }
             let path = &args[2];
             let mut content = alloc::string::String::new();
             for (i, arg) in args.iter().enumerate().skip(3) {
                 if i > 3 {
-             content.push(' ');
+                    content.push(' ');
                 }
                 content.push_str(arg);
             }
-            let trimmed_content = if content.starts_with('"') && content.ends_with('"') && content.len() >= 2 {
-                &content[1..content.len() - 1]
-            } else {
-                &content
-            };
+            let trimmed_content =
+                if content.starts_with('"') && content.ends_with('"') && content.len() >= 2 {
+                    &content[1..content.len() - 1]
+                } else {
+                    &content
+                };
 
             let file = File::open(path.as_str())?;
             file.write_all(trimmed_content.as_bytes())?;
             println!("File written successfully");
-        },
+        }
         _ => {
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,
                 message: "Invalid Operation".into(),
             });
-        },
+        }
     }
     Ok(())
 }

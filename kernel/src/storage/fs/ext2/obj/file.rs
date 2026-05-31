@@ -1,20 +1,41 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use async_trait::async_trait;
 
-use vespertine_abi::{AccessRights, FileOp, Invocation};
-use crate::arch::x86_64::task::syscall::{safe_copy_from, safe_copy_to};
+use async_trait::async_trait;
+use vespertine_abi::{
+    AccessRights,
+    FileOp,
+    Invocation,
+};
+
+use crate::arch::x86_64::task::syscall::{
+    safe_copy_from,
+    safe_copy_to,
+};
 use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::{RwLock, TicketLock};
+use crate::core::sync::{
+    RwLock,
+    TicketLock,
+};
 use crate::core::thread::get_current_process;
-use crate::memory::vmo::{FileVmo, PagedBackingStore};
-use crate::memory::{ALLOCATOR, BlockSize, HHDMOFFSET};
+use crate::memory::vmo::{
+    FileVmo,
+    PagedBackingStore,
+};
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    HHDMOFFSET,
+};
 use crate::storage::fs::ext2::Ext2FileSystem;
 use crate::storage::fs::ext2::structs::DiskInode;
-use crate::storage::fs::{VfsNode, VfsNodeType};
+use crate::storage::fs::{
+    VfsNode,
+    VfsNodeType,
+};
 
 #[derive(Debug)]
 pub struct Ext2File {

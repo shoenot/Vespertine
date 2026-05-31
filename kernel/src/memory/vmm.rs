@@ -240,15 +240,7 @@ impl VirtMemManager {
             let node_ptr = allocate_node();
             ptr::write(
                 node_ptr,
-                VmaNode {
-                    start: start_addr,
-                    size,
-                    flags,
-                    prev: prev_ptr,
-                    next: current_ptr,
-                    backing_vmo: Some(backing_vmo),
-                    vmo_offset,
-                },
+                VmaNode { start: start_addr, size, flags, prev: prev_ptr, next: current_ptr, backing_vmo: Some(backing_vmo), vmo_offset },
             );
 
             if let Some(prev) = prev_ptr {

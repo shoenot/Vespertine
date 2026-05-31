@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::{any::Any, fmt::Debug};
+use core::fmt::Debug;
 
 use async_trait::async_trait;
 use vespertine_abi::{

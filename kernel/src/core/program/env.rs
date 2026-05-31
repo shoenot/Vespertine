@@ -122,7 +122,7 @@ impl ProcessEnvironment {
                 if args_buffer[i] == 0 {
                     core::ptr::write(ptr, current_string_vaddr);
                     ptr = ptr.add(1);
-                    
+
                     let str_len = (i - start) + 1;
                     current_string_vaddr += str_len;
                     start = i + 1;
@@ -135,12 +135,12 @@ impl ProcessEnvironment {
             ptr = ptr.add(1);
 
             let aux_ptr = ptr as *mut AuxEntry;
-            core::ptr::write(aux_ptr.add(0), AuxEntry { a_type: 3, a_val: phdr_addr });     // AT_PHDR
-            core::ptr::write(aux_ptr.add(1), AuxEntry { a_type: 4, a_val: phnum });         // AT_PHNUM
-            core::ptr::write(aux_ptr.add(2), AuxEntry { a_type: 5, a_val: 56 });            // AT_PHENT (size of Elf64_Phdr)
-            core::ptr::write(aux_ptr.add(3), AuxEntry { a_type: 6, a_val: 4096 });          // AT_PAGESZ
-            core::ptr::write(aux_ptr.add(4), AuxEntry { a_type: 9, a_val: entry_point });   // AT_ENTRY
-            core::ptr::write(aux_ptr.add(5), AuxEntry { a_type: 0, a_val: 0 });             // AT_NULL
+            core::ptr::write(aux_ptr.add(0), AuxEntry { a_type: 3, a_val: phdr_addr }); // AT_PHDR
+            core::ptr::write(aux_ptr.add(1), AuxEntry { a_type: 4, a_val: phnum }); // AT_PHNUM
+            core::ptr::write(aux_ptr.add(2), AuxEntry { a_type: 5, a_val: 56 }); // AT_PHENT (size of Elf64_Phdr)
+            core::ptr::write(aux_ptr.add(3), AuxEntry { a_type: 6, a_val: 4096 }); // AT_PAGESZ
+            core::ptr::write(aux_ptr.add(4), AuxEntry { a_type: 9, a_val: entry_point }); // AT_ENTRY
+            core::ptr::write(aux_ptr.add(5), AuxEntry { a_type: 0, a_val: 0 }); // AT_NULL
         }
 
         let safe_stack_top = sysv_vaddr;

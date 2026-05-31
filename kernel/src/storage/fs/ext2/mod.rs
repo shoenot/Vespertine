@@ -470,7 +470,6 @@ impl Ext2FileSystem {
         Err(())
     }
 
-
     pub async fn allocate_inode(&self, is_dir: bool) -> Result<u32, ()> {
         let _guard = self.allocation_lock.lock().await;
 
@@ -514,7 +513,7 @@ impl Ext2FileSystem {
 
                     bg.free_inodes_count -= 1;
                     if is_dir {
-                                bg.used_dirs_count += 1;
+                        bg.used_dirs_count += 1;
                     }
                     self.bgdt.lock()[group] = bg;
 
@@ -525,8 +524,8 @@ impl Ext2FileSystem {
 
                     self.read_block(target_logical_block, page_phys as u64).await?;
                     unsafe {
-                                let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
-                                ptr::write(dest_ptr, bg);
+                        let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+                        ptr::write(dest_ptr, bg);
                     }
                     self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
 
@@ -535,10 +534,10 @@ impl Ext2FileSystem {
 
                     self.read_block(sb_block, page_phys as u64).await?;
                     unsafe {
-                                let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
-                                if (*sb_ptr).free_inodes_count > 0 {
-                        (*sb_ptr).free_inodes_count -= 1;
-                                }
+                        let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+                        if (*sb_ptr).free_inodes_count > 0 {
+                            (*sb_ptr).free_inodes_count -= 1;
+                        }
                     }
                     self.cache.write_block(sb_block as usize, page_phys as u64).await?;
 
@@ -597,7 +596,7 @@ impl Ext2FileSystem {
         }
 
         if self.cache.write_block(bg.inode_bitmap as usize, page_phys as u64).await.is_err() {
-        ALLOCATOR.free(page_phys, BlockSize::Normal);
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
 
@@ -692,7 +691,7 @@ impl Ext2FileSystem {
                 // double free prevention like above
                 ALLOCATOR.free(page_phys, BlockSize::Normal);
                 return Err(());
-        }
+            }
             *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
         }
 

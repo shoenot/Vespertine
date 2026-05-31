@@ -1,5 +1,5 @@
-mod file;
 mod dir;
+mod file;
 
-pub use file::Ext2File;
 pub use dir::Ext2Directory;
+pub use file::Ext2File;

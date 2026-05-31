@@ -1,6 +1,8 @@
 use core::arch::asm;
 
-use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp};
+use vespertine_abi::{
+    DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp,
+};
 
 #[derive(Debug)]
 pub enum SysError {
@@ -203,18 +205,27 @@ pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError>
 //----------------------- VMO HELPERS ----------------------//
 //----------------------------------------------------------//
 
-pub fn sys_mmap(mem_pool_handle: HandleID, size: usize, target_vaddr: usize, vm_flags: usize) -> Result<usize, SysError> {
+pub fn sys_mmap(
+    mem_pool_handle: HandleID,
+    size: usize,
+    target_vaddr: usize,
+    vm_flags: usize,
+) -> Result<usize, SysError> {
     let alloc_op = Invocation::MemPool(MemPoolOp::AllocateVmo { size });
     let vmo_idx = sys_invoke(mem_pool_handle, &alloc_op)?;
     let vmo_handle = HandleID(vmo_idx);
 
-    let map_op = Invocation::Vmo(VmoOp::MapIntoProc { vaddr: target_vaddr, len: size, vm_flags });
+    let map_op = Invocation::Vmo(VmoOp::MapIntoProc {
+        vaddr: target_vaddr,
+        len: size,
+        vm_flags,
+    });
     let mapped_addr = sys_invoke(vmo_handle, &map_op);
 
     let _ = sys_close(vmo_handle);
     mapped_addr
 }
-    
+
 pub fn sys_munmap(self_handle: HandleID, vaddr: usize, len: usize) -> Result<(), SysError> {
     let unmap_op = Invocation::Proc(ProcOp::Unmap { vaddr, len });
     sys_invoke(self_handle, &unmap_op)?;

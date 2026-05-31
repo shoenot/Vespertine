@@ -11,4 +11,8 @@ resolver = "2"
 panic = "abort"
 
 [profile.release]
-panic = "abort"
+opt-level = "z"     
+lto = true          
+codegen-units = 1   
+panic = "abort"     
+strip = true        

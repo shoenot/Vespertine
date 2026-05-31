@@ -8,9 +8,7 @@ use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{
     AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
-use vespertine_rt::syscall::{
-    sys_create_socket, sys_invoke, sys_read, sys_write_bytes,
-};
+use vespertine_rt::syscall::{sys_create_socket, sys_invoke, sys_read, sys_write_bytes};
 use vespertine_std::{Error, fb::Framebuffer};
 use vespertine_std::{ErrorKind, Exec, env};
 

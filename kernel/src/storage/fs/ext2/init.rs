@@ -7,7 +7,10 @@ use crate::core::sync::RwLock;
 use crate::memory::vmo::FileVmo;
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::storage::fs::ext2::Ext2FileSystem;
-use crate::storage::fs::ext2::obj::{Ext2Directory, Ext2File};
+use crate::storage::fs::ext2::obj::{
+    Ext2Directory,
+    Ext2File,
+};
 use crate::storage::partition::gpt::GptTable;
 
 async fn ext2_writeback_daemon(fs: Arc<Ext2FileSystem>) {

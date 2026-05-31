@@ -1,7 +1,6 @@
-use core::any::Any;
-
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use core::any::Any;
 
 use async_trait::async_trait;
 use vespertine_abi::op::VmoOp;

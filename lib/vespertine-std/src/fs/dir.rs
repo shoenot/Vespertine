@@ -5,7 +5,9 @@ use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
 use vespertine_abi::{
     DirectoryOp, HandleID, Invocation, protocol::PacketHeader, tag::TAG_SYS_SOCKFAC,
 };
-use vespertine_rt::syscall::{sys_close, sys_create_dir, sys_create_socket, sys_invoke, sys_read, sys_unlink};
+use vespertine_rt::syscall::{
+    sys_close, sys_create_dir, sys_create_socket, sys_invoke, sys_read, sys_unlink,
+};
 
 use crate::fs::parse_parent_and_name;
 use crate::{Error, ErrorKind, env::find_tag, fs::walk_path};
@@ -228,7 +230,6 @@ impl Dir {
 
         Ok(Dir::from(handle))
     }
-
 
     pub fn remove(path: &str) -> Result<(), Error> {
         let (parent_path, name) = parse_parent_and_name(path);

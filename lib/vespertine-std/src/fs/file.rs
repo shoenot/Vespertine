@@ -1,6 +1,10 @@
-use crate::{ErrorKind, fs::parse_parent_and_name, io::{Read, Write}};
-pub use crate::path::*;
 use crate::Error;
+pub use crate::path::*;
+use crate::{
+    ErrorKind,
+    fs::parse_parent_and_name,
+    io::{Read, Write},
+};
 use core::cell::Cell;
 use core::ops::Drop;
 use vespertine_abi::{FileOp, HandleID, Invocation};

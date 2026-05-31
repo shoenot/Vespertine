@@ -45,6 +45,9 @@ impl From<SysError> for Error {
             SysError::NotMapped => ErrorKind::NotMapped,
             _ => ErrorKind::Unknown,
         };
-        Error { kind, message: "".into() }
+        Error {
+            kind,
+            message: "".into(),
+        }
     }
 }

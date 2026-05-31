@@ -110,9 +110,8 @@ impl KernelObject for ProcessManager {
                 );
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
-                let (entry_point, phdr_addr, phnum) = {
-                    load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?
-                };
+                let (entry_point, phdr_addr, phnum) =
+                    { load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)? };
 
                 let mut args_buffer = Vec::with_capacity(args_buffer_len);
                 let mut argc = 0;
@@ -156,16 +155,16 @@ impl KernelObject for ProcessManager {
                 // inject the payload
                 let (pkg_vaddr, safe_stack_top) = {
                     ProcessEnvironment::inject(
-                        &stack_vmo, 
+                        &stack_vmo,
                         stack_addr,
                         stack_size,
                         &child_extra_handles,
                         &args_buffer,
                         argc,
                         initpkg,
-                        entry_point, 
-                        phdr_addr, 
-                        phnum
+                        entry_point,
+                        phdr_addr,
+                        phnum,
                     )?
                 };
 

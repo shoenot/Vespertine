@@ -14,8 +14,14 @@ use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
 use crate::core::thread::get_current_process;
-use crate::memory::{HHDMOFFSET, NORMAL_PAGE_SIZE};
-use crate::memory::vmo::{PagedBackingStore, Vmo};
+use crate::memory::vmo::{
+    PagedBackingStore,
+    Vmo,
+};
+use crate::memory::{
+    HHDMOFFSET,
+    NORMAL_PAGE_SIZE,
+};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -52,7 +58,7 @@ impl KernelObject for FileObj {
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
                 let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
                 Ok(handle_id.0 as usize)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

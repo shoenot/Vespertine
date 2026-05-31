@@ -8,13 +8,6 @@ name = "dt"
 test = false
 bench = false
 
-[profile.release]
-opt-level = "z"     
-lto = true          
-codegen-units = 1   
-panic = "abort"     
-strip = true        
-
 [dependencies]
 vespertine-rt = { path = "../../lib/vespertine-rt" }
 vespertine-abi = { path = "../../lib/vespertine-abi" }
