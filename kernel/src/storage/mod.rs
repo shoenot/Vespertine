@@ -1,3 +1,3 @@
 pub mod blockdev;
-mod fs;
+pub mod fs;
 mod partition;

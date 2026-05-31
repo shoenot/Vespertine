@@ -16,7 +16,7 @@ use core::task::{
 
 use vespertine_common::lock::TicketLock;
 
-use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::storage::blockdev::AsyncBlockDevice;
 use crate::drivers::virtio::mmio::{
     VirtioBlockDriver,
     init_virtio,

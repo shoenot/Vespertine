@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use core::ptr::copy_nonoverlapping;
 
 use async_trait::async_trait;
@@ -25,6 +25,7 @@ use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::{RwLock, TicketLock};
 use crate::core::thread::get_current_process;
+use crate::storage::fs::{VfsNode, VfsNodeType};
 use crate::storage::fs::ext2::Ext2FileSystem;
 use crate::storage::fs::ext2::structs::{
     DiskDirHeader,
@@ -142,9 +143,6 @@ impl Ext2File {
 
             let mut inode_write = self.inode_data.write();
             inode_write.size = (offset + req_len) as u32;
-
-            let mut vmo_inode_write = self.file_vmo.inode_data.write();
-            vmo_inode_write.size = (offset + req_len) as u32;
         }
 
         let mut bytes_copied = 0;
@@ -386,9 +384,6 @@ impl Ext2File {
                         }
                     }
                     inode_write.blocks += self.fs.sectors_per_block;
-
-                    let mut vmo_inode_write = self.file_vmo.inode_data.write();
-                    *vmo_inode_write = *inode_write;
                 }
                 self.fs.cache.write_block(disk_block_id as usize, src_block_phys as u64).await.map_err(|_| InvocationError::InvalidPointer)?;
             }
@@ -397,9 +392,6 @@ impl Ext2File {
         let inode_ref = self.inode_data.read();
         self.fs.write_inode(self.inode_num, &*inode_ref).await.map_err(|_| InvocationError::InvalidPointer)?;
 
-        let mut vmo_inode_write = self.file_vmo.inode_data.write();
-        *vmo_inode_write = *inode_ref;
-        drop(vmo_inode_write);
         drop(inode_ref);
 
         // flush cache
@@ -462,15 +454,18 @@ impl KernelObject for Ext2Directory {
                     if let Some(arc_file) = cached {
                         arc_file
                     } else {
-                        let file_vmo =
-                            FileVmo::new(Arc::clone(&self.fs), child_inode_id, child_inode_data.clone(), child_inode_data.size as usize);
-                        let new_file = Arc::new(Ext2File {
-                            fs: Arc::clone(&self.fs),
-                            inode_num: child_inode_id,
-                            inode_data: RwLock::new(child_inode_data),
-                            file_vmo,
-                            offset: TicketLock::new(0),
-                            write_lock: AsyncMutex::new(()),
+                        // new_cyclic passes a weak ptr to the ext2file being built
+                        let new_file = Arc::new_cyclic(|me| {
+                            let weak_node = me.clone() as Weak<dyn VfsNode>;
+
+                            Ext2File {
+                                fs: Arc::clone(&self.fs),
+                                inode_num: child_inode_id,
+                                inode_data: RwLock::new(child_inode_data.clone()),
+                                file_vmo: FileVmo::new(child_inode_data.size as usize, weak_node),
+                                offset: TicketLock::new(0),
+                                write_lock: AsyncMutex::new(()),
+                            }
                         });
                         files.insert(child_inode_id, Arc::downgrade(&new_file));
                         new_file
@@ -586,5 +581,80 @@ impl KernelObject for Ext2Directory {
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+}
+
+#[async_trait]
+impl VfsNode for Ext2File {
+    async fn read_at_phys(&self, offset: usize, dest_phys: usize, len: usize) -> Result<usize, ()> {
+        let file_size = self.inode_data.read().size as usize;
+        if offset >= file_size {
+            return Ok(0);
+        }
+
+        let bytes_available = file_size - offset;
+        let read_len = core::cmp::min(bytes_available, len);
+        if read_len == 0 {
+            return Ok(0);
+        }
+
+        let block_size = self.fs.block_size as usize;
+        let blocks_per_page = 4096 / block_size;
+        let start_file_block = offset / block_size;
+
+        let mut block_ids = [0u32; 4];
+        {
+            let inode_guard = self.inode_data.read();
+            for i in 0..blocks_per_page {
+                let file_block_idx = start_file_block + i;
+                block_ids[i] = self.fs.resolve_file_block(&*inode_guard, file_block_idx).await.map_err(|_| ())?;
+            }
+        }
+
+        // block fusion 
+        let is_contiguous = (1..blocks_per_page).all(|i| {
+        block_ids[i] != 0 && block_ids[i] == (block_ids[0] + i as u32)
+        }) && block_ids[0] != 0;
+
+        if is_contiguous {
+            let sectors_to_read = blocks_per_page as u32 * self.fs.sectors_per_block;
+            let start_sector = block_ids[0] as u64 * self.fs.sectors_per_block as u64;
+
+            let read_fut = self.fs.partition
+                .read_sectors(start_sector, sectors_to_read, dest_phys as u64)
+                .map_err(|_| ())?;
+            read_fut.await.map_err(|_| ())?;
+        } else {
+            for i in 0..blocks_per_page {
+                let dest_blocks_phys = dest_phys + (i * block_size);
+                if block_ids[i] == 0 {
+                    unsafe {
+                        let dest_virt = dest_blocks_phys + *HHDMOFFSET;
+                        core::ptr::write_bytes(dest_virt as *mut u8, 0, block_size);
+                    }
+                } else {
+                    self.fs.read_block(block_ids[i], dest_blocks_phys as u64).await.map_err(|_| ())?;
+                }
+            }
+        }
+
+        Ok(read_len)
+    }
+
+    async fn write_at_phys(&self, offset: usize, src_phys: usize, len: usize) -> Result<usize, ()> {
+        let src_virt = src_phys + *HHDMOFFSET;
+        self.write_bytes_async(offset, src_virt, len).await.map_err(|_| ())
+    }
+
+    fn size(&self) -> usize {
+        self.inode_data.read().size as usize
+    }
+
+    fn resize(&self, new_size: usize) -> Result<(), ()> {
+        self.file_vmo.resize_object(new_size)
+    }
+
+    fn node_type(&self) -> VfsNodeType {
+        VfsNodeType::File
     }
 }

@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::ptr::{copy_nonoverlapping, write_bytes};
@@ -10,9 +10,8 @@ use core::sync::atomic::{
 };
 
 use crate::core::asynchronous::syscall_bridge::block_on;
-use crate::core::sync::{RwLock, TicketLock};
-use crate::storage::fs::ext2::Ext2FileSystem;
-use crate::storage::fs::ext2::structs::DiskInode;
+use crate::core::sync::TicketLock;
+use crate::storage::fs::VfsNode;
 use crate::memory::pmm::{
     NORMAL_PAGE_SIZE,
     PF_PINNED,
@@ -228,18 +227,14 @@ impl Drop for PinnedVmo {
 #[derive(Debug)]
 pub struct FileVmo {
     pub anonymous_vmo: Arc<Vmo>,
-    pub fs: Arc<Ext2FileSystem>,
-    pub inode_num: u32,
-    pub inode_data: RwLock<DiskInode>,
+    pub node: Weak<dyn VfsNode>,
 }
 
 impl FileVmo {
-    pub fn new(fs: Arc<Ext2FileSystem>, inode_num: u32, inode_data: DiskInode, size: usize) -> Arc<Self> {
+    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> {
         Arc::new(Self { 
             anonymous_vmo: Vmo::new(size), 
-            fs, 
-            inode_num, 
-            inode_data: RwLock::new(inode_data)
+            node,
         })
     }
 }
@@ -266,44 +261,14 @@ impl PagedBackingStore for FileVmo {
             return Err(());
         }
 
-        let block_size = self.fs.block_size as usize;
-        let blocks_per_page = NORMAL_PAGE_SIZE / block_size;
-        let start_file_block = offset / block_size;
+        let node = self.node.upgrade().ok_or(())?;
+        let read_fut = node.read_at_phys(offset, page_phys, NORMAL_PAGE_SIZE);
+        let bytes_read = block_on(Box::pin(read_fut)).map_err(|_| ())?; 
 
-        let mut block_ids = [0u32; 4];
-        {
-            let inode_guard = self.inode_data.read();
-            for i in 0..blocks_per_page {
-                let file_block_idx = start_file_block + i;
-                let resolve_fut = self.fs.resolve_file_block(&*inode_guard, file_block_idx);
-                block_ids[i] = block_on(Box::pin(resolve_fut)).map_err(|_| ())?;
-            }
-        }
-
-        let is_contiguous = (1..blocks_per_page).all(|i| {
-            block_ids[i] != 0 && block_ids[i] == (block_ids[0] + i as u32)
-        }) && block_ids[0] != 0;
-
-        if is_contiguous {
-            let sectors_to_read = blocks_per_page as u32 * self.fs.sectors_per_block;
-            let start_sector = block_ids[0] as u64 * self.fs.sectors_per_block as u64;
-
-            let read_fut = self.fs.partition
-                .read_sectors(start_sector, sectors_to_read, page_phys as u64)
-                .map_err(|_| ())?;
-            block_on(Box::pin(read_fut)).map_err(|_| ())?;
-        } else {
-            for i in 0..blocks_per_page {
-                let dest_blocks_phys = page_phys + (i * block_size);
-                if block_ids[i] == 0 {
-                    unsafe {
-                        let dest_virt = dest_blocks_phys + *HHDMOFFSET;
-                        write_bytes(dest_virt as *mut u8, 0, block_size);
-                    }
-                } else {
-                    let read_fut = self.fs.read_block(block_ids[i], dest_blocks_phys as u64);
-                    block_on(Box::pin(read_fut))?;
-                }
+        if bytes_read < NORMAL_PAGE_SIZE {
+            unsafe {
+                let dest_virt = page_phys + bytes_read + *HHDMOFFSET;
+                write_bytes(dest_virt as *mut u8, 0, NORMAL_PAGE_SIZE - bytes_read);
             }
         }
 
@@ -311,11 +276,13 @@ impl PagedBackingStore for FileVmo {
         Ok(page_phys)
     }
 
-    fn resize_object(&self, new_size: usize) -> Result<(), ()> { self.anonymous_vmo.resize_object(new_size) }
+    fn resize_object(&self, new_size: usize) -> Result<(), ()> { 
+        let node = self.node.upgrade().ok_or(())?;
+        node.resize(new_size)?;
+        self.anonymous_vmo.resize_object(new_size)
+    }
 
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()> {
-        // cow clone: clones current physical pages anonymously
-        // so child proc modifications dont write back to file
         self.anonymous_vmo.clone_range(offset, len)
     }
 

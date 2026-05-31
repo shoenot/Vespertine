@@ -51,7 +51,7 @@ use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time;
 use crate::core::time::datetime::epoch_to_datetime;
-use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::storage::blockdev::AsyncBlockDevice;
 use crate::drivers::keyboard::init_keyboard_irq;
 use crate::drivers::pci::{
     PCI_DEVICES,
