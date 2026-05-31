@@ -1,4 +1,3 @@
-pub mod blockdev;
 pub mod keyboard;
 pub mod logger;
 pub mod pci;

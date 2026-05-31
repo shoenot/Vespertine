@@ -66,6 +66,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     spawn_kernel_thread(executor_thread as *const () as usize, 0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
     klogln!("[INFO] Launched async executor thread.");
 
+
     let executor = Executor::new();
     executor.spawn(async move {
         init_vfs().await;

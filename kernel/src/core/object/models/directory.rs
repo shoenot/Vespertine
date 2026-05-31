@@ -154,48 +154,53 @@ impl Directory {
             tree.iter().map(|(name, obj)| (name.name.to_string(), obj.type_name())).collect()
         }; // drop read lock
 
-        let mut iter = entries.iter().peekable();
-        while let Some((name_str, type_name)) = iter.next() {
-            let mut entry = AbiDirEntry {
-                entry_type: match *type_name {
-                    "Directory" => DirEntryType::Directory as u8,
-                    "File" => DirEntryType::File as u8,
-                    _ => DirEntryType::Object as u8,
-                },
-                name_len: cmp::min(name_str.len(), 254) as u8,
-                name: [0u8; 254],
-            };
-            let len = entry.name_len as usize;
-            entry.name[..len].copy_from_slice(&name_str.as_bytes()[..len]);
+        crate::core::asynchronous::Executor::new().spawn(async move {
+            let mut iter = entries.iter().peekable();
+            while let Some((name_str, type_name)) = iter.next() {
+                let mut entry = AbiDirEntry {
+                    entry_type: match *type_name {
+                        "Directory" => DirEntryType::Directory as u8,
+                        "File" => DirEntryType::File as u8,
+                        _ => DirEntryType::Object as u8,
+                    },
+                    name_len: cmp::min(name_str.len(), 254) as u8,
+                    name: [0u8; 254],
+                };
+                let len = entry.name_len as usize;
+                entry.name[..len].copy_from_slice(&name_str.as_bytes()[..len]);
 
-            // Dynamically set HAS_NEXT if there are more entries in the vector
-            let mut flags = PacketFlags::IS_STREAM;
-            if iter.peek().is_some() {
-                flags = flags.insert(PacketFlags::HAS_NEXT);
+                // Dynamically set HAS_NEXT if there are more entries in the vector
+                let mut flags = PacketFlags::IS_STREAM;
+                if iter.peek().is_some() {
+                    flags = flags.insert(PacketFlags::HAS_NEXT);
+                }
+
+                let header = PacketHeader {
+                    magic: VESPER_MAGIC,
+                    version: 1,
+                    packet_flags: flags, // Use the correct flags
+                    packet_type: 1,
+                    payload_len: size_of::<AbiDirEntry>() as u32,
+                    reserved: 0,
+                };
+
+                let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<AbiDirEntry>()];
+                let header_size = size_of::<PacketHeader>();
+                let entry_size = size_of::<AbiDirEntry>();
+                unsafe {
+                    let header_ptr = &header as *const _ as *const u8;
+                    let entry_ptr = &entry as *const _ as *const u8;
+                    copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
+                    copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
+                }
+
+                let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
+                if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
+                    break;
+                }
             }
+        });
 
-            let header = PacketHeader {
-                magic: VESPER_MAGIC,
-                version: 1,
-                packet_flags: flags, // Use the correct flags
-                packet_type: 1,
-                payload_len: size_of::<AbiDirEntry>() as u32,
-                reserved: 0,
-            };
-
-            let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<AbiDirEntry>()];
-            let header_size = size_of::<PacketHeader>();
-            let entry_size = size_of::<AbiDirEntry>();
-            unsafe {
-                let header_ptr = &header as *const _ as *const u8;
-                let entry_ptr = &entry as *const _ as *const u8;
-                copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
-                copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
-            }
-
-            let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
-            sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await?;
-        }
         Ok(0)
     }
 }

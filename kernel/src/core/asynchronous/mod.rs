@@ -1,4 +1,5 @@
 pub mod syscall_bridge;
+pub mod async_mutex;
 use alloc::boxed::Box;
 use alloc::collections::vec_deque::VecDeque;
 use alloc::sync::Arc;

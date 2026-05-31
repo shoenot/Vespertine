@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+use crate::drivers::virtio::blk::BlockTransferFuture;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -10,8 +12,17 @@ use core::task::{
 };
 
 use crate::core::sync::TicketLock;
-use crate::drivers::blockdev::AsyncBlockDevice;
 use crate::memory::HHDMOFFSET;
+
+
+pub trait AsyncBlockDevice: Send + Sync + Debug {
+    fn read_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()>;
+
+    fn write_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()>;
+
+    fn sector_size(&self) -> usize { 512 }
+}
+
 
 pub struct YieldNow {
     yielded: bool,
@@ -39,6 +50,7 @@ pub struct CacheEntry {
     referenced: bool,
     dirty: bool,
     in_flight: bool,
+    pub version: usize,
     data: Vec<u8>,
 }
 
@@ -61,55 +73,42 @@ impl BlockCache {
         let sectors_per_block = block_size / 512;
         let mut entries = Vec::with_capacity(num_entries);
         for _ in 0..num_entries {
-            entries.push(CacheEntry { block_id: None, referenced: false, dirty: false, in_flight: false, data: vec![0; block_size] });
+            entries.push(CacheEntry { block_id: None, referenced: false, dirty: false, in_flight: false, version: 0, data: vec![0; block_size] });
         }
 
         Self { device, block_size, sectors_per_block, inner: TicketLock::new(BlockCacheInner { entries, clock_hand: 0 }) }
     }
 
     pub async fn read_block(&self, block_id: usize, dest_phys: u64) -> Result<(), ()> {
-        let idx;
-
         loop {
-            let mut hit_idx = None;
-            let mut is_in_flight = false;
-
-            {
-                let inner = self.inner.lock();
-                for (i, entry) in inner.entries.iter().enumerate() {
-                    if entry.block_id == Some(block_id) {
-                        hit_idx = Some(i);
-                        is_in_flight = entry.in_flight;
-                        break;
-                    }
-                }
-            }
-
-            if let Some(i) = hit_idx {
-                if is_in_flight {
-                    // Block is currently in-flight (being loaded or written back).
-                    // Yield and try again later.
-                    yield_now().await;
-                    continue;
-                }
-
-                // Cache Hit!
+            let is_in_flight = {
                 let mut inner = self.inner.lock();
-                let entry = &mut inner.entries[i];
-                entry.referenced = true;
-
-                unsafe {
-                    let dest_virt = dest_phys + *HHDMOFFSET as u64;
-                    copy_nonoverlapping(entry.data.as_ptr(), dest_virt as *mut u8, self.block_size);
+                if let Some(i) = inner.entries.iter().position(|e| e.block_id == Some(block_id)) {
+                    if inner.entries[i].in_flight {
+                        true
+                    } else {
+                        // cache hit
+                        inner.entries[i].referenced = true;
+                        unsafe {
+                            let dest_virt = dest_phys + *HHDMOFFSET as u64;
+                            copy_nonoverlapping(inner.entries[i].data.as_ptr(), dest_virt as *mut u8, self.block_size);
+                        }
+                        return Ok(());
+                    }
+                } else {
+                    break; // cache miss, evict
                 }
-                return Ok(());
-            }
+            };
 
-            break; // Cache miss, proceed to allocation
+            if is_in_flight {
+                yield_now().await;
+            }
         }
 
         // cache miss
         let mut selected_idx = None;
+        let mut old_writeback = None;
+
         {
             let mut inner = self.inner.lock();
             for (i, entry) in inner.entries.iter().enumerate() {
@@ -119,7 +118,6 @@ impl BlockCache {
                 }
             }
 
-            // second chance eviction if no vacant slot
             if selected_idx.is_none() {
                 let num_entries = inner.entries.len();
                 let mut checked = 0;
@@ -146,46 +144,37 @@ impl BlockCache {
                 }
             }
 
-            // Mark selected slot as in_flight under lock to reserve it
-            if let Some(i) = selected_idx {
-                inner.entries[i].in_flight = true;
-            }
-        }
-
-        idx = selected_idx.ok_or(())?;
-
-        // writeback evicted if dirty
-        let mut old_writeback = None;
-        {
-            let inner = self.inner.lock();
-            let entry = &inner.entries[idx];
-            if entry.dirty {
-                if let Some(old_block) = entry.block_id {
-                    old_writeback = Some((old_block, entry.data.clone()));
+            if let Some(idx) = selected_idx {
+                inner.entries[idx].in_flight = true;
+                let entry = &inner.entries[idx];
+                if entry.dirty {
+                    if let Some(old_block) = entry.block_id {
+                        old_writeback = Some((old_block, entry.data.clone()));
+                    }
                 }
             }
         }
 
+        let idx = selected_idx.ok_or(())?;
+
+        // eviction writeback
         if let Some((old_block, old_data)) = old_writeback {
             let start_sector = old_block as u64 * self.sectors_per_block as u64;
             let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
             let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
             write_future.await?;
 
-            // Clear dirty flag now that writeback is complete
             {
                 let mut inner = self.inner.lock();
                 inner.entries[idx].dirty = false;
             }
         }
 
-        // Now update block_id to reserve it for the new block before calling read_sectors
         {
             let mut inner = self.inner.lock();
             inner.entries[idx].block_id = Some(block_id);
         }
 
-        // fetch new block from disk directly into evicted buffer
         let new_sector = block_id as u64 * self.sectors_per_block as u64;
         let entry_phys = {
             let inner = self.inner.lock();
@@ -195,12 +184,12 @@ impl BlockCache {
         let read_future = self.device.read_sectors(new_sector, self.sectors_per_block as u32, entry_phys as u64)?;
         read_future.await?;
 
-        // update cache and copy data to caller
         {
             let mut inner = self.inner.lock();
             let entry = &mut inner.entries[idx];
             entry.referenced = true;
             entry.in_flight = false;
+            entry.version += 1; // mark slot as changed
 
             unsafe {
                 let dest_virt = dest_phys + *HHDMOFFSET as u64;
@@ -212,46 +201,38 @@ impl BlockCache {
     }
 
     pub async fn write_block(&self, block_id: usize, src_phys: u64) -> Result<(), ()> {
-        let idx;
-
         loop {
-            let mut hit_idx = None;
-            let mut is_in_flight = false;
-
-            {
-                let inner = self.inner.lock();
-                for (i, entry) in inner.entries.iter().enumerate() {
-                    if entry.block_id == Some(block_id) {
-                        hit_idx = Some(i);
-                        is_in_flight = entry.in_flight;
-                        break;
-                    }
-                }
-            }
-
-            if let Some(i) = hit_idx {
-                if is_in_flight {
-                    yield_now().await;
-                    continue;
-                }
-
+            let is_in_flight = {
                 let mut inner = self.inner.lock();
-                let entry = &mut inner.entries[i];
-                entry.referenced = true;
-                entry.dirty = true;
+                if let Some(i) = inner.entries.iter().position(|e| e.block_id == Some(block_id)) {
+                    if inner.entries[i].in_flight {
+                        true
+                    } else {
+                        // cache hit
+                        inner.entries[i].referenced = true;
+                        inner.entries[i].dirty = true;
+                        inner.entries[i].version += 1; 
 
-                unsafe {
-                    let src_virt = src_phys + *HHDMOFFSET as u64;
-                    copy_nonoverlapping(src_virt as *const u8, entry.data.as_mut_ptr(), self.block_size);
+                        unsafe {
+                            let src_virt = src_phys + *HHDMOFFSET as u64;
+                            copy_nonoverlapping(src_virt as *const u8, inner.entries[i].data.as_mut_ptr(), self.block_size);
+                        }
+                        return Ok(());
+                    }
+                } else {
+                    break;
                 }
-                return Ok(());
-            }
+            };
 
-            break;
+            if is_in_flight {
+                yield_now().await;
+            }
         }
 
         // cache miss
         let mut selected_idx = None;
+        let mut old_writeback = None;
+
         {
             let mut inner = self.inner.lock();
             for (i, entry) in inner.entries.iter().enumerate() {
@@ -287,24 +268,18 @@ impl BlockCache {
                 }
             }
 
-            if let Some(i) = selected_idx {
-                inner.entries[i].in_flight = true;
-            }
-        }
-
-        idx = selected_idx.ok_or(())?;
-
-        // if evicted was dirty, write it back
-        let mut old_writeback = None;
-        {
-            let inner = self.inner.lock();
-            let entry = &inner.entries[idx];
-            if entry.dirty {
-                if let Some(old_block) = entry.block_id {
-                    old_writeback = Some((old_block, entry.data.clone()));
+            if let Some(idx) = selected_idx {
+                inner.entries[idx].in_flight = true;
+                let entry = &inner.entries[idx];
+                if entry.dirty {
+                    if let Some(old_block) = entry.block_id {
+                        old_writeback = Some((old_block, entry.data.clone()));
+                    }
                 }
             }
         }
+
+        let idx = selected_idx.ok_or(())?;
 
         if let Some((old_block, old_data)) = old_writeback {
             let start_sector = old_block as u64 * self.sectors_per_block as u64;
@@ -318,7 +293,6 @@ impl BlockCache {
             }
         }
 
-        // overwrite cache entry buffer and mark dirty
         {
             let mut inner = self.inner.lock();
             let entry = &mut inner.entries[idx];
@@ -326,6 +300,7 @@ impl BlockCache {
             entry.referenced = true;
             entry.dirty = true;
             entry.in_flight = false;
+            entry.version += 1; 
 
             unsafe {
                 let src_virt = src_phys + *HHDMOFFSET as u64;
@@ -340,27 +315,26 @@ impl BlockCache {
         let mut dirty_entries = Vec::new();
         {
             let inner = self.inner.lock();
-            for entry in inner.entries.iter() {
+            for (idx, entry) in inner.entries.iter().enumerate() {
                 if entry.dirty && !entry.in_flight {
                     if let Some(block_id) = entry.block_id {
-                        dirty_entries.push((block_id, entry.data.clone()));
+                        dirty_entries.push((idx, block_id, entry.version, entry.data.clone()));
                     }
                 }
             }
         }
 
-        for (block_id, data) in dirty_entries {
+        for (idx, block_id, version, data) in dirty_entries {
             let start_sector = block_id as u64 * self.sectors_per_block as u64;
             let buffer_phys = data.as_ptr() as usize - *HHDMOFFSET;
             let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
             write_future.await?;
-        }
 
-        // clear dirty flags
-        {
-            let mut inner = self.inner.lock();
-            for entry in inner.entries.iter_mut() {
-                if entry.dirty && !entry.in_flight {
+            // reset the dirty flag only if the version matches the version flushed to disk
+            {
+                let mut inner = self.inner.lock();
+                let entry = &mut inner.entries[idx];
+                if entry.block_id == Some(block_id) && entry.version == version {
                     entry.dirty = false;
                 }
             }

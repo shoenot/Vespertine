@@ -11,6 +11,7 @@ mod syscall;
 mod tasks;
 mod tests;
 mod util;
+mod storage;
 
 use alloc::sync::Arc;
 

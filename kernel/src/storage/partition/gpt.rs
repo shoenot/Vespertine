@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::storage::blockdev::AsyncBlockDevice;
 use crate::drivers::virtio::blk::BlockTransferFuture;
 use crate::memory::{
     ALLOCATOR,

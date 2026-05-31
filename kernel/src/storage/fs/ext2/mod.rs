@@ -1,22 +1,24 @@
+use alloc::collections::BTreeMap;
 use alloc::slice;
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::{
     ptr,
     str,
 };
 
-use crate::core::sync::TicketLock;
-use crate::drivers::blockdev::AsyncBlockDevice;
-use crate::drivers::blockdev::ext2::cache::BlockCache;
-use crate::drivers::blockdev::ext2::obj::Ext2Directory;
-use crate::drivers::blockdev::ext2::structs::{
+use crate::core::asynchronous::async_mutex::AsyncMutex;
+use crate::core::sync::{RwLock, TicketLock, Mutex};
+use crate::storage::blockdev::AsyncBlockDevice;
+use crate::storage::blockdev::BlockCache;
+use crate::storage::fs::ext2::obj::{Ext2Directory, Ext2File};
+use crate::storage::fs::ext2::structs::{
     DiskDirHeader,
     DiskGroupDesc,
     DiskInode,
     DiskSuperblock,
 };
-use crate::drivers::blockdev::gpt::GptTable;
+use crate::storage::partition::gpt::GptTable;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
@@ -24,7 +26,6 @@ use crate::memory::{
     calculate_order,
 };
 
-pub mod cache;
 pub mod obj;
 pub mod structs;
 
@@ -40,6 +41,9 @@ pub struct Ext2FileSystem {
     pub inode_size: u32,
 
     pub bgdt: TicketLock<Vec<DiskGroupDesc>>,
+    pub allocation_lock: AsyncMutex<()>,
+    pub active_files: Mutex<BTreeMap<u32, Weak<Ext2File>>>,
+    pub active_dirs: Mutex<BTreeMap<u32, Weak<Ext2Directory>>>,
 }
 
 impl Ext2FileSystem {
@@ -110,6 +114,9 @@ impl Ext2FileSystem {
             blocks_per_group: sb.blocks_per_group,
             inode_size,
             bgdt: TicketLock::new(bgdt_vec),
+            allocation_lock: AsyncMutex::new(()),
+            active_files: Mutex::new(BTreeMap::new()),
+            active_dirs: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -249,7 +256,7 @@ impl Ext2FileSystem {
             return Ok(physical_block_id);
         }
 
-        remaining_idx += pointers_per_block;
+        remaining_idx -= pointers_per_block;
 
         // tier 3: doubly indirect blocks
         let blocks_per_double = pointers_per_block * pointers_per_block;
@@ -330,6 +337,119 @@ impl Ext2FileSystem {
         }
         Err(())
     }
+
+    pub async fn write_inode(&self, inode_num: u32, inode: &DiskInode) -> Result<(), ()> {
+        if inode_num == 0 { return Err(()) };
+        let bg_index = ((inode_num - 1) / self.inodes_per_group) as usize;
+        let local_inode_idx = (inode_num - 1) % self.inodes_per_group;
+
+        let inode_table_start_block = {
+            let bgdt = self.bgdt.lock();
+            if bg_index >= bgdt.len() { return Err(()) };
+            bgdt[bg_index].inode_table
+        };
+
+        let byte_offset = local_inode_idx * self.inode_size;
+        let target_logical_block = inode_table_start_block + (byte_offset / self.block_size);
+        let block_internal_offset = byte_offset % self.block_size;
+
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 {
+            return Err(());
+        };
+        let page_virt = page_phys + *HHDMOFFSET;
+
+        self.read_block(target_logical_block, page_phys as u64).await?;
+
+        unsafe {
+            let dest_ptr = (page_virt as *mut u8).add(block_internal_offset as usize) as *mut DiskInode;
+            ptr::write(dest_ptr, *inode);
+        }
+
+        self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Ok(())
+    }
+
+    pub async fn allocate_block(&self) -> Result<u32, ()> {
+        let _guard = self.allocation_lock.lock().await;
+
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 {
+            return Err(());
+        };
+        let page_virt = page_phys + *HHDMOFFSET;
+
+        let num_groups = self.bgdt.lock().len();
+
+        for group in 0..num_groups {
+            let mut bg = self.bgdt.lock()[group];
+            if bg.free_blocks_count > 0 {
+                self.read_block(bg.block_bitmap, page_phys as u64).await?;
+                let bitmap_ptr = page_virt as *mut u8;
+                let mut allocated_block_idx = None;
+
+                // find first free block bit
+                for byte_idx in 0..self.block_size as usize {
+                    unsafe {
+                        let val = *bitmap_ptr.add(byte_idx);
+                        if val != 0xFF {
+                            for bit in 0..8 {
+                                if (val & (1 << bit)) == 0 {
+                                    *bitmap_ptr.add(byte_idx) = val | (1 << bit);
+                                    allocated_block_idx = Some(byte_idx * 8 + bit);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if allocated_block_idx.is_some() { break; }
+                }
+
+                if let Some(bit_idx) = allocated_block_idx {
+                    // write bitmap block back
+                    self.cache.write_block(bg.block_bitmap as usize, page_phys as u64).await?;
+
+                    let first_data_block = if self.block_size == 1024 { 1 } else { 0 };
+                    let block_id = group as u32 * self.blocks_per_group + bit_idx as u32 + first_data_block;
+
+                    bg.free_blocks_count -= 1;
+                    self.bgdt.lock()[group] = bg;
+
+                    // write modified gd back to cache 
+                    let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
+                    let descriptor_offset = group * size_of::<DiskGroupDesc>();
+                    let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
+                    let block_internal_offset = descriptor_offset % self.block_size as usize;
+
+                    self.read_block(target_logical_block, page_phys as u64).await?;
+                    unsafe {
+                        let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+                        ptr::write(dest_ptr, bg);
+                    }
+                    self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
+
+                    // update sb count 
+                    let sb_block = if self.block_size == 1024 { 1 } else { 0 };
+                    let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
+
+                    self.read_block(sb_block, page_phys as u64).await?;
+                    unsafe {
+                        let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+                        if (*sb_ptr).free_blocks_count > 0 {
+                            (*sb_ptr).free_blocks_count -= 1;
+                        }
+                    }
+                    self.cache.write_block(sb_block as usize, page_phys as u64).await?;
+
+                    ALLOCATOR.free(page_phys, BlockSize::Normal);
+                    return Ok(block_id);
+                }
+            }
+        }
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Err(())
+    }
 }
 
 pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> Arc<Ext2Directory> {
@@ -341,7 +461,7 @@ pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> A
 
     let root_inode_data = ext2_fs.read_inode(2).await.expect("Failed parsing root inode structs");
 
-    let root_dir_object = Arc::new(Ext2Directory { fs: ext2_fs, inode_num: 2, inode_data: root_inode_data });
+    let root_dir_object = Arc::new(Ext2Directory { fs: ext2_fs, inode_num: 2, inode_data: RwLock::new(root_inode_data) });
 
     root_dir_object
 }

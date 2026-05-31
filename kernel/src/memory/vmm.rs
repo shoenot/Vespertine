@@ -6,7 +6,7 @@ use alloc::alloc::{
     dealloc,
 };
 use alloc::sync::Arc;
-use core::ptr;
+use core::ptr::{self, drop_in_place};
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.
@@ -341,6 +341,7 @@ impl VirtMemManager {
         }
 
         unsafe {
+            drop_in_place(target_vma_ptr.unwrap());
             dealloc(target_vma_ptr.unwrap() as *mut u8, Layout::new::<VmaNode>());
         }
 
