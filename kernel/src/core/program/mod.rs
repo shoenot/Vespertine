@@ -4,7 +4,8 @@ use alloc::alloc::{
     Layout,
     alloc,
 };
-use core::fmt;
+use alloc::sync::Arc;
+use core::{cmp, fmt};
 use core::ptr::{
     copy_nonoverlapping,
     write_bytes,
@@ -21,6 +22,8 @@ use vespertine_abi::{
 
 use crate::arch::get_core_data;
 use crate::core::object::models::process::Process;
+use crate::core::object::models::vmo::{self, VmoObject};
+use crate::core::object::vfs::kernel_close;
 use crate::core::thread::{
     ThreadControlBlock,
     get_current_process,
@@ -34,10 +37,6 @@ use crate::memory::vmm::{
 use crate::memory::vmo::{
     PagedBackingStore,
     Vmo,
-};
-use crate::memory::{
-    HHDMOFFSET,
-    NORMAL_PAGE_SIZE,
 };
 use crate::{
     KERNEL_PROCESS,
@@ -71,14 +70,17 @@ impl fmt::Display for LoaderError {
     }
 }
 
-pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderError> {
+pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, usize, usize), LoaderError> {
     // IN USER THREAD CONTEXT
     let file_obj = get_current_process()
         .ok_or(LoaderError::FileReadError)?
         .proc_handles
         .read()
         .resolve(file_handle, AccessRights::READ)
-        .map_err(|_| LoaderError::FileReadError)?;
+        .map_err(|e| {
+            klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
+            LoaderError::FileReadError
+        })?;
 
     // SWITCH TO KERNEL PROCESS TEMPORARILY
     let current_thread = get_core_data().scheduler.get_current_thread();
@@ -90,17 +92,21 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, Lo
         (*current_thread).process = KERNEL_PROCESS.get().unwrap().clone();
     }
 
-    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ).await.map_err(|_| LoaderError::FileReadError)?;
+    // read only first 4k to parse headers
+    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ)
+        .await.map_err(|e| {
+            klogln!("[ERROR] load_elf: Stat failed: {:?}", e);
+            LoaderError::FileReadError
+        })?;
+    let header_read_size = cmp::min(file_size, 4096);
 
-    let file_layout = Layout::from_size_align(file_size, 8).map_err(|_| LoaderError::FileReadError)?;
-
+    let file_layout = Layout::from_size_align(header_read_size, 8).map_err(|_| LoaderError::FileReadError)?;
     let buffer_ptr = unsafe { alloc(file_layout) as *mut u8 };
-
-    // Store the buffer allocation pointer as a usize to prevent it crossing the await boundary
     let buf_addr = buffer_ptr as usize;
 
     let read_result =
-        file_obj.invoke(Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buffer_ptr as usize, len: file_size }), AccessRights::READ);
+        file_obj.invoke(Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buffer_ptr as usize, len: header_read_size }), AccessRights::READ);
+
 
     // RESTORE USER PROCESS TO DROP PRIVILEGES
     let thread_ptr = thread_addr as *mut ThreadControlBlock;
@@ -108,15 +114,41 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, Lo
         (*thread_ptr).process = old_proc;
     }
 
-    read_result.await.map_err(|_| LoaderError::FileReadError)?;
-
-    let file_bytes = unsafe { from_raw_parts(buf_addr as *mut u8, file_size) };
+    read_result.await.map_err(|e| {
+        klogln!("[ERROR] load_elf: Read failed: {:?}", e);
+        LoaderError::FileReadError
+    })?;
+    let file_bytes = unsafe { from_raw_parts(buf_addr as *mut u8, header_read_size) };
 
     let header = Elf64_Ehdr::from_bytes(file_bytes)?;
     let ph_iter = header.prog_headers(file_bytes).unwrap();
 
+    let vmo_handle_id = file_obj.invoke(Invocation::File(FileOp::GetVmo), AccessRights::READ)
+        .await.map_err(|e| {
+            klogln!("[ERROR] load_elf: GetVmo failed: {:?}", e);
+            LoaderError::FileReadError
+        })?;
+    let vmo_handle = HandleID(vmo_handle_id);
+    let current_proc = get_current_process().ok_or(LoaderError::FileReadError)?;
+    let vmo_obj_dyn = current_proc.proc_handles.read().resolve(vmo_handle, AccessRights::READ)
+        .map_err(|e| {
+            klogln!("[ERROR] load_elf: Resolve VmoObject handle failed: {:?}", e);
+            LoaderError::FileReadError
+        })?;
+    let vmo_obj = vmo_obj_dyn.as_any().downcast_ref::<VmoObject>().ok_or_else(|| {
+        klogln!("[ERROR] load_elf: Downcast to VmoObject failed");
+        LoaderError::FileReadError
+    })?;
+    let file_vmo = vmo_obj.vmo.clone();
+    let _ = current_proc.proc_handles.write().close(vmo_handle);
+
+    let mut phdr_addr = 0;
     for ph in ph_iter {
         if ph.p_type == P_Type::PT_LOAD as u32 {
+            if ph.p_type == 6 { // PT_PHDR 
+                phdr_addr = ph.p_vaddr as usize;
+            }
+
             klogln!(
                 "[INFO] Mapping Segment: file offset 0x{:X} -> virt addr 0x{:X} file size: {}, mem_size: {}",
                 ph.p_offset,
@@ -126,29 +158,9 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, Lo
             );
 
             let aligned_vaddr = (ph.p_vaddr & !0xFFF) as usize;
-            let offset_in_first_page = (ph.p_vaddr & 0xFFF) as usize;
-            let total_map_size = align_up(offset_in_first_page + ph.p_memsz as usize);
-            let vmo = Vmo::new(total_map_size as usize);
-
-            let mut page_offset = 0;
-            while page_offset < total_map_size {
-                let pfn = vmo.request_page(page_offset).map_err(|_| LoaderError::FileReadError)?;
-                let hhdm_ptr = pfn + *HHDMOFFSET;
-                unsafe { write_bytes(hhdm_ptr as *mut u8, 0, NORMAL_PAGE_SIZE) };
-
-                let overlap_start = usize::max(page_offset, offset_in_first_page as usize);
-                let overlap_end = usize::min(page_offset + NORMAL_PAGE_SIZE, offset_in_first_page + ph.p_filesz as usize);
-
-                if overlap_start < overlap_end {
-                    unsafe {
-                        let dst = ((overlap_start - page_offset) + hhdm_ptr) as *mut u8;
-                        let src = file_bytes.as_ptr().add(ph.p_offset as usize + (overlap_start - offset_in_first_page));
-                        let len = overlap_end - overlap_start;
-                        copy_nonoverlapping(src, dst, len);
-                    }
-                }
-                page_offset += NORMAL_PAGE_SIZE;
-            }
+            let aligned_offset = (ph.p_offset & !0xFFF) as usize;
+            let offset_in_page = (ph.p_vaddr & 0xFFF) as usize;
+            let total_map_size = align_up(offset_in_page + ph.p_memsz as usize);
 
             let mut vm_flags = VM_FLAG_USER;
             if (ph.p_flags & PF_W) != 0 {
@@ -158,10 +170,30 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, Lo
                 vm_flags |= VM_FLAG_EXEC
             };
 
-            proc.vmm.write().mmap_vmo_at(aligned_vaddr, total_map_size, vm_flags, vmo.clone()).ok_or(LoaderError::FileReadError)?;
+            let (segment_vmo, map_offset) = if ph.p_filesz == 0 {
+                (Vmo::new(total_map_size) as Arc<dyn PagedBackingStore>, 0)
+            } else {
+                (file_vmo.clone(), aligned_offset)
+            };
+
+            proc.vmm.write()
+                .mmap_vmo_at(aligned_vaddr, total_map_size, vm_flags, segment_vmo, map_offset)
+                .ok_or_else(|| {
+                    klogln!("[ERROR] load_elf: mmap_vmo_at failed for segment at 0x{:X}", aligned_vaddr);
+                    LoaderError::FileReadError
+                })?;
+        }
+    }
+
+    if phdr_addr == 0 {
+        for ph in header.prog_headers(file_bytes).unwrap() {
+            if ph.p_type == 1 && ph.p_offset == 0 { // PT_LOAD
+                phdr_addr = (ph.p_vaddr + header.e_phoff) as usize;
+                break;
+            }
         }
     }
 
     klogln!("[INFO] Ready to jump to entry 0x{:X}", header.e_entry);
-    Ok(header.e_entry as usize)
+    Ok((header.e_entry as usize, phdr_addr, header.e_phnum as usize))
 }

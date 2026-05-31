@@ -1,3 +1,5 @@
+use core::any::Any;
+
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 
@@ -15,7 +17,7 @@ use crate::memory::vmo::PagedBackingStore;
 
 #[derive(Debug)]
 pub struct VmoObject {
-    vmo: Arc<dyn PagedBackingStore>,
+    pub vmo: Arc<dyn PagedBackingStore>,
 }
 
 impl VmoObject {
@@ -51,7 +53,7 @@ impl KernelObject for VmoObject {
                     let mapped_addr = if vaddr == 0 {
                         vmm.mmap_vmo(len, vm_flags, self.vmo.clone())
                     } else {
-                        vmm.mmap_vmo_at(vaddr, len, vm_flags, self.vmo.clone())
+                        vmm.mmap_vmo_at(vaddr, len, vm_flags, self.vmo.clone(), 0)
                     };
 
                     mapped_addr.ok_or(InvocationError::OutOfMemory)
@@ -63,4 +65,6 @@ impl KernelObject for VmoObject {
     }
 
     fn type_name(&self) -> &'static str { "VMO" }
+
+    fn as_any(&self) -> &dyn Any { self }
 }

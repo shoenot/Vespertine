@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::cmp::min;
 
 use async_trait::async_trait;
@@ -10,7 +11,11 @@ use vespertine_abi::{
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
+use crate::core::thread::get_current_process;
+use crate::memory::{HHDMOFFSET, NORMAL_PAGE_SIZE};
+use crate::memory::vmo::{PagedBackingStore, Vmo};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -28,6 +33,26 @@ impl KernelObject for FileObj {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => self.read_file(offset, buffer_ptr as *mut u8, len),
             Invocation::File(FileOp::Stat) => self.stat(),
+            Invocation::File(FileOp::GetVmo) => {
+                let vmo = Vmo::new(self.size);
+                let num_pages = self.size.div_ceil(NORMAL_PAGE_SIZE);
+                for i in 0..num_pages {
+                    let page_offset = i * NORMAL_PAGE_SIZE;
+                    let pfn = vmo.request_page(page_offset).map_err(|_| InvocationError::OutOfMemory)?;
+                    let dest_virt = pfn + *HHDMOFFSET;
+                    let chunk = min(NORMAL_PAGE_SIZE, self.size - page_offset);
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(self.addr.add(page_offset), dest_virt as *mut u8, chunk);
+                        if chunk < NORMAL_PAGE_SIZE {
+                            core::ptr::write_bytes((dest_virt + chunk) as *mut u8, 0, NORMAL_PAGE_SIZE - chunk);
+                        }
+                    }
+                }
+                let vmo_obj = Arc::new(VmoObject::new(vmo));
+                let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
+                let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
+                Ok(handle_id.0 as usize)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

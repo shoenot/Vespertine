@@ -205,7 +205,7 @@ impl VirtMemManager {
     }
 
     pub fn mmap_vmo_at(
-        &mut self, start_addr: usize, mut size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>,
+        &mut self, start_addr: usize, mut size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>, vmo_offset: usize,
     ) -> Option<usize> {
         let mask = NORMAL_PAGE_SIZE - 1;
         size = (size + mask) & !mask;
@@ -247,7 +247,7 @@ impl VirtMemManager {
                     prev: prev_ptr,
                     next: current_ptr,
                     backing_vmo: Some(backing_vmo),
-                    vmo_offset: 0,
+                    vmo_offset,
                 },
             );
 

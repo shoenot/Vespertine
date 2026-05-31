@@ -56,16 +56,20 @@ pub struct ProcessControlBlock {
     pub proc_id: usize,
     pub proc_handles: RwLock<HandleTable>,
     pub vmm: RwLock<VirtMemManager>,
+    pub pml4_addr: usize,
     pub active_threads: AtomicUsize,
     pub is_terminated: AtomicBool,
 }
 
 impl ProcessControlBlock {
     pub fn new(init_table: HandleTable) -> Process {
+        let vmm = VirtMemManager::new(&ALLOCATOR);
+        let pml4_addr = vmm.get_pml4_addr();
         Arc::new(Self {
             proc_id: get_new_pid(),
             proc_handles: RwLock::new(init_table),
-            vmm: RwLock::new(VirtMemManager::new(&ALLOCATOR)),
+            vmm: RwLock::new(vmm),
+            pml4_addr,
             active_threads: AtomicUsize::new(0),
             is_terminated: AtomicBool::new(false),
         })

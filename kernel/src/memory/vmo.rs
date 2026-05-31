@@ -74,6 +74,9 @@ impl PagedBackingStore for Vmo {
 
         // allocate directly from the pmm
         let pfn = ALLOCATOR.alloc(BlockSize::Normal);
+        unsafe {
+            write_bytes((pfn + *HHDMOFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
+        }
         pages.insert(offset, pfn);
         Ok(pfn as usize)
     }
@@ -332,16 +335,18 @@ impl FileVmo {
 impl PagedBackingStore for FileVmo {
     fn request_page(&self, offset: usize) -> Result<usize, ()> {
         // check if page alr loaded in ram
-        let mut pages = self.anonymous_vmo.pages.lock();
+        {
+            let pages = self.anonymous_vmo.pages.lock();
 
-        let current_size = self.anonymous_vmo.size.load(Ordering::Relaxed);
-        if offset >= current_size {
-            return Err(());
-        }
+            let current_size = self.anonymous_vmo.size.load(Ordering::Relaxed);
+            if offset >= current_size {
+                return Err(());
+            }
 
-        if let Some(&pfn) = pages.get(&offset) {
-            if pfn != 0 {
-                return Ok(pfn);
+            if let Some(&pfn) = pages.get(&offset) {
+                if pfn != 0 {
+                    return Ok(pfn);
+                }
             }
         }
 
@@ -375,7 +380,16 @@ impl PagedBackingStore for FileVmo {
             }
         }
 
-        pages.insert(offset, page_phys);
+        {
+            let mut pages = self.anonymous_vmo.pages.lock();
+            if let Some(&existing_pfn) = pages.get(&offset) {
+                if existing_pfn != 0 {
+                    ALLOCATOR.free(page_phys, BlockSize::Normal);
+                    return Ok(existing_pfn);
+                }
+            }
+            pages.insert(offset, page_phys);
+        }
         Ok(page_phys)
     }
 

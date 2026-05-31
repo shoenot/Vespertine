@@ -66,7 +66,7 @@ impl<T> RwLock<T> {
 
                 let mut rq = self.reader_queue.lock();
 
-                if (self.state.load(Ordering::Acquire) & WRITER_BIT) != 0 {
+                if (self.state.load(Ordering::Acquire) & WRITER_BIT) != 0 || self.writers_waiting.load(Ordering::Relaxed) != 0 {
                     let thread = get_core_data().scheduler.get_current_thread();
                     unsafe { (*thread).state = ThreadState::Blocked };
                     rq.push(thread);

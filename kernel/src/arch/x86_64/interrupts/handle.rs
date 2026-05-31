@@ -18,10 +18,22 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
         asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
     }
 
+    let int_state = (frame.cpu_flags & (1 << 9)) != 0;
+    if int_state {
+        crate::arch::enable_interrupts();
+    }
+
     match handle_page_fault(cr2 as usize, frame.error_code as usize) {
-        Ok(_) => {}
+        Ok(_) => {
+            if int_state {
+                crate::arch::disable_interrupts();
+            }
+        }
         Err(e) => {
             if crate::arch::x86_64::interrupts::extable::fixup_exception(frame) {
+                if int_state {
+                    crate::arch::disable_interrupts();
+                }
                 return;
             }
             klogln!("");
@@ -66,8 +78,6 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     unsafe {
         let td_tcb_ptr = (*core_data).timer_daemon_tcb;
         if !td_tcb_ptr.is_null() {
-            // In the new centralized timer model, we always wake the daemon
-            // to check if it was a callout or a quantum expiry.
             if (*td_tcb_ptr).state == ThreadState::Blocked {
                 (*td_tcb_ptr).state = ThreadState::Ready;
                 core_data.scheduler.push(td_tcb_ptr);
@@ -87,8 +97,6 @@ pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {
 pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     let core_data = get_core_data();
     core_data.apic_mode.eoi();
-
-    // crate::drivers::serial::log_to_serial("KB INT\n");
 
     for _ in 0..256 {
         if unsafe { (io::inb(0x64) & 0x1) == 0 } {

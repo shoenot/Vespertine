@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::fmt::Debug;
+use core::{any::Any, fmt::Debug};
 
 use async_trait::async_trait;
 use vespertine_abi::{
@@ -15,6 +15,8 @@ pub trait KernelObject: Send + Sync + Debug {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;
 
     fn type_name(&self) -> &'static str { "Unknown" }
+
+    fn as_any(&self) -> &dyn core::any::Any { &() }
 }
 
 #[derive(Debug)]

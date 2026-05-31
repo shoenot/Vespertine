@@ -176,8 +176,7 @@ impl SchedulerState {
             let next_proc = &(*next_thread).process;
 
             if !Arc::ptr_eq(current_proc, next_proc) {
-                let next_pml4 = next_proc.vmm.read().get_pml4_addr();
-                load_cr3(next_pml4 as u64);
+                load_cr3(next_proc.pml4_addr as u64);
             }
 
             write_to_msr((*next_thread).fs_base as u64, 0xC000_0100);
