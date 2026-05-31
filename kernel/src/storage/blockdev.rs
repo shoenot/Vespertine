@@ -1,8 +1,7 @@
-use core::fmt::Debug;
-use crate::drivers::virtio::blk::BlockTransferFuture;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use core::future::Future;
 use core::pin::Pin;
 use core::ptr::copy_nonoverlapping;
@@ -12,8 +11,8 @@ use core::task::{
 };
 
 use crate::core::sync::TicketLock;
+use crate::drivers::virtio::blk::BlockTransferFuture;
 use crate::memory::HHDMOFFSET;
-
 
 pub trait AsyncBlockDevice: Send + Sync + Debug {
     fn read_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()>;
@@ -22,7 +21,6 @@ pub trait AsyncBlockDevice: Send + Sync + Debug {
 
     fn sector_size(&self) -> usize { 512 }
 }
-
 
 pub struct YieldNow {
     yielded: bool,
@@ -73,7 +71,14 @@ impl BlockCache {
         let sectors_per_block = block_size / 512;
         let mut entries = Vec::with_capacity(num_entries);
         for _ in 0..num_entries {
-            entries.push(CacheEntry { block_id: None, referenced: false, dirty: false, in_flight: false, version: 0, data: vec![0; block_size] });
+            entries.push(CacheEntry {
+                block_id: None,
+                referenced: false,
+                dirty: false,
+                in_flight: false,
+                version: 0,
+                data: vec![0; block_size],
+            });
         }
 
         Self { device, block_size, sectors_per_block, inner: TicketLock::new(BlockCacheInner { entries, clock_hand: 0 }) }
@@ -211,7 +216,7 @@ impl BlockCache {
                         // cache hit
                         inner.entries[i].referenced = true;
                         inner.entries[i].dirty = true;
-                        inner.entries[i].version += 1; 
+                        inner.entries[i].version += 1;
 
                         unsafe {
                             let src_virt = src_phys + *HHDMOFFSET as u64;
@@ -300,7 +305,7 @@ impl BlockCache {
             entry.referenced = true;
             entry.dirty = true;
             entry.in_flight = false;
-            entry.version += 1; 
+            entry.version += 1;
 
             unsafe {
                 let src_virt = src_phys + *HHDMOFFSET as u64;

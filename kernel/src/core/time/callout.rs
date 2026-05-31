@@ -1,3 +1,5 @@
+use core::task::Waker;
+
 use crate::arch::{
     disable_interrupts,
     enable_interrupts,
@@ -10,8 +12,10 @@ use crate::core::thread::{
 use crate::core::time::get_time;
 
 pub enum CalloutPayload {
-    /// Used by 'sleep()'. Contains the pointer to the sleeping thread.
+    /// used by sleep(), contains pointer to sleeping thread
     WakeThread(*mut ThreadControlBlock),
+    /// used by sleep_async(), contains the async task's waker
+    WakeWaker(Waker),
 }
 
 pub struct Callout {
@@ -55,6 +59,9 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
                             (*tcb_ptr).state = ThreadState::Ready;
                             get_core_data().scheduler.push(tcb_ptr);
                         },
+                        CalloutPayload::WakeWaker(waker) => {
+                            waker.wake();
+                        }
                     }
                     continue;
                 }

@@ -1,7 +1,6 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::storage::blockdev::AsyncBlockDevice;
 use crate::drivers::virtio::blk::BlockTransferFuture;
 use crate::memory::{
     ALLOCATOR,
@@ -9,6 +8,7 @@ use crate::memory::{
     HHDMOFFSET,
     calculate_order,
 };
+use crate::storage::blockdev::AsyncBlockDevice;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

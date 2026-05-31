@@ -68,7 +68,9 @@ impl ClockSource for HPET {
 
 pub(crate) fn read_hpet_direct() -> usize {
     let base = HPET_BASE_ADDR.load(Ordering::Relaxed) as usize;
-    if base == 0 { return 0; }
+    if base == 0 {
+        return 0;
+    }
     let addr = base + *HHDMOFFSET + HPET_MAIN_COUNTER_OFFSET;
     unsafe { read_volatile(addr as *const usize) }
 }

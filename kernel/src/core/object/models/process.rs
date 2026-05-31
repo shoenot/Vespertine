@@ -37,8 +37,8 @@ use crate::core::object::models::thread::Thread;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::spawn_user_thread;
-use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::get_current_process;
+use crate::core::thread::priority::ThreadPriority;
 use crate::memory::ALLOCATOR;
 use crate::memory::vmm::VirtMemManager;
 

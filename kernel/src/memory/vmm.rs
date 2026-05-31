@@ -6,7 +6,10 @@ use alloc::alloc::{
     dealloc,
 };
 use alloc::sync::Arc;
-use core::ptr::{self, drop_in_place};
+use core::ptr::{
+    self,
+    drop_in_place,
+};
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.

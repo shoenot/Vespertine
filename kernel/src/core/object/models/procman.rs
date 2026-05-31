@@ -27,9 +27,7 @@ use crate::memory::vmm::{
     VM_FLAG_USER,
     VM_FLAG_WRITE,
 };
-use crate::memory::vmo::{
-    Vmo,
-};
+use crate::memory::vmo::Vmo;
 
 #[derive(Debug)]
 pub struct ProcessManager {}

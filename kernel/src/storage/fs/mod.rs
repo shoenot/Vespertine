@@ -1,9 +1,8 @@
-use core::fmt::Debug;
 use alloc::boxed::Box;
+use core::fmt::Debug;
 
 use async_trait::async_trait;
-
-pub use ext2::mount_ext2_rootfs;
+pub use ext2::init::mount_ext2_rootfs;
 
 mod ext2;
 
@@ -27,4 +26,3 @@ pub trait VfsNode: Send + Sync + Debug {
 
     fn node_type(&self) -> VfsNodeType;
 }
-

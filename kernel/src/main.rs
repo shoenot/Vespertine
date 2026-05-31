@@ -7,11 +7,11 @@ mod core;
 mod drivers;
 mod memory;
 mod panic;
+mod storage;
 mod syscall;
 mod tasks;
 mod tests;
 mod util;
-mod storage;
 
 use alloc::sync::Arc;
 
@@ -51,7 +51,6 @@ use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time;
 use crate::core::time::datetime::epoch_to_datetime;
-use crate::storage::blockdev::AsyncBlockDevice;
 use crate::drivers::keyboard::init_keyboard_irq;
 use crate::drivers::pci::{
     PCI_DEVICES,
@@ -63,6 +62,7 @@ use crate::drivers::virtio::blk::{
 };
 use crate::drivers::virtio::mmio::init_virtio;
 use crate::memory::GLOBAL_PMM;
+use crate::storage::blockdev::AsyncBlockDevice;
 use crate::tasks::vfs_init::BLOCK_DEVICE;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();

@@ -16,8 +16,6 @@ use crate::core::object::vfs::{
     mount_kernel_dir,
 };
 use crate::core::sync::KernelOnceCell;
-use crate::storage::blockdev::AsyncBlockDevice;
-use crate::storage::fs::mount_ext2_rootfs;
 use crate::drivers::tar::{
     get_ramdisk_ptr,
     get_ramdisk_size,
@@ -25,6 +23,8 @@ use crate::drivers::tar::{
 };
 use crate::drivers::video::init_framebuffer;
 use crate::klogln;
+use crate::storage::blockdev::AsyncBlockDevice;
+use crate::storage::fs::mount_ext2_rootfs;
 
 pub static BLOCK_DEVICE: KernelOnceCell<Arc<dyn AsyncBlockDevice>> = KernelOnceCell::new();
 

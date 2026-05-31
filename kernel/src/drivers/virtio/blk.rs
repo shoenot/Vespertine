@@ -16,7 +16,6 @@ use core::task::{
 
 use vespertine_common::lock::TicketLock;
 
-use crate::storage::blockdev::AsyncBlockDevice;
 use crate::drivers::virtio::mmio::{
     VirtioBlockDriver,
     init_virtio,
@@ -26,6 +25,7 @@ use crate::memory::{
     BlockSize,
     HHDMOFFSET,
 };
+use crate::storage::blockdev::AsyncBlockDevice;
 use crate::util::bitwise::{
     set_bit,
     unset_bit,

@@ -1,6 +1,9 @@
 use alloc::collections::BTreeMap;
 use alloc::slice;
-use alloc::sync::{Arc, Weak};
+use alloc::sync::{
+    Arc,
+    Weak,
+};
 use alloc::vec::Vec;
 use core::{
     ptr,
@@ -8,24 +11,32 @@ use core::{
 };
 
 use crate::core::asynchronous::async_mutex::AsyncMutex;
-use crate::core::sync::{RwLock, TicketLock, Mutex};
-use crate::storage::blockdev::AsyncBlockDevice;
-use crate::storage::blockdev::BlockCache;
-use crate::storage::fs::ext2::obj::{Ext2Directory, Ext2File};
-use crate::storage::fs::ext2::structs::{
-    DiskDirHeader,
-    DiskGroupDesc,
-    DiskInode,
-    DiskSuperblock,
+use crate::core::sync::{
+    Mutex,
+    TicketLock,
 };
-use crate::storage::partition::gpt::GptTable;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
     HHDMOFFSET,
     calculate_order,
 };
+use crate::storage::blockdev::{
+    AsyncBlockDevice,
+    BlockCache,
+};
+use crate::storage::fs::ext2::obj::{
+    Ext2Directory,
+    Ext2File,
+};
+use crate::storage::fs::ext2::structs::{
+    DiskDirHeader,
+    DiskGroupDesc,
+    DiskInode,
+    DiskSuperblock,
+};
 
+pub mod init;
 pub mod obj;
 pub mod structs;
 
@@ -339,13 +350,17 @@ impl Ext2FileSystem {
     }
 
     pub async fn write_inode(&self, inode_num: u32, inode: &DiskInode) -> Result<(), ()> {
-        if inode_num == 0 { return Err(()) };
+        if inode_num == 0 {
+            return Err(());
+        };
         let bg_index = ((inode_num - 1) / self.inodes_per_group) as usize;
         let local_inode_idx = (inode_num - 1) % self.inodes_per_group;
 
         let inode_table_start_block = {
             let bgdt = self.bgdt.lock();
-            if bg_index >= bgdt.len() { return Err(()) };
+            if bg_index >= bgdt.len() {
+                return Err(());
+            };
             bgdt[bg_index].inode_table
         };
 
@@ -403,7 +418,9 @@ impl Ext2FileSystem {
                             }
                         }
                     }
-                    if allocated_block_idx.is_some() { break; }
+                    if allocated_block_idx.is_some() {
+                        break;
+                    }
                 }
 
                 if let Some(bit_idx) = allocated_block_idx {
@@ -416,7 +433,7 @@ impl Ext2FileSystem {
                     bg.free_blocks_count -= 1;
                     self.bgdt.lock()[group] = bg;
 
-                    // write modified gd back to cache 
+                    // write modified gd back to cache
                     let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
                     let descriptor_offset = group * size_of::<DiskGroupDesc>();
                     let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
@@ -429,7 +446,7 @@ impl Ext2FileSystem {
                     }
                     self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
 
-                    // update sb count 
+                    // update sb count
                     let sb_block = if self.block_size == 1024 { 1 } else { 0 };
                     let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
 
@@ -450,18 +467,276 @@ impl Ext2FileSystem {
         ALLOCATOR.free(page_phys, BlockSize::Normal);
         Err(())
     }
-}
 
-pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> Arc<Ext2Directory> {
-    let mut gpt = GptTable::parse(raw_block_device).await.expect("Failed mounting GPT configuration table maps");
 
-    let partition = Arc::new(gpt.partitions.remove(0));
+    pub async fn allocate_inode(&self, is_dir: bool) -> Result<u32, ()> {
+        let _guard = self.allocation_lock.lock().await;
 
-    let ext2_fs = Arc::new(Ext2FileSystem::mount(partition).await.expect("Failed mounting Ext2 arch metadata"));
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 {
+            return Err(());
+        };
+        let page_virt = page_phys + *HHDMOFFSET;
 
-    let root_inode_data = ext2_fs.read_inode(2).await.expect("Failed parsing root inode structs");
+        let num_groups = self.bgdt.lock().len();
 
-    let root_dir_object = Arc::new(Ext2Directory { fs: ext2_fs, inode_num: 2, inode_data: RwLock::new(root_inode_data) });
+        for group in 0..num_groups {
+            let mut bg = self.bgdt.lock()[group];
+            if bg.free_inodes_count > 0 {
+                self.read_block(bg.inode_bitmap, page_phys as u64).await?;
+                let bitmap_ptr = page_virt as *mut u8;
+                let mut allocated_inode_idx = None;
 
-    root_dir_object
+                for byte_idx in 0..self.block_size as usize {
+                    unsafe {
+                        let val = *bitmap_ptr.add(byte_idx);
+                        if val != 0xFF {
+                            for bit in 0..8 {
+                                if (val & (1 << bit)) == 0 {
+                                    *bitmap_ptr.add(byte_idx) = val | (1 << bit);
+                                    allocated_inode_idx = Some(byte_idx * 8 + bit);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if allocated_inode_idx.is_some() {
+                        break;
+                    }
+                }
+
+                if let Some(bit_idx) = allocated_inode_idx {
+                    self.cache.write_block(bg.inode_bitmap as usize, page_phys as u64).await?;
+
+                    let inode_num = group as u32 * self.inodes_per_group + bit_idx as u32 + 1;
+
+                    bg.free_inodes_count -= 1;
+                    if is_dir {
+                                bg.used_dirs_count += 1;
+                    }
+                    self.bgdt.lock()[group] = bg;
+
+                    let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
+                    let descriptor_offset = group * size_of::<DiskGroupDesc>();
+                    let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
+                    let block_internal_offset = descriptor_offset % self.block_size as usize;
+
+                    self.read_block(target_logical_block, page_phys as u64).await?;
+                    unsafe {
+                                let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+                                ptr::write(dest_ptr, bg);
+                    }
+                    self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
+
+                    let sb_block = if self.block_size == 1024 { 1 } else { 0 };
+                    let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
+
+                    self.read_block(sb_block, page_phys as u64).await?;
+                    unsafe {
+                                let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+                                if (*sb_ptr).free_inodes_count > 0 {
+                        (*sb_ptr).free_inodes_count -= 1;
+                                }
+                    }
+                    self.cache.write_block(sb_block as usize, page_phys as u64).await?;
+
+                    ALLOCATOR.free(page_phys, BlockSize::Normal);
+                    return Ok(inode_num);
+                }
+            }
+        }
+
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Err(())
+    }
+
+    pub async fn free_inode(&self, inode_num: u32, is_dir: bool) -> Result<(), ()> {
+        if inode_num == 0 {
+            return Err(());
+        }
+
+        let _guard = self.allocation_lock.lock().await;
+
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 {
+            return Err(());
+        };
+        let page_virt = page_phys + *HHDMOFFSET;
+
+        let group = ((inode_num - 1) / self.inodes_per_group) as usize;
+        let local_idx = (inode_num - 1) % self.inodes_per_group;
+
+        let mut bg = {
+            let bgdt = self.bgdt.lock();
+            if group >= bgdt.len() {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+            }
+            bgdt[group]
+        };
+
+        if self.read_block(bg.inode_bitmap, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        let bitmap_ptr = page_virt as *mut u8;
+        let byte_idx = (local_idx / 8) as usize;
+        let bit_idx = (local_idx % 8) as usize;
+
+        unsafe {
+            let val = *bitmap_ptr.add(byte_idx);
+            if (val & (1 << bit_idx)) == 0 {
+                // prevent double freeing if alr free
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+            }
+            *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
+        }
+
+        if self.cache.write_block(bg.inode_bitmap as usize, page_phys as u64).await.is_err() {
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        bg.free_inodes_count += 1;
+        if is_dir && bg.used_dirs_count > 0 {
+            bg.used_dirs_count -= 1;
+        }
+        self.bgdt.lock()[group] = bg;
+
+        let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
+        let descriptor_offset = group * size_of::<DiskGroupDesc>();
+        let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
+        let block_internal_offset = descriptor_offset % self.block_size as usize;
+
+        if self.read_block(target_logical_block, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+        unsafe {
+            let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+            ptr::write(dest_ptr, bg);
+        }
+        if self.cache.write_block(target_logical_block as usize, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        let sb_block = if self.block_size == 1024 { 1 } else { 0 };
+        let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
+
+        if self.read_block(sb_block, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+        unsafe {
+            let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+            (*sb_ptr).free_inodes_count += 1;
+        }
+        if self.cache.write_block(sb_block as usize, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Ok(())
+    }
+
+    pub async fn free_block(&self, block_id: u32) -> Result<(), ()> {
+        if block_id == 0 {
+            return Ok(()); // block hole, nothing to free
+        }
+
+        let _guard = self.allocation_lock.lock().await;
+
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 {
+            return Err(());
+        };
+        let page_virt = page_phys + *HHDMOFFSET;
+
+        let first_data_block = if self.block_size == 1024 { 1 } else { 0 };
+        if block_id < first_data_block {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        let relative_block = block_id - first_data_block;
+        let group = (relative_block / self.blocks_per_group) as usize;
+        let local_idx = relative_block % self.blocks_per_group;
+
+        let mut bg = {
+            let bgdt = self.bgdt.lock();
+            if group >= bgdt.len() {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+            }
+            bgdt[group]
+        };
+
+        if self.read_block(bg.block_bitmap, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        let bitmap_ptr = page_virt as *mut u8;
+        let byte_idx = (local_idx / 8) as usize;
+        let bit_idx = (local_idx % 8) as usize;
+
+        unsafe {
+            let val = *bitmap_ptr.add(byte_idx);
+            if (val & (1 << bit_idx)) == 0 {
+                // double free prevention like above
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+        }
+            *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
+        }
+
+        if self.cache.write_block(bg.block_bitmap as usize, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        bg.free_blocks_count += 1;
+        self.bgdt.lock()[group] = bg;
+
+        let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
+        let descriptor_offset = group * size_of::<DiskGroupDesc>();
+        let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
+        let block_internal_offset = descriptor_offset % self.block_size as usize;
+
+        if self.read_block(target_logical_block, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+        unsafe {
+            let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+            ptr::write(dest_ptr, bg);
+        }
+        if self.cache.write_block(target_logical_block as usize, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        let sb_block = if self.block_size == 1024 { 1 } else { 0 };
+        let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
+
+        if self.read_block(sb_block, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+        unsafe {
+            let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+            (*sb_ptr).free_blocks_count += 1;
+        }
+        if self.cache.write_block(sb_block as usize, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Ok(())
+    }
 }

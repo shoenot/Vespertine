@@ -1,9 +1,15 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::{Arc, Weak};
+use alloc::sync::{
+    Arc,
+    Weak,
+};
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use core::ptr::{copy_nonoverlapping, write_bytes};
+use core::ptr::{
+    copy_nonoverlapping,
+    write_bytes,
+};
 use core::sync::atomic::{
     AtomicUsize,
     Ordering,
@@ -11,7 +17,6 @@ use core::sync::atomic::{
 
 use crate::core::asynchronous::syscall_bridge::block_on;
 use crate::core::sync::TicketLock;
-use crate::storage::fs::VfsNode;
 use crate::memory::pmm::{
     NORMAL_PAGE_SIZE,
     PF_PINNED,
@@ -22,19 +27,30 @@ use crate::memory::{
     GLOBAL_PMM,
     HHDMOFFSET,
 };
+use crate::storage::fs::VfsNode;
 
 #[derive(Debug)]
 pub struct Vmo {
     pub size: AtomicUsize,
     pub pages: TicketLock<BTreeMap<usize, usize>>,
+    pub dirty_pages: TicketLock<BTreeMap<usize, bool>>,
     pub is_physical: bool,
 }
 
 pub trait PagedBackingStore: Send + Sync + Debug {
     fn request_page(&self, offset: usize) -> Result<usize, ()>;
+
     fn resize_object(&self, new_size: usize) -> Result<(), ()>;
+
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()>;
+
     fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()>;
+
+    fn mark_dirty(&self, offset: usize) -> Result<(), ()>;
+
+    fn is_dirty(&self, offset: usize) -> bool;
+
+    fn clear_dirty(&self, offset: usize);
 }
 
 impl PagedBackingStore for Vmo {
@@ -84,15 +100,19 @@ impl PagedBackingStore for Vmo {
                     to_remove.push(offset);
                 }
             }
+            let mut dirty = self.dirty_pages.lock();
             for offset in to_remove {
                 pages.remove(&offset);
+                dirty.remove(&offset);
             }
         } else {
             // grow, pad map with 0s
             let num_pages = new_size.div_ceil(NORMAL_PAGE_SIZE);
+            let mut dirty = self.dirty_pages.lock();
             for i in 0..num_pages {
                 let offset = i * NORMAL_PAGE_SIZE;
                 pages.entry(offset).or_insert(0);
+                dirty.entry(offset).or_insert(false);
             }
         }
         self.size.store(new_size, Ordering::Relaxed);
@@ -111,6 +131,7 @@ impl PagedBackingStore for Vmo {
         }
 
         let mut child_pages = BTreeMap::new();
+        let mut child_dirty = BTreeMap::new();
         let num_pages = len.div_ceil(NORMAL_PAGE_SIZE);
 
         for i in 0..num_pages {
@@ -130,8 +151,15 @@ impl PagedBackingStore for Vmo {
                 }
             }
             child_pages.insert(page_offset, child_pfn);
+            child_dirty.insert(page_offset, false);
         }
-        Ok(Arc::new(Vmo { size: AtomicUsize::new(len), pages: TicketLock::new(child_pages), is_physical: false }))
+
+        Ok(Arc::new(Vmo {
+            size: AtomicUsize::new(len),
+            pages: TicketLock::new(child_pages),
+            dirty_pages: TicketLock::new(child_dirty),
+            is_physical: false,
+        }))
     }
 
     fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()> {
@@ -159,29 +187,68 @@ impl PagedBackingStore for Vmo {
         }
         Ok(PinnedVmo { vmo: self, phys_addrs })
     }
+
+    fn mark_dirty(&self, offset: usize) -> Result<(), ()> {
+        if self.is_physical {
+            return Err(());
+        }
+        let mut dirty = self.dirty_pages.lock();
+        if dirty.contains_key(&offset) {
+            dirty.insert(offset, true);
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn is_dirty(&self, offset: usize) -> bool {
+        let dirty = self.dirty_pages.lock();
+        *dirty.get(&offset).unwrap_or(&false)
+    }
+
+    fn clear_dirty(&self, offset: usize) {
+        let mut dirty = self.dirty_pages.lock();
+        if dirty.contains_key(&offset) {
+            dirty.insert(offset, false);
+        }
+    }
 }
 
 impl Vmo {
     pub fn new(size: usize) -> Arc<Self> {
         let mut pages = BTreeMap::new();
+        let mut dirty_pages = BTreeMap::new();
         let num_pages = size.div_ceil(NORMAL_PAGE_SIZE);
         for i in 0..num_pages {
             let offset = i * NORMAL_PAGE_SIZE;
             pages.insert(offset, 0);
+            dirty_pages.insert(offset, false);
         }
 
-        Arc::new(Self { size: AtomicUsize::new(size), pages: TicketLock::new(pages), is_physical: false })
+        Arc::new(Self {
+            size: AtomicUsize::new(size),
+            pages: TicketLock::new(pages),
+            dirty_pages: TicketLock::new(dirty_pages),
+            is_physical: false,
+        })
     }
 
     pub fn new_phys(phys_addr: usize, size: usize) -> Arc<Self> {
         let mut pages = BTreeMap::new();
+        let mut dirty_pages = BTreeMap::new();
         let num_pages = size.div_ceil(NORMAL_PAGE_SIZE);
         for i in 0..num_pages {
             let offset = i * NORMAL_PAGE_SIZE;
             pages.insert(offset, phys_addr + offset);
+            dirty_pages.insert(offset, false);
         }
 
-        Arc::new(Self { size: AtomicUsize::new(size), pages: TicketLock::new(pages), is_physical: true })
+        Arc::new(Self {
+            size: AtomicUsize::new(size),
+            pages: TicketLock::new(pages),
+            dirty_pages: TicketLock::new(dirty_pages),
+            is_physical: true,
+        })
     }
 }
 
@@ -231,11 +298,34 @@ pub struct FileVmo {
 }
 
 impl FileVmo {
-    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> {
-        Arc::new(Self { 
-            anonymous_vmo: Vmo::new(size), 
-            node,
-        })
+    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> { Arc::new(Self { anonymous_vmo: Vmo::new(size), node }) }
+
+    pub async fn flush_to_disk(&self) -> Result<(), ()> {
+        let node = self.node.upgrade().ok_or(())?;
+        let mut dirty_offsets = Vec::new();
+
+        {
+            let dirty = self.anonymous_vmo.dirty_pages.lock();
+            for (&offset, &is_dirty) in dirty.iter() {
+                if is_dirty {
+                    dirty_offsets.push(offset);
+                }
+            }
+        }
+
+        for offset in dirty_offsets {
+            let phys_addr = {
+                let pages = self.anonymous_vmo.pages.lock();
+                *pages.get(&offset).ok_or(())?
+            };
+
+            if phys_addr != 0 {
+                node.write_at_phys(offset, phys_addr, NORMAL_PAGE_SIZE).await?;
+                self.anonymous_vmo.clear_dirty(offset);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -261,9 +351,22 @@ impl PagedBackingStore for FileVmo {
             return Err(());
         }
 
-        let node = self.node.upgrade().ok_or(())?;
+        let node = match self.node.upgrade() {
+            Some(n) => n,
+            None => {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+            }
+        };
+
         let read_fut = node.read_at_phys(offset, page_phys, NORMAL_PAGE_SIZE);
-        let bytes_read = block_on(Box::pin(read_fut)).map_err(|_| ())?; 
+        let bytes_read = match block_on(Box::pin(read_fut)) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+            }
+        };
 
         if bytes_read < NORMAL_PAGE_SIZE {
             unsafe {
@@ -276,7 +379,7 @@ impl PagedBackingStore for FileVmo {
         Ok(page_phys)
     }
 
-    fn resize_object(&self, new_size: usize) -> Result<(), ()> { 
+    fn resize_object(&self, new_size: usize) -> Result<(), ()> {
         let node = self.node.upgrade().ok_or(())?;
         node.resize(new_size)?;
         self.anonymous_vmo.resize_object(new_size)
@@ -314,4 +417,10 @@ impl PagedBackingStore for FileVmo {
 
         Ok(PinnedVmo { vmo: self, phys_addrs })
     }
+
+    fn mark_dirty(&self, offset: usize) -> Result<(), ()> { self.anonymous_vmo.mark_dirty(offset) }
+
+    fn is_dirty(&self, offset: usize) -> bool { self.anonymous_vmo.is_dirty(offset) }
+
+    fn clear_dirty(&self, offset: usize) { self.anonymous_vmo.clear_dirty(offset); }
 }
