@@ -31,6 +31,7 @@ pub struct ThreadControlBlock {
     pub stack_base: usize,
     pub stack_size: usize,
     pub extended_context: *mut u8,
+    pub fs_base: usize,
     pub home_core: usize,
     pub process: Arc<ProcessControlBlock>,
     pub next: *mut ThreadControlBlock,
@@ -56,6 +57,7 @@ impl ThreadControlBlock {
             core::ptr::write(&mut self.stack_base, stack_base);
             core::ptr::write(&mut self.stack_size, stack_size);
             core::ptr::write(&mut self.extended_context, fpu_ptr);
+            core::ptr::write(&mut self.fs_base, 0);
             core::ptr::write(&mut self.home_core, home_core);
             core::ptr::write(&mut self.process, proc);
             core::ptr::write(&mut self.next, null_mut());

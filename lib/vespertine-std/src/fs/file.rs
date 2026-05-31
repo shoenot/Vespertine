@@ -1,10 +1,10 @@
-use crate::io::{Read, Write};
+use crate::{ErrorKind, fs::parse_parent_and_name, io::{Read, Write}};
 pub use crate::path::*;
 use crate::Error;
 use core::cell::Cell;
 use core::ops::Drop;
 use vespertine_abi::{FileOp, HandleID, Invocation};
-use vespertine_rt::syscall::{sys_close, sys_invoke, sys_read, sys_write};
+use vespertine_rt::syscall::{sys_close, sys_create_file, sys_invoke, sys_read, sys_write};
 
 extern crate alloc;
 
@@ -37,6 +37,25 @@ impl File {
 
     pub fn seek(&self, pos: usize) {
         self.cursor.set(pos);
+    }
+
+    pub fn create(path: &str) -> Result<Self, Error> {
+        if let Ok(handle) = walk_path(path, HandleID(0)) {
+            let _ = sys_close(handle);
+            return Err(Error {
+                kind: ErrorKind::InvalidArgument,
+                message: "A file or directory already exists at this path".into(),
+            });
+        }
+        let (parent_path, file_name) = parse_parent_and_name(path);
+        let parent_handle = walk_path(parent_path, HandleID(0))?;
+        let handle = sys_create_file(parent_handle, file_name).map_err(Error::from)?;
+
+        if parent_handle != HandleID(0) {
+            let _ = sys_close(parent_handle);
+        }
+
+        Ok(File::from(handle))
     }
 }
 

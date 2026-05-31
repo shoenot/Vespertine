@@ -42,14 +42,14 @@ impl Socket {
     pub fn read_handle(&self) -> Result<HandleID, Error> {
         self.read_handle.ok_or(Error {
             kind: ErrorKind::InvalidHandle,
-            message: "No read handle!",
+            message: "No read handle!".into(),
         })
     }
 
     pub fn write_handle(&self) -> Result<HandleID, Error> {
         self.write_handle.ok_or(Error {
             kind: ErrorKind::InvalidHandle,
-            message: "No write handle!",
+            message: "No write handle!".into(),
         })
     }
 
@@ -73,13 +73,13 @@ impl Socket {
         if signal.contains(Signal::READABLE) || signal.contains(Signal::PEER_CLOSED) {
             let handle = self.read_handle().map_err(|_| Error {
                 kind: ErrorKind::AccessDenied,
-                message: "Socket is write-only, cannot wait for read",
+                message: "Socket is write-only, cannot wait for read".into(),
             })?;
             sys_wait(handle, signal).map_err(Error::from)?;
         } else if signal.contains(Signal::WRITABLE) {
             let handle = self.write_handle().map_err(|_| Error {
                 kind: ErrorKind::AccessDenied,
-                message: "Socket is read-only, cannot wait for write",
+                message: "Socket is read-only, cannot wait for write".into(),
             })?;
             sys_wait(handle, signal).map_err(Error::from)?;
         }
@@ -91,7 +91,7 @@ impl Read for Socket {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error> {
         let handle = self.read_handle.ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "Socket is write-only",
+            message: "Socket is write-only".into(),
         })?;
 
         sys_read(handle, buf.as_mut_ptr(), buf.len(), 0).map_err(Error::from)
@@ -102,7 +102,7 @@ impl Write for Socket {
     fn write(&self, buf: &[u8]) -> Result<usize, Error> {
         let handle = self.write_handle.ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "Socket is read-only",
+            message: "Socket is read-only".into(),
         })?;
 
         sys_write(handle, buf.as_ptr(), buf.len(), 0).map_err(Error::from)

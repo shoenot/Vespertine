@@ -145,6 +145,14 @@ impl Ext2File {
         let inode_ref = self.inode_data.read();
         self.fs.write_inode(self.inode_num, &*inode_ref).await.map_err(|_| InvocationError::InvalidPointer)?;
 
+        let self_arc = {
+            let active = self.fs.active_files.lock();
+            active.get(&self.inode_num).and_then(|weak| weak.upgrade())
+        };
+        if let Some(arc) = self_arc {
+            self.fs.dirty_files.lock().insert(self.inode_num, arc);
+        }
+
         Ok(bytes_copied)
     }
 }
@@ -451,7 +459,7 @@ impl VfsNode for Ext2File {
 
     fn size(&self) -> usize { self.inode_data.read().size as usize }
 
-    fn resize(&self, new_size: usize) -> Result<(), ()> { self.file_vmo.resize_object(new_size) }
+    fn resize(&self, new_size: usize) -> Result<(), ()> { self.file_vmo.anonymous_vmo.resize_object(new_size) }
 
     fn node_type(&self) -> VfsNodeType { VfsNodeType::File }
 }

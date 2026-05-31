@@ -41,13 +41,13 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let pm_handle = env::find_tag(TAG_SYS_PROCMAN)
         .ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "Process Manager capability not found",
+            message: "Process Manager capability not found".into(),
         })?
         .id;
     let sf_handle = env::find_tag(TAG_SYS_SOCKFAC)
         .ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "Socket Factory capability not found",
+            message: "Socket Factory capability not found".into(),
         })?
         .id;
 

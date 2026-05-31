@@ -291,7 +291,15 @@ impl Pager {
         let old_pml4_table = unsafe { &*((old_pml4_table_addr + *HHDMOFFSET as u64) as *const PageTable) };
 
         for idx in 256..512 {
-            new_pml4_table.entries[idx] = old_pml4_table.entries[idx];
+            if !old_pml4_table.entries[idx].is_present() {
+                let l3_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
+                let l3_table = unsafe { &mut *((l3_frame + *HHDMOFFSET as u64) as *mut PageTable) };
+                l3_table.zero();
+
+                new_pml4_table.entries[idx] = PageTableEntry::new(l3_frame, 0x7);
+            } else {
+                new_pml4_table.entries[idx] = old_pml4_table.entries[idx];
+            }
         }
 
         load_cr3(pml4_table_frame);

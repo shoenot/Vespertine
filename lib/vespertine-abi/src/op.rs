@@ -50,6 +50,14 @@ pub enum DirectoryOp {
         offset: usize,
         sink: HandleID,
     },
+    CreateFile {
+        name: usize,
+        name_len: usize,
+    },
+    CreateDir {
+        name: usize,
+        name_len: usize,
+    },
 }
 
 #[repr(C)]
@@ -105,6 +113,9 @@ pub enum ProcOp {
         stack_top: usize,
         arg: usize,
         priority: u8,
+    },
+    SetFsBase {
+        fs_base: usize,
     },
 }
 

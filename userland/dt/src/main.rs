@@ -25,7 +25,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let clk = env::find_tag(TAG_SYS_CLOCK)
         .ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "Clock capability not found",
+            message: "Clock capability not found".into(),
         })?
         .id;
     let op = Invocation::Clock(ClockOp::GetTimestamp);
@@ -35,7 +35,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .ok_or(0)
         .map_err(|_| Error {
             kind: ErrorKind::Unknown,
-            message: "Error converting timestamp to dt",
+            message: "Error converting timestamp to dt".into(),
         })?;
 
     let args = env::args();
@@ -51,12 +51,12 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 if args.len() < 3 {
                     return Err(Error {
                         kind: ErrorKind::InvalidArgument,
-                        message: "The `tz` option requires a timezone argument",
+                        message: "The `tz` option requires a timezone argument".into(),
                     });
                 } else {
                     let tz: Tz = args[2].parse().map_err(|_| Error {
                         kind: ErrorKind::InvalidArgument,
-                        message: "Invalid timezone",
+                        message: "Invalid timezone".into(),
                     })?;
                     let dt_tz: DateTime<Tz> = dt.with_timezone(&tz);
                     println!("{}", dt_tz);
@@ -65,20 +65,20 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             "from" => {
                 let ts: i64 = args[2].parse().map_err(|_| Error {
                     kind: ErrorKind::InvalidArgument,
-                    message: "Invalid timestamp",
+                    message: "Invalid timestamp".into(),
                 })?;
                 let dt = DateTime::from_timestamp_secs(ts as i64)
                     .ok_or(0)
                     .map_err(|_| Error {
                         kind: ErrorKind::Unknown,
-                        message: "Error converting timestamp to dt",
+                        message: "Error converting timestamp to dt".into(),
                     })?;
                 println!("{}", dt);
             }
             _ => {
                 return Err(Error {
                     kind: ErrorKind::InvalidArgument,
-                    message: "Invalid Operation",
+                    message: "Invalid Operation".into(),
                 });
             }
         }

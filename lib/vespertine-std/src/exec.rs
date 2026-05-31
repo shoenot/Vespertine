@@ -81,7 +81,7 @@ impl Exec {
     pub fn spawn(self) -> Result<Process, Error> {
         let pm = env::find_tag(TAG_SYS_PROCMAN).ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "[ERROR] Process manager capability not found.",
+            message: "[ERROR] Process manager capability not found.".into(),
         })?;
 
         let exec = Dir::from(env::root())

@@ -23,7 +23,7 @@ pub trait Read {
         let bytes = self.read_to_end()?;
         String::from_utf8(bytes).map_err(|_| Error {
             kind: ErrorKind::InvalidArgument,
-            message: "Stream contains invalid UTF-8",
+            message: "Stream contains invalid UTF-8".into(),
         })
     }
 }
@@ -38,7 +38,7 @@ pub trait Write {
                 Ok(0) => {
                     return Err(Error {
                         kind: ErrorKind::OutOfMemory,
-                        message: "Write failed",
+                        message: "Write failed".into(),
                     });
                 }
                 Ok(n) => total += n,

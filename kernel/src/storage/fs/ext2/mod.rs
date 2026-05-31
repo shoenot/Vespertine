@@ -55,6 +55,7 @@ pub struct Ext2FileSystem {
     pub allocation_lock: AsyncMutex<()>,
     pub active_files: Mutex<BTreeMap<u32, Weak<Ext2File>>>,
     pub active_dirs: Mutex<BTreeMap<u32, Weak<Ext2Directory>>>,
+    pub dirty_files: Mutex<BTreeMap<u32, Arc<Ext2File>>>,
 }
 
 impl Ext2FileSystem {
@@ -128,6 +129,7 @@ impl Ext2FileSystem {
             allocation_lock: AsyncMutex::new(()),
             active_files: Mutex::new(BTreeMap::new()),
             active_dirs: Mutex::new(BTreeMap::new()),
+            dirty_files: Mutex::new(BTreeMap::new()),
         })
     }
 

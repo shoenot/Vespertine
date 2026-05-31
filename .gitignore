@@ -13,3 +13,5 @@ target
 /build_deps/edk2-ovmf
 /build_deps/ramdisk.tar
 /build
+
+/ramdisk

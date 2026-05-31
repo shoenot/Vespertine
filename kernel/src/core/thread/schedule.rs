@@ -29,6 +29,7 @@ use crate::core::time::{
     update_hardware_timer,
 };
 use crate::memory::paging::load_cr3;
+use crate::util::write_to_msr;
 use crate::{
     BOOTSTRAP_ALLOC,
     KERNEL_PROCESS,
@@ -178,6 +179,8 @@ impl SchedulerState {
                 let next_pml4 = next_proc.vmm.read().get_pml4_addr();
                 load_cr3(next_pml4 as u64);
             }
+
+            write_to_msr((*next_thread).fs_base as u64, 0xC000_0100);
         }
 
         if !prev_thread.is_null() {

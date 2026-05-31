@@ -35,13 +35,13 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let sf = env::find_tag(TAG_SYS_SOCKFAC)
         .ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "SockFac not passed to terminal",
+            message: "SockFac not passed to terminal".into(),
         })?
         .id;
     let pm = env::find_tag(TAG_SYS_PROCMAN)
         .ok_or(Error {
             kind: ErrorKind::AccessDenied,
-            message: "ProcMan not passed to terminal",
+            message: "ProcMan not passed to terminal".into(),
         })?
         .id;
 

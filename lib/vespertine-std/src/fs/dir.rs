@@ -5,8 +5,9 @@ use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
 use vespertine_abi::{
     DirectoryOp, HandleID, Invocation, protocol::PacketHeader, tag::TAG_SYS_SOCKFAC,
 };
-use vespertine_rt::syscall::{sys_close, sys_create_socket, sys_invoke, sys_read};
+use vespertine_rt::syscall::{sys_close, sys_create_dir, sys_create_socket, sys_invoke, sys_read, sys_unlink};
 
+use crate::fs::parse_parent_and_name;
 use crate::{Error, ErrorKind, env::find_tag, fs::walk_path};
 
 extern crate alloc;
@@ -171,7 +172,7 @@ impl Dir {
     pub fn list(&self) -> Result<ReadDir, Error> {
         let sf = find_tag(TAG_SYS_SOCKFAC).ok_or(Error {
             kind: ErrorKind::NotFound,
-            message: "Socket factory not found",
+            message: "Socket factory not found".into(),
         })?;
         let (read_end, write_end) = sys_create_socket(sf.id)?;
 
@@ -207,5 +208,35 @@ impl Dir {
         };
         let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         Ok(HandleID(handle))
+    }
+
+    pub fn create_dir(path: &str) -> Result<Self, Error> {
+        if let Ok(handle) = walk_path(path, HandleID(0)) {
+            let _ = sys_close(handle);
+            return Err(Error {
+                kind: ErrorKind::InvalidArgument,
+                message: "A file or directory already exists at this path".into(),
+            });
+        }
+        let (parent_path, dir_name) = parse_parent_and_name(path);
+        let parent_handle = walk_path(parent_path, HandleID(0))?;
+        let handle = sys_create_dir(parent_handle, dir_name).map_err(Error::from)?;
+
+        if parent_handle != HandleID(0) {
+            let _ = sys_close(parent_handle);
+        }
+
+        Ok(Dir::from(handle))
+    }
+
+
+    pub fn remove(path: &str) -> Result<(), Error> {
+        let (parent_path, name) = parse_parent_and_name(path);
+        let parent_handle = walk_path(parent_path, HandleID(0))?;
+        sys_unlink(parent_handle, name).map_err(Error::from)?;
+        if parent_handle != HandleID(0) {
+            let _ = sys_close(parent_handle);
+        }
+        Ok(())
     }
 }

@@ -26,6 +26,7 @@ use vespertine_abi::{
     WaitOp,
 };
 
+use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
@@ -41,6 +42,7 @@ use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
 use crate::memory::ALLOCATOR;
 use crate::memory::vmm::VirtMemManager;
+use crate::util::write_to_msr;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 
@@ -151,11 +153,11 @@ impl KernelObject for ProcessControlBlock {
             Invocation::Proc(ProcOp::Kill) => {
                 self.is_terminated.store(true, Ordering::SeqCst);
                 Ok(0)
-            }
+            },
             Invocation::Proc(ProcOp::GetStatus { status_ptr }) => self.status(status_ptr as *mut ProcStatus),
             Invocation::Proc(ProcOp::Unmap { vaddr, len }) => {
                 self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            }
+            },
             Invocation::Proc(ProcOp::SpawnThread { entry, stack_top, arg, priority }) => {
                 let tp = ThreadPriority::from(priority);
                 let proc = get_current_process().ok_or(InvocationError::ThreadSpawnFail)?;
@@ -164,13 +166,24 @@ impl KernelObject for ProcessControlBlock {
                 let obj = Arc::new(Thread { tcb: thread });
                 let id = self.proc_handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
-            }
+            },
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
                 poll_fn(move |cx| self.wait_many_async(items_ptr as *mut WaitItem, count, cx)).await
-            }
+            },
+            Invocation::Proc(ProcOp::SetFsBase { fs_base }) =>  {
+                let current_thread = get_core_data().scheduler.get_current_thread();
+                if current_thread.is_null() {
+                    return Err(InvocationError::InvalidHandle);
+                }
+                unsafe {
+                    (*current_thread).fs_base = fs_base;
+                    write_to_msr(fs_base as u64, 0xC000_0100);
+                }
+                Ok(0)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

@@ -11,6 +11,7 @@ use crate::core::object::models::directory::Filename;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::{RwLock, TicketLock};
 use crate::core::thread::get_current_process;
+use crate::core::time::get_realtime;
 use crate::memory::vmo::FileVmo;
 use crate::memory::{ALLOCATOR, BlockSize, HHDMOFFSET};
 use crate::storage::fs::ext2::Ext2FileSystem;
@@ -205,6 +206,16 @@ impl KernelObject for Ext2Directory {
 
                 let filename = Filename::new(name as *const u8, name_len)?;
 
+                if self
+                    .fs
+                    .lookup_in_dir(&self.inode_data.read(), &*filename.name)
+                    .await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?
+                    .is_some()
+                {
+                    return Err(InvocationError::InvalidArgument);
+                }
+
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let obj_arc = {
                     let table = proc.proc_handles.read();
@@ -239,7 +250,8 @@ impl KernelObject for Ext2Directory {
                 self.fs.write_inode(child_inode_num, &child_inode).await.map_err(|_| InvocationError::UnsupportedOperation)?;
 
                 Ok(0)
-            }
+            },
+
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
@@ -364,7 +376,213 @@ impl KernelObject for Ext2Directory {
                 }
 
                 Ok(0)
-            }
+            },
+            Invocation::Directory(DirectoryOp::CreateFile { name, name_len }) => {
+                if !calling_rights.contains(AccessRights::WRITE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+
+                let filename = Filename::new(name as *const u8, name_len)?;
+
+                if self
+                    .fs
+                    .lookup_in_dir(&self.inode_data.read(), &*filename.name)
+                    .await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?
+                    .is_some()
+                {
+                    return Err(InvocationError::InvalidArgument);
+                }
+
+                let new_inode_num = self.fs.allocate_inode(false).await
+                    .map_err(|_| InvocationError::OutOfMemory)?;
+
+                let current_time = get_realtime() as u32;
+
+                // populate diskinode for regular file
+                let child_inode = DiskInode {
+                    mode: 0x81B6, // regular file (0x8000) + permissions (0o666)
+                    uid: 0,
+                    size: 0,
+                    atime: current_time,
+                    ctime: current_time,
+                    mtime: current_time,
+                    dtime: 0,
+                    gid: 0,
+                    links_count: 1,
+                    blocks: 0,
+                    flags: 0,
+                    osdl1: 0,
+                    data: crate::storage::fs::ext2::structs::FileData {
+                        blocks: crate::storage::fs::ext2::structs::DiskBlockPointers {
+                            direct: [0; 12],
+                            single_indirect: 0,
+                            double_indirect: 0,
+                            triple_indirect: 0,
+                        },
+                    },
+                    generation: 0,
+                    file_acl: 0,
+                    dir_acl: 0,
+                    faddr: 0,
+                    osd2: [0; 12],
+                };
+
+                self.fs.write_inode(new_inode_num, &child_inode).await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+
+                // link child inode under name in the parent directory
+                self.add_dir_entry(&*filename.name, new_inode_num, 1u8).await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+
+                let new_file = Arc::new_cyclic(|me| {
+                    let weak_node = me.clone() as Weak<dyn VfsNode>;
+                    Ext2File {
+                        fs: Arc::clone(&self.fs),
+                        inode_num: new_inode_num,
+                        inode_data: RwLock::new(child_inode),
+                        file_vmo: FileVmo::new(0, weak_node),
+                        offset: TicketLock::new(0),
+                        write_lock: AsyncMutex::new(()),
+                    }
+                });
+
+                // cache file in active node cache
+                self.fs.active_files.lock().insert(new_inode_num, Arc::downgrade(&new_file));
+
+                // register standard handle for the active process
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let handle_id = proc.proc_handles.write().insert(new_file, AccessRights::all());
+
+                Ok(handle_id.0)
+            },
+
+            Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => {
+                if !calling_rights.contains(AccessRights::WRITE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+
+                let filename = Filename::new(name as *const u8, name_len)?;
+
+                let new_inode_num = self.fs.allocate_inode(true).await
+                    .map_err(|_| InvocationError::OutOfMemory)?;
+
+                let block_id = self.fs.allocate_block().await
+                    .map_err(|_| InvocationError::OutOfMemory)?;
+
+                let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+                if page_phys == 0 {
+                    return Err(InvocationError::OutOfMemory);
+                }
+                let page_virt = page_phys + *HHDMOFFSET;
+                let block_size = self.fs.block_size as usize;
+
+                // initialize "." and ".." headers in the directory's data block
+                unsafe {
+                    ptr::write_bytes(page_virt as *mut u8, 0, block_size);
+
+                    // entry 1: "." pointing to itself
+                    let entry1_ptr = page_virt as *mut DiskDirHeader;
+                    ptr::write(
+                        entry1_ptr,
+                        DiskDirHeader {
+                            inode: new_inode_num,
+                            record_length: 12,
+                            name_length: 1,
+                            file_type: 2, // directory type
+                        },
+                    );
+                    let name1_ptr = (entry1_ptr as *mut u8).add(8);
+                    *name1_ptr = b'.';
+
+                    // entry 2: ".." pointing to the parent directory
+                    let entry2_ptr = (page_virt as *mut u8).add(12) as *mut DiskDirHeader;
+                    ptr::write(
+                        entry2_ptr,
+                        DiskDirHeader {
+                            inode: self.inode_num,
+                            record_length: (block_size - 12) as u16,
+                            name_length: 2,
+                            file_type: 2, // directory type
+                        },
+                    );
+                    let name2_ptr = (entry2_ptr as *mut u8).add(8);
+                    *name2_ptr = b'.';
+                    *name2_ptr.add(1) = b'.';
+                }
+
+                let sector = block_id as u64 * self.fs.sectors_per_block as u64;
+                let write_fut = self.fs.partition.write_sectors(sector, self.fs.sectors_per_block, page_phys as u64);
+                let write_result = match write_fut {
+                    Ok(fut) => fut.await,
+                    Err(_) => Err(()),
+                };
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                if write_result.is_err() {
+                    return Err(InvocationError::UnsupportedOperation);
+                }
+
+                let current_time = get_realtime() as u32;
+
+                let child_inode = DiskInode {
+                    mode: 0x41ED, // directory (0x4000) + permissions (0o755)
+                    uid: 0,
+                    size: self.fs.block_size,
+                    atime: current_time,
+                    ctime: current_time,
+                    mtime: current_time,
+                    dtime: 0,
+                    gid: 0,
+                    links_count: 2, // "." plus parent's link
+                    blocks: self.fs.sectors_per_block,
+                    flags: 0,
+                    osdl1: 0,
+                    data: crate::storage::fs::ext2::structs::FileData {
+                        blocks: crate::storage::fs::ext2::structs::DiskBlockPointers {
+                            direct: {
+                                let mut d = [0; 12];
+                                d[0] = block_id;
+                                d
+                            },
+                            single_indirect: 0,
+                            double_indirect: 0,
+                            triple_indirect: 0,
+                        },
+                    },
+                    generation: 0,
+                    file_acl: 0,
+                    dir_acl: 0,
+                    faddr: 0,
+                    osd2: [0; 12],
+                };
+
+                self.fs.write_inode(new_inode_num, &child_inode).await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+
+                // link directory into the parent directory entry table
+                self.add_dir_entry(&*filename.name, new_inode_num, 2u8).await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+
+                // increment parent directory link count (internal ".." points to parent)
+                let mut parent_inode = self.inode_data.read().clone();
+                parent_inode.links_count += 1;
+                self.fs.write_inode(self.inode_num, &parent_inode).await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+                *self.inode_data.write() = parent_inode;
+
+                let new_dir = Arc::new(Ext2Directory {
+                    fs: Arc::clone(&self.fs),
+                    inode_num: new_inode_num,
+                    inode_data: RwLock::new(child_inode),
+                });
+
+                self.fs.active_dirs.lock().insert(new_inode_num, Arc::downgrade(&new_dir));
+
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let handle_id = proc.proc_handles.write().insert(new_dir, AccessRights::all());
+
+                Ok(handle_id.0)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

@@ -7,7 +7,7 @@ use crate::core::sync::RwLock;
 use crate::memory::vmo::FileVmo;
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::storage::fs::ext2::Ext2FileSystem;
-use crate::storage::fs::ext2::obj::Ext2Directory;
+use crate::storage::fs::ext2::obj::{Ext2Directory, Ext2File};
 use crate::storage::partition::gpt::GptTable;
 
 async fn ext2_writeback_daemon(fs: Arc<Ext2FileSystem>) {
@@ -19,10 +19,27 @@ async fn ext2_writeback_daemon(fs: Arc<Ext2FileSystem>) {
             let files = fs.active_files.lock();
             files.values().filter_map(|weak| weak.upgrade()).map(|file| file.file_vmo.clone()).collect()
         };
+        let dirty_list: Vec<(u32, Arc<Ext2File>)> = {
+            let dirty = fs.dirty_files.lock();
+            dirty.iter().map(|(&num, file)| (num, Arc::clone(file))).collect()
+        };
 
         for vmo in file_vmos {
             let _ = vmo.flush_to_disk().await;
         }
+        for (inode_num, file) in dirty_list {
+            if file.file_vmo.flush_to_disk().await.is_ok() {
+                let is_still_dirty = {
+                    let dirty = file.file_vmo.anonymous_vmo.dirty_pages.lock();
+                    dirty.values().any(|&d| d)
+                };
+                if !is_still_dirty {
+                    fs.dirty_files.lock().remove(&inode_num);
+                }
+            }
+        }
+
+        let _ = fs.cache.flush().await;
     }
 }
 
