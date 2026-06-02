@@ -5,6 +5,7 @@ use alloc::alloc::{
     alloc,
 };
 use alloc::sync::Arc;
+use core::ptr::copy_nonoverlapping;
 use core::slice::from_raw_parts;
 use core::{
     cmp,
@@ -26,6 +27,7 @@ use crate::core::thread::{
     ThreadControlBlock,
     get_current_process,
 };
+use crate::memory::{HHDMOFFSET, NORMAL_PAGE_SIZE};
 use crate::memory::vmm::{
     VM_FLAG_EXEC,
     VM_FLAG_USER,
@@ -136,12 +138,12 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
 
     let mut phdr_addr = 0;
     for ph in ph_iter {
-        if ph.p_type == P_Type::PT_LOAD as u32 {
-            if ph.p_type == 6 {
-                // PT_PHDR
-                phdr_addr = ph.p_vaddr as usize;
-            }
+        if ph.p_type == 6 {
+            // PT_PHDR
+            phdr_addr = ph.p_vaddr as usize;
+        }
 
+        if ph.p_type == P_Type::PT_LOAD as u32 {
             klogln!(
                 "[INFO] Mapping Segment: file offset 0x{:X} -> virt addr 0x{:X} file size: {}, mem_size: {}",
                 ph.p_offset,
@@ -165,6 +167,31 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
 
             let (segment_vmo, map_offset) = if ph.p_filesz == 0 {
                 (Vmo::new(total_map_size) as Arc<dyn PagedBackingStore>, 0)
+            } else if ph.p_memsz as usize > ph.p_filesz as usize {
+                let anon_vmo = Vmo::new(total_map_size);
+                
+                let mut progress = 0;
+                while progress < ph.p_filesz as usize {
+                    let file_offset = aligned_offset + progress;
+                    let target_offset = offset_in_page + progress;
+                    
+                    let file_pfn = file_vmo.request_page(file_offset).map_err(|_| LoaderError::FileReadError)?;
+                    
+                    let anon_pfn = anon_vmo.request_page(target_offset).map_err(|_| LoaderError::FileReadError)?;
+                    
+                    let src_virt = file_pfn + *HHDMOFFSET;
+                    let dest_virt = anon_pfn + *HHDMOFFSET;
+                    
+                    unsafe {
+                        copy_nonoverlapping(
+                            src_virt as *const u8,
+                            dest_virt as *mut u8,
+                            NORMAL_PAGE_SIZE,
+                        );
+                    }
+                    progress += NORMAL_PAGE_SIZE;
+                }
+                (anon_vmo as Arc<dyn PagedBackingStore>, 0)
             } else {
                 (file_vmo.clone(), aligned_offset)
             };

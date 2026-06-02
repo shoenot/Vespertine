@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::hint::spin_loop;
 use core::pin::Pin;
 use core::ptr::{
     addr_of,
@@ -475,7 +474,8 @@ pub extern "C" fn virtio_blk_poll_thread(arg: usize) -> ! {
                     vq.last_seen_used = last_seen;
                 }
             }
-            spin_loop();
+            // yield for 1ms to avoid busy-spin; device completions will be handled when wakers are present
+            crate::core::time::sleep(1_000_000);
         }
     }
 }

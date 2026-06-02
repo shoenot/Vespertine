@@ -179,7 +179,10 @@ impl SchedulerState {
                 load_cr3(next_proc.pml4_addr as u64);
             }
 
-            write_to_msr((*next_thread).fs_base as u64, 0xC000_0100);
+            if !next_thread.is_null() {
+                let base_target = (*next_thread).fs_base;
+                write_to_msr(base_target as u64, 0xC000_0100);
+            }
         }
 
         if !prev_thread.is_null() {

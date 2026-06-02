@@ -45,7 +45,6 @@ impl Wake for ThreadWaker {
 
 pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let tcb = get_core_data().scheduler.get_current_thread();
-
     let mut future = Box::pin(kernel_invoke(handle, invocation));
 
     let waker = Arc::new(ThreadWaker { thread: tcb }).into();
@@ -57,11 +56,20 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
-                let sched = &mut get_core_data().scheduler;
+                
                 unsafe {
-                    (*tcb).state = ThreadState::Blocked;
+                    if (*tcb).state == ThreadState::Running {
+                        (*tcb).state = ThreadState::Blocked;
+                        let sched = &mut get_core_data().scheduler;
+                        sched.schedule();
+                    } else {
+                        (*tcb).state = ThreadState::Ready;
+                        let sched = &mut get_core_data().scheduler;
+                        sched.push(tcb);
+                        sched.schedule();
+                    }
                 }
-                sched.schedule();
+                
                 if int_state {
                     enable_interrupts();
                 }
@@ -81,13 +89,22 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
-                let sched = &mut get_core_data().scheduler;
+                
                 unsafe {
-                    (*tcb).state = ThreadState::Blocked;
+                    if (*tcb).state == ThreadState::Running {
+                        (*tcb).state = ThreadState::Blocked;
+                        let sched = &mut get_core_data().scheduler;
+                        sched.schedule();
+                    } else {
+                        (*tcb).state = ThreadState::Ready;
+                        let sched = &mut get_core_data().scheduler;
+                        sched.push(tcb);
+                        sched.schedule();
+                    }
                 }
-                sched.schedule();
+                
                 if int_state {
-                    enable_interrupts()
+                    enable_interrupts();
                 };
             }
         }

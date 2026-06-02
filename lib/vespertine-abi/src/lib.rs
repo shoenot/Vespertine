@@ -119,6 +119,7 @@ pub struct ProcessInitPackage {
 
     pub argc: usize,
     pub argv: *const *const u8,
+    pub envp: *const *const u8,
 }
 
 impl ProcessInitPackage {

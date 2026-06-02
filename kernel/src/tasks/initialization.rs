@@ -72,14 +72,6 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
         tests::run_post_vfs_tests().await;
 
-        let file_handle = kernel_walk("/Documents/filetest.txt", HandleID(0)).await.expect("[FATAL] File not found!");
-        let mut buf = [0u8; 64];
-
-        let read_op = FileOp::Read { offset: 0, buffer_ptr: buf.as_mut_ptr() as usize, len: buf.len() };
-        let bytes_read = kernel_invoke(file_handle, Invocation::File(read_op)).await.expect("[FATAL] Failed to read from ramdisk");
-
-        klogln!("[SUCCESS] Ramdisk read success: {}", core::str::from_utf8(&buf[..bytes_read]).unwrap());
-
         let pm_handle = kernel_walk("/System/Services/ProcessManager", HandleID(0)).await.expect("[FATAL] No Process Manager found");
         let sf_handle = kernel_walk("/System/Services/SocketFactory", HandleID(0)).await.expect("[FATAL] No Socket Factory found");
 
