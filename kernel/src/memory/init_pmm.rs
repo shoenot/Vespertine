@@ -69,6 +69,10 @@ impl BitmapPMM {
                 for frame in start_frame..end_frame {
                     let phys_frame = PhysFrame { start_addr: frame as usize * PAGE_SIZE };
 
+                    if phys_frame.start_addr < 0x100000 {
+                        continue;
+                    }
+
                     // if the frame is the location of the bitmap, we don't free it
                     if phys_frame.start_addr >= bitmap_phys_addr && phys_frame.start_addr < bitmap_phys_addr + bitmap_size_bytes {
                         continue;
