@@ -61,8 +61,13 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             }
         }
         "read" | "cat" => {
-            let file = File::open(optional_args.unwrap().as_str())?;
-            print_stream(&file)?;
+            let errmsg = String::from(format!("{} needs a directory path to create", opstr));
+            if let Some(filepath) = optional_args {
+                let filestr = File::open(filepath.as_str())?;
+                print_stream(&filestr)?;
+            } else {
+                return Err(Error { kind: ErrorKind::InvalidArgument, message: errmsg });
+            }
         }
         "newdir" | "mkdir" => {
             let errmsg = String::from(format!("{} needs a directory path to create", opstr));
