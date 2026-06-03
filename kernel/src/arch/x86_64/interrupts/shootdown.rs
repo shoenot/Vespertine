@@ -31,7 +31,7 @@ pub fn shootdown(addr: usize, size: usize) {
         if id == this_core_id {
             continue;
         }
-        get_core_data_for(id).apic_mode.send_ipi(get_core_data_for(id).lapic_id as u32, 65);
+        get_core_data_for(id).apic_mode.send_ipi(get_core_data_for(id).lapic_id as u32, 41);
     }
     flush_tlb(addr as u64);
     while SHOOTDOWN_INFO.counter.load(Ordering::Acquire) != 0 {

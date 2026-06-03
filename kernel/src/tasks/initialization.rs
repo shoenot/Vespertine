@@ -3,7 +3,6 @@ use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 
 use vespertine_abi::op::{
-    FileOp,
     ProcManOp,
 };
 use vespertine_abi::tag::{
@@ -68,11 +67,17 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     let executor = Executor::new();
     executor.spawn(async move {
+        klogln!("[ASYNC INIT] started");
+        klogln!("[ASYNC INIT] calling init_vfs()");
         init_vfs().await;
+        klogln!("[ASYNC INIT] init_vfs completed");
 
         tests::run_post_vfs_tests().await;
+        klogln!("[ASYNC INIT] post vfs tests completed");
 
+        klogln!("[ASYNC INIT] looking for ProcessManager");
         let pm_handle = kernel_walk("/System/Services/ProcessManager", HandleID(0)).await.expect("[FATAL] No Process Manager found");
+        klogln!("[ASYNC INIT] found ProcessManager: {:?}", pm_handle);
         let sf_handle = kernel_walk("/System/Services/SocketFactory", HandleID(0)).await.expect("[FATAL] No Socket Factory found");
 
         // userspace init proc

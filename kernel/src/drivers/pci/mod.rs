@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::util::bitwise::check_bit;
+use crate::{core::sync::TicketLock, util::bitwise::check_bit};
 
 mod config;
 mod enumerate;
@@ -8,7 +8,6 @@ use alloc::vec::Vec;
 
 pub use config::*;
 pub use enumerate::enumerate_pci_devices;
-use vespertine_common::lock::TicketLock;
 
 pub static PCI_DEVICES: TicketLock<Vec<PCIDevice>> = TicketLock::new(Vec::new());
 

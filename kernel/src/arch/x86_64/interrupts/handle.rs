@@ -1,16 +1,22 @@
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
+use alloc::vec::Vec;
+
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
 use crate::arch::x86_64::io;
+use crate::core::sync::TicketLock;
 use crate::core::thread::tcb::ThreadState;
 use crate::drivers::keyboard;
 use crate::klogln;
 use crate::memory::handle_page_fault;
 use crate::memory::paging::flush_tlb;
+
+pub(in crate::arch::x86_64) static IRQ_HANDLERS:
+    TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
 
 pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
     let cr2: u64;
@@ -69,8 +75,6 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
-    core_data.apic_mode.eoi();
-
     if core_data.scheduler.idle_thread.is_null() {
         core_data.apic_mode.arm_oneshot(100_000);
         return;
@@ -89,15 +93,10 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
 }
 
 pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {
-    let core_data = get_core_data();
-    core_data.apic_mode.eoi();
-    core_data.scheduler.schedule();
+    get_core_data().scheduler.schedule();
 }
 
 pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
-    let core_data = get_core_data();
-    core_data.apic_mode.eoi();
-
     for _ in 0..256 {
         if unsafe { (io::inb(0x64) & 0x1) == 0 } {
             break;

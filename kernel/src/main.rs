@@ -12,6 +12,7 @@ mod syscall;
 mod tasks;
 mod tests;
 mod util;
+mod interrupts;
 
 use alloc::sync::Arc;
 
@@ -57,8 +58,7 @@ use crate::drivers::pci::{
     enumerate_pci_devices,
 };
 use crate::drivers::virtio::blk::{
-    init_block_device,
-    virtio_blk_poll_thread,
+    init_block_device
 };
 use crate::drivers::virtio::mmio::init_virtio;
 use crate::memory::GLOBAL_PMM;
@@ -116,12 +116,12 @@ pub extern "C" fn kmain() -> ! {
 
     let blk = init_block_device().expect("Failed to init block device");
     let blk_arc = Arc::new(blk);
-    let blk_ptr = Arc::as_ptr(&blk_arc) as usize;
+
+    // setup_interrupts now handles spawning per-core worker threads and MSI-X steering
+    blk_arc.setup_interrupts().ok();
 
     let blk_dyn: Arc<dyn AsyncBlockDevice> = blk_arc.clone();
     BLOCK_DEVICE.get_or_init(|| blk_dyn);
-
-    spawn_kernel_thread(virtio_blk_poll_thread as *const () as usize, blk_ptr, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
 
     time::init_realtime();
     klogln!("[SUCCESS] Initialized Real Time Clock.");

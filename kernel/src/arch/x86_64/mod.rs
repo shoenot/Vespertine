@@ -11,7 +11,9 @@ use core::arch::asm;
 use apic::ioapic::*;
 use apic::lapic::get_apic_base;
 
+use crate::arch::x86_64::interrupts::{arch_free_vector, arch_program_msi, arch_register_irq_entry};
 use crate::core::sync::TicketLock;
+use crate::interrupts::alloc::{ArchMsiFns, init_arch};
 use crate::klogln;
 use crate::memory::PAGER;
 
@@ -20,6 +22,12 @@ pub static IO_APIC: TicketLock<IOApic> = TicketLock::new(IOApic { base_addr: 0, 
 pub fn init_interrupts() {
     interrupts::idt::init_idt();
     klogln!("[SUCCESS] IDT Loaded.");
+
+    init_arch(ArchMsiFns {
+        program_msi: arch_program_msi,
+        free_vector: arch_free_vector,
+        register_irq_entry: arch_register_irq_entry,
+    });
 }
 
 pub fn init_global_apics() {

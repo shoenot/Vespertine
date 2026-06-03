@@ -41,7 +41,7 @@ impl KernelObject for Thread {
                     let this_core = get_core_data().logical_id;
                     if home_core != this_core {
                         let tgt = get_core_data_for(home_core);
-                        get_core_data().apic_mode.send_ipi(tgt.lapic_id as u32, 64);
+                        get_core_data().apic_mode.send_ipi(tgt.lapic_id as u32, 40);
                     } else {
                         get_core_data().scheduler.schedule();
                     }

@@ -50,7 +50,7 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
         mailbox.push(tcb_ptr);
         drop(mailbox);
 
-        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 64);
+        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
     }
     tcb_ptr
 }
@@ -88,7 +88,7 @@ pub fn spawn_user_thread(
         mailbox.push(tcb_ptr);
         drop(mailbox);
 
-        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 64);
+        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
     }
     tcb_ptr
 }
@@ -110,7 +110,7 @@ pub fn wake_thread(thread: *mut ThreadControlBlock) {
             mailbox.push(thread);
             drop(mailbox);
 
-            get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 64);
+            get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
         }
     }
 }

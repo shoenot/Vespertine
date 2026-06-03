@@ -100,4 +100,19 @@ impl IOApic {
             self.write_reg(high_idx, high_val);
         }
     }
+
+    // Diagnostic helper: dump first `count` redirection entries to logs
+    pub(crate) fn dump_redirection(&self, count: usize) {
+        let version_reg = unsafe { self.read_reg(0x01) };
+        let max_entry = ((version_reg >> 16) & 0xFF) as usize;
+        let cnt = core::cmp::min(count, max_entry + 1);
+        for i in 0..cnt {
+            let low_idx = IOREDTBL_BASE + (i as u8 * 2);
+            let high_idx = IOREDTBL_BASE + (i as u8 * 2) + 1;
+            let low = unsafe { self.read_reg(low_idx) };
+            let high = unsafe { self.read_reg(high_idx) };
+            crate::klogln!("[IOAPIC] entry {} low=0x{:x} high=0x{:x}", i, low, high);
+        }
+    }
 }
+

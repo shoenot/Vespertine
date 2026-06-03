@@ -9,7 +9,7 @@ use core::task::{
     Waker,
 };
 
-use vespertine_common::lock::TicketLock;
+use crate::core::sync::TicketLock;
 
 #[derive(Debug)]
 pub struct AsyncMutex<T> {

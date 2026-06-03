@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::pin::Pin;
 use core::ptr::{
@@ -7,18 +8,24 @@ use core::ptr::{
     write_bytes,
     write_volatile,
 };
+
+use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering, fence};
 use core::task::{
     Context,
     Poll,
     Waker,
 };
 
-use vespertine_common::lock::TicketLock;
-
+use crate::arch::get_core_data;
+use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
+use crate::core::sync::TicketLock;
+use crate::core::thread::{ThreadControlBlock, ThreadState};
+use crate::core::thread::dispatch::wake_thread;
 use crate::drivers::virtio::mmio::{
     VirtioBlockDriver,
     init_virtio,
 };
+use crate::interrupts::alloc::MsiHandle;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
@@ -99,9 +106,17 @@ impl Drop for Virtqueue {
 }
 
 #[derive(Debug)]
+pub struct VirtqueueState {
+    pub vq: TicketLock<Virtqueue>,
+    pub worker_tcb: AtomicPtr<ThreadControlBlock>,
+    pub has_interrupts: AtomicBool,
+}
+
+#[derive(Debug)]
 pub struct VirtioBlockDevice {
-    driver: VirtioBlockDriver,
-    virtqueue: TicketLock<Virtqueue>,
+    pub driver: VirtioBlockDriver,
+    pub queues: Vec<VirtqueueState>,
+    pub msi_handle: Option<MsiHandle>,
 }
 
 fn calculate_order(bytes: usize) -> usize {
@@ -135,9 +150,14 @@ pub fn negotiate_features(drv: &VirtioBlockDriver) {
         let mut upper = read_volatile(dev_feat_ptr);
         upper = set_bit(upper, 0); // VIRTIO_F_VERSION_1
         upper = unset_bit(upper, 2); // VIRTIO_F_RING_PACKED
-        lower = unset_bit(lower, 12); // VIRTIO_BLK_F_MQ
+        lower = set_bit(lower, 12); // VIRTIO_BLK_F_MQ
         lower = unset_bit(lower, 28); // VIRTIO_F_INDIRECT_DESC
-        lower = unset_bit(lower, 29); // VIRTIO_F_EVENT_IDX
+        // enable event_idx only if device supports it
+        if (lower & (1u32 << 29)) != 0 {
+            lower = set_bit(lower, 29); // VIRTIO_F_EVENT_IDX
+        } else {
+            lower = unset_bit(lower, 29);
+        }
         lower = set_bit(lower, 1); // VIRTIO_BLK_F_SIZE_MAX 
         lower = set_bit(lower, 2); // VIRTIO_BLK_F_SEG_MAX 
         lower = set_bit(lower, 5); // VIRTIO_BLK_F_RO 
@@ -218,9 +238,8 @@ pub fn vq_setup(drv: &VirtioBlockDriver, q_idx: u16) -> Option<Virtqueue> {
         write_volatile(queue_driver_ptr, av_phys as u64);
         write_volatile(queue_device_ptr, used_phys as u64);
 
-        let queue_enable_ptr = addr_of_mut!(cfg.queue_enable) as *mut u16;
-        write_volatile(queue_enable_ptr, 1);
-
+        // do not enable the queue here. the caller should enable the queue after any msi/x setup
+        // so the device can be informed of msi-x table index prior to queue activation.
         let notify_off_ptr = addr_of_mut!(cfg.queue_notify_off) as *mut u16;
         let queue_notify_off = read_volatile(notify_off_ptr);
 
@@ -256,6 +275,14 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
         perform_handshake(&drv);
         negotiate_features(&drv);
 
+        let dev_feat_ptr = addr_of_mut!((*cfg).dev_feature) as *mut u32;
+        let lower = read_volatile(dev_feat_ptr);
+        let num_queues = if (lower & (1u32 << 12)) != 0 {
+            read_volatile(addr_of!((*cfg).num_queues))
+        } else {
+            1
+        };
+
         let status = read_volatile(status_ptr);
         write_volatile(status_ptr, status | 8); // write FEATURES_OK
         let verify = read_volatile(status_ptr);
@@ -263,12 +290,25 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
             return None;
         }
 
-        let virtqueue = vq_setup(&drv, 0)?;
+        let num_to_setup = core::cmp::min(num_queues as usize, *crate::core::cpu::NUM_CORES.get().unwrap());
+        let mut queues = Vec::new();
+        for i in 0..num_to_setup {
+            let vq = vq_setup(&drv, i as u16)?;
+            queues.push(VirtqueueState {
+                vq: TicketLock::new(vq),
+                worker_tcb: AtomicPtr::new(core::ptr::null_mut()),
+                has_interrupts: AtomicBool::new(false),
+            });
+        }
 
         let status = read_volatile(status_ptr);
         write_volatile(status_ptr, status | 4); // write DRIVER_OK
 
-        Some(VirtioBlockDevice { driver: drv, virtqueue: TicketLock::new(virtqueue) })
+        Some(VirtioBlockDevice {
+            driver: drv,
+            queues,
+            msi_handle: None,
+        })
     }
 }
 
@@ -319,8 +359,96 @@ unsafe impl Send for VirtioBlockDevice {}
 unsafe impl Sync for VirtioBlockDevice {}
 
 impl VirtioBlockDevice {
+    pub fn setup_interrupts(self: &Arc<Self>) -> Result<(), ()> {
+        use crate::interrupts::alloc::{msi_allocate, msi_register};
+        use crate::drivers::pci::pci_has_msix;
+        use core::ptr::write_volatile;
+        use crate::core::thread::priority::ThreadPriority;
+        use crate::KERNEL_PROCESS;
+        use crate::core::thread::dispatch::spawn_kernel_thread;
+
+        let has_msix = pci_has_msix(self.driver.bus, self.driver.slot, self.driver.func);
+        if !has_msix {
+            unsafe {
+                let cfg = &mut *self.driver.common_cfg;
+                write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
+            }
+            return Err(());
+        }
+
+        let num_queues = self.queues.len();
+        let handle = msi_allocate(num_queues, 0).map_err(|_| {
+            unsafe {
+                let cfg = &mut *self.driver.common_cfg;
+                write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
+            }
+            ()
+        })?;
+
+        for i in 0..num_queues {
+            let vq_state_ptr = &self.queues[i] as *const VirtqueueState as usize;
+            
+            // map queue i -> entry i -> core i
+            let res = msi_register(
+                &handle, 
+                i, 
+                self.driver.bus, 
+                self.driver.slot, 
+                self.driver.func, 
+                virtio_blk_irq_handler, 
+                vq_state_ptr,
+                i, // hardware entry index i
+                i // target core i
+            );
+
+            match res {
+                Ok(vector) => {
+                    unsafe {
+                        let vq_state_mut = &self.queues[i] as *const VirtqueueState as *mut VirtqueueState;
+                        
+                        // spawn worker thread for this queue
+                        let worker_tcb = spawn_kernel_thread(
+                            virtio_blk_worker_thread as *const () as usize,
+                            vq_state_ptr,
+                            ThreadPriority::HIGH,
+                            KERNEL_PROCESS.clone()
+                        );
+                        (*vq_state_mut).worker_tcb.store(worker_tcb, Ordering::Release);
+
+                        let cfg = &mut *self.driver.common_cfg;
+                        write_volatile(addr_of_mut!((*cfg).queue_select), i as u16);
+                        write_volatile(addr_of_mut!((*cfg).queue_msix_vector), i as u16);
+                        write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
+                    }
+                    crate::klogln!("[VIRTIO] Queue {} registered: vector={} entry={} core={}", i, vector, i, i);
+                }
+                Err(_) => {
+                    unsafe {
+                        let cfg = &mut *self.driver.common_cfg;
+                        write_volatile(addr_of_mut!((*cfg).queue_select), i as u16);
+                        write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
+                    }
+                }
+            }
+        }
+
+        unsafe {
+            let dev_ptr = Arc::as_ptr(self) as *mut VirtioBlockDevice;
+            (*dev_ptr).msi_handle = Some(handle);
+            
+            // setup config interrupt as well
+            let cfg = &mut *self.driver.common_cfg;
+            write_volatile(addr_of_mut!((*cfg).config_msix_vector), 0); // Reuse entry 0 for config
+        }
+
+        Ok(())
+    }
+
     pub fn transfer_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64, is_write: bool) -> Result<BlockTransferFuture, ()> {
         let drv = &self.driver;
+        let core_id = get_core_data().logical_id;
+        let vq_idx = core_id % self.queues.len();
+        let vq_state = &self.queues[vq_idx];
 
         unsafe {
             let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
@@ -339,11 +467,12 @@ impl VirtioBlockDevice {
             write_volatile(status_ptr, 0xFF);
 
             let (d0, d1, d2, last_seen) = {
-                let mut vq = self.virtqueue.lock();
+                let mut vq = vq_state.vq.lock();
 
                 let d0 = vq.alloc_desc()? as u16;
                 let d1 = vq.alloc_desc()? as u16;
                 let d2 = vq.alloc_desc()? as u16;
+
 
                 // chain desc 0 - header
                 let desc0 = vq.desc.add(d0 as usize);
@@ -374,10 +503,20 @@ impl VirtioBlockDevice {
                 let ring_slot_ptr = vq.available.ring.add(slot);
                 write_volatile(ring_slot_ptr, d0);
 
+                fence(Ordering::Release);
                 write_volatile(avail_idx_ptr, idx.wrapping_add(1));
+
+                // if the device supports virtio_ring_f_event_idx, update used_event so the device
+                // will generate an interrupt for the next completion. writing vq.last_seen_used
+                // causes the device's vring_need_event check to evaluate true for any new used.idx.
+                let used_event_ptr = vq.available._used_event;
+                if !used_event_ptr.is_null() {
+                    write_volatile(used_event_ptr, vq.last_seen_used);
+                }
 
                 let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
                 let doorbell_ptr = (drv.notify_base as usize + doorbell_offset) as *mut u16;
+                fence(Ordering::SeqCst);
                 write_volatile(doorbell_ptr, 0);
 
                 let last_seen = vq.last_seen_used;
@@ -385,7 +524,7 @@ impl VirtioBlockDevice {
                 (d0, d1, d2, last_seen)
             };
 
-            let vq_lock_ptr = addr_of!(self.virtqueue) as *const TicketLock<Virtqueue>;
+            let vq_lock_ptr = addr_of!(vq_state.vq) as *const TicketLock<Virtqueue>;
 
             Ok(BlockTransferFuture { d0, d1, d2, page_phys, last_seen_used: last_seen, vq: vq_lock_ptr })
         }
@@ -430,24 +569,56 @@ impl Future for BlockTransferFuture {
                     let vq = (*self.vq).lock();
                     vq.wakers.lock()[self.d0 as usize] = Some(waker);
                 }
+
+                // double check
+                let status = read_volatile(status_ptr);
+                if status != 0xFF {
+                    let mut vq = (*self.vq).lock();
+                    vq.wakers.lock()[self.d0 as usize] = None;
+                    
+                    vq.free_desc(self.d0);
+                    vq.free_desc(self.d1);
+                    vq.free_desc(self.d2);
+                    ALLOCATOR.free(self.page_phys, BlockSize::Normal);
+                    return if status == 0 { Poll::Ready(Ok(())) } else { Poll::Ready(Err(())) };
+                }
+
                 Poll::Pending
             }
         }
     }
 }
 
-pub extern "C" fn virtio_blk_poll_thread(arg: usize) -> ! {
-    // only lock vq when absolutely necessary and drop it before firing waker
-    let blk = arg as *mut VirtioBlockDevice;
+/// irq top half
+pub extern "C" fn virtio_blk_irq_handler(arg: usize) {
+    let vq_state = arg as *const VirtqueueState;
+    unsafe {
+        // wake worker thread if set
+        let tcb = (*vq_state).worker_tcb.load(Ordering::Acquire);
+        if !tcb.is_null() {
+            wake_thread(tcb);
+            return;
+        }
+
+        // wake executor thread if worker not reg'd yet
+        let exec = EXECUTOR_THREAD_PTR.load(Ordering::Acquire);
+        if !exec.is_null() {
+            wake_thread(exec);
+        }
+    }
+}
+
+pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
+    let vq_state = arg as *mut VirtqueueState;
     unsafe {
         let mut last_seen = {
-            let vq = (*blk).virtqueue.lock();
+            let vq = (*vq_state).vq.lock();
             vq.last_seen_used
         };
 
         loop {
             let (current_used, queue_size, used_ring_ptr) = {
-                let vq = (*blk).virtqueue.lock();
+                let vq = (*vq_state).vq.lock();
                 (read_volatile(vq.used.idx), vq.queue_size as usize, vq.used.ring)
             };
 
@@ -458,7 +629,7 @@ pub extern "C" fn virtio_blk_poll_thread(arg: usize) -> ! {
                     let desc_id = read_volatile(addr_of!((*elem_ptr).id)) as usize;
 
                     let waker_opt = {
-                        let vq = (*blk).virtqueue.lock();
+                        let vq = (*vq_state).vq.lock();
                         let mut wakers = vq.wakers.lock();
                         if desc_id < wakers.len() { wakers[desc_id].take() } else { None }
                     };
@@ -469,13 +640,35 @@ pub extern "C" fn virtio_blk_poll_thread(arg: usize) -> ! {
 
                     last_seen = last_seen.wrapping_add(1);
                 }
+
+                // persist last_seen back to virtqueue so new transfers start from correct base
                 {
-                    let mut vq = (*blk).virtqueue.lock();
+                    let mut vq = (*vq_state).vq.lock();
                     vq.last_seen_used = last_seen;
                 }
+
+                continue; // re-loop to check for more completions
             }
-            // yield for 1ms to avoid busy-spin; device completions will be handled when wakers are present
-            crate::core::time::sleep(1_000_000);
+
+            if (*vq_state).has_interrupts.load(Ordering::Acquire) {
+                let int_state = crate::arch::interrupts_enabled();
+                crate::arch::disable_interrupts();
+                
+                let recheck = {
+                    let vq = (*vq_state).vq.lock();
+                    read_volatile(vq.used.idx) != last_seen
+                };
+
+                if !recheck {
+                    let current_thread = get_core_data().scheduler.get_current_thread();
+                    (*current_thread).state = ThreadState::Blocked;
+                    get_core_data().scheduler.schedule();
+                }
+
+                if int_state { crate::arch::enable_interrupts(); }
+            } else {
+                crate::core::time::sleep(1_000_000);
+            }
         }
     }
 }

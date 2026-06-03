@@ -61,6 +61,7 @@ impl Task {
 pub fn push_task(task: Arc<Task>) {
     let mut queue = RUN_QUEUE.lock();
     queue.push_back(task);
+    drop(queue);
 
     let ptr = EXECUTOR_THREAD_PTR.load(Ordering::Acquire);
     if ptr.is_null() {
@@ -124,6 +125,7 @@ impl Executor {
     pub fn run(&self) -> ! {
         let tcb = get_core_data().scheduler.get_current_thread();
         EXECUTOR_THREAD_PTR.store(tcb, Ordering::Release);
+
         loop {
             let next_task = RUN_QUEUE.lock().pop_front();
 
@@ -159,4 +161,6 @@ impl Executor {
     }
 }
 
-pub extern "C" fn executor_thread(_arg: usize) -> ! { Executor::new().run() }
+pub extern "C" fn executor_thread(_arg: usize) -> ! {
+    Executor::new().run()
+}

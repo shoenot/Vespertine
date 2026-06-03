@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::arch::hcf;
+use crate::arch::x86_64::apic::lapic::send_eoi;
 use crate::arch::x86_64::interrupts::handle;
 use crate::core::sync::KernelOnceCell;
 use crate::klogln;
@@ -115,6 +115,12 @@ pub(crate) struct InterruptStackFrame {
 
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
+    let is_irq = frame.interrupt_number >= 32;
+
+    if is_irq {
+        send_eoi();
+    }
+
     match frame.interrupt_number {
         6 => panic!("INVALID OPCODE (#UD): {:#?}", frame),
         8 => panic!("DOUBLE FAULT: {:#?}", frame),
@@ -123,12 +129,19 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         15 => handle::unexpected_interrupt_handler(frame),
         33 => handle::keyboard_irq_handler(),
         35 => handle::timer_interrupt_handler(),
-        64 => handle::ipi_handler(),
-        65 => handle::shootdown_handler(),
+        40 => handle::ipi_handler(),
+        41 => handle::shootdown_handler(),
         _ => {
-            if frame.interrupt_number >= 32 {
-                klogln!("unshandled exception: {}", frame.interrupt_number);
-                hcf()
+            if is_irq {
+                let handlers = handle::IRQ_HANDLERS.lock();
+                let idx = frame.interrupt_number as usize;
+                if idx < handlers.len() {
+                    if let Some((handler, arg)) = handlers[idx] {
+                        handler(arg);
+                    } else {
+                        klogln!("UNHANDLED INTERRUPT: {}", frame.interrupt_number);
+                    }
+                }
             }
         }
     }

@@ -5,6 +5,7 @@ use core::ptr::{
 };
 
 use super::pic8259;
+use crate::arch::get_core_data;
 use crate::core::sync::KernelOnceCell;
 use crate::memory::HHDMOFFSET;
 use crate::util::bitwise::check_bit;
@@ -59,11 +60,8 @@ pub(in crate::arch::x86_64) fn get_apic_base() -> usize { unsafe { (read_from_ms
 
 pub(in crate::arch::x86_64) fn get_apic_flags() -> usize { unsafe { (read_from_msr(IA32_APIC_BASE as u32) & 0xFFF) as usize } }
 
-pub(in crate::arch::x86_64) fn send_apic_eoi() {
-    unsafe {
-        let eoi_ptr = ((*LAPIC_BASE_ADDR + *HHDMOFFSET) + EOI_OFFSET) as *mut u32;
-        write_volatile(eoi_ptr, 0);
-    }
+pub fn send_eoi() {
+    get_core_data().apic_mode.eoi();
 }
 
 pub trait ApicDriver {
@@ -225,6 +223,18 @@ pub fn check_enable_x2apic() -> bool {
     false
 }
 
+/// (message_address_low, message_address_high, message_data)
+/// for xapic: message_address_low is 0xfee0_0000 | (dest_apic_id << 12), high=0, data contains the vector in bits[0:7].
+/// for x2apic: message_address_low is 0, message_address_high contains the full destination x2apic id, data contains the vector.
+pub fn msi_message_fields_for_target(core_logical_id: usize, vector: u8) -> (u32, u32, u32) {
+    let lapic_id = crate::core::cpu::get_core_data_for(core_logical_id).lapic_id as u32;
+    msi_message_fields_for_lapic_id(lapic_id, vector)
+}
+
+pub fn msi_message_fields_for_lapic_id(lapic_id: u32, vector: u8) -> (u32, u32, u32) {
+    let msg_addr_low: u32 = 0xFEE0_0000u32 | ((lapic_id & 0xFF) << 12);
+    (msg_addr_low, 0u32, vector as u32)
+}
 pub fn init_local_apic() -> ApicMode {
     if check_enable_x2apic() {
         let mut driver = X2ApicDriver { base_addr: 0 };

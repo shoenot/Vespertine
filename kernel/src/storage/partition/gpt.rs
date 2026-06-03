@@ -9,6 +9,7 @@ use crate::memory::{
     calculate_order,
 };
 use crate::storage::blockdev::AsyncBlockDevice;
+use crate::klogln;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,8 +96,10 @@ impl GptTable {
         let header_page_virt = header_page_phys + *HHDMOFFSET as u64;
 
         // fetch lba 1 (primary gpt header block)
+        klogln!("[GPT] reading GPT header lba=1 into phys=0x{:x}", header_page_phys);
         let header_future = raw_device.read_sectors(1, 1, header_page_phys)?;
         header_future.await?;
+        klogln!("[GPT] header read complete");
 
         let header = unsafe { &*(header_page_virt as *const GptHeader) };
         if header.signature != 0x5452415020494645 {
@@ -107,7 +110,7 @@ impl GptTable {
         let entry_lba = header.entry_table_lba;
         let num_entries = header.num_entries as usize;
         let entry_size = header.entry_size as usize;
-
+        klogln!("[GPT] entry_lba={} num_entries={} entry_size={}", entry_lba, num_entries, entry_size);
         let total_table_bytes = num_entries * entry_size;
         let table_sectors = (total_table_bytes + 511) / 512; // round up to sector units
 
