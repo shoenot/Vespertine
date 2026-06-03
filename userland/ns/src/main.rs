@@ -66,7 +66,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 let filestr = File::open(filepath.as_str())?;
                 print_stream(&filestr)?;
             } else {
-                return Err(Error { kind: ErrorKind::InvalidArgument, message: errmsg });
+                return Err(Error {
+                    kind: ErrorKind::InvalidArgument,
+                    message: errmsg,
+                });
             }
         }
         "newdir" | "mkdir" => {

@@ -60,9 +60,7 @@ pub(in crate::arch::x86_64) fn get_apic_base() -> usize { unsafe { (read_from_ms
 
 pub(in crate::arch::x86_64) fn get_apic_flags() -> usize { unsafe { (read_from_msr(IA32_APIC_BASE as u32) & 0xFFF) as usize } }
 
-pub fn send_eoi() {
-    get_core_data().apic_mode.eoi();
-}
+pub fn send_eoi() { get_core_data().apic_mode.eoi(); }
 
 pub trait ApicDriver {
     fn eoi(&self);

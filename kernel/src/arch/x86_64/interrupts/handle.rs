@@ -1,7 +1,6 @@
+use alloc::vec::Vec;
 use core::arch::asm;
 use core::sync::atomic::Ordering;
-
-use alloc::vec::Vec;
 
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
@@ -15,8 +14,7 @@ use crate::klogln;
 use crate::memory::handle_page_fault;
 use crate::memory::paging::flush_tlb;
 
-pub(in crate::arch::x86_64) static IRQ_HANDLERS:
-    TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
+pub(in crate::arch::x86_64) static IRQ_HANDLERS: TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
 
 pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
     let cr2: u64;
@@ -92,9 +90,7 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     core_data.scheduler.schedule();
 }
 
-pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {
-    get_core_data().scheduler.schedule();
-}
+pub(in crate::arch::x86_64::interrupts) fn ipi_handler() { get_core_data().scheduler.schedule(); }
 
 pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     for _ in 0..256 {

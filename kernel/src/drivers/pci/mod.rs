@@ -1,6 +1,7 @@
 use core::fmt::Display;
 
-use crate::{core::sync::TicketLock, util::bitwise::check_bit};
+use crate::core::sync::TicketLock;
+use crate::util::bitwise::check_bit;
 
 mod config;
 mod enumerate;

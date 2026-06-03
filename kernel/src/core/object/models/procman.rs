@@ -150,7 +150,7 @@ impl KernelObject for ProcessManager {
                     extra_handles_len,
                     argc: 0,
                     argv: null(), // same as above
-                    envp: null(),  
+                    envp: null(),
                 };
 
                 // inject the payload

@@ -51,8 +51,7 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
 
             if let Some(earliest) = queue.peek() {
                 if earliest.wake_time <= current_time {
-                    if queue.len() == 0 {
-                    }
+                    if queue.len() == 0 {}
                     let expired = queue.pop().unwrap();
                     drop(queue);
 

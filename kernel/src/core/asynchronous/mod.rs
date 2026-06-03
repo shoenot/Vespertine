@@ -161,6 +161,4 @@ impl Executor {
     }
 }
 
-pub extern "C" fn executor_thread(_arg: usize) -> ! {
-    Executor::new().run()
-}
+pub extern "C" fn executor_thread(_arg: usize) -> ! { Executor::new().run() }

@@ -2,9 +2,7 @@ use alloc::sync::Arc;
 use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 
-use vespertine_abi::op::{
-    ProcManOp,
-};
+use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
     TAG_SYS_PROCMAN,
     TAG_SYS_SOCKFAC,

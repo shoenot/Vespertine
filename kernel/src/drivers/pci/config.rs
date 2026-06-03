@@ -8,7 +8,8 @@ pub fn pci_build_addr(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
 }
 
 pub fn pci_config_read_16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
-    let addr = pci_build_addr(bus, slot, func, offset); unsafe { outl(0xCF8, addr) };
+    let addr = pci_build_addr(bus, slot, func, offset);
+    unsafe { outl(0xCF8, addr) };
     let res = unsafe { inl(0xCFC) };
     ((res >> ((offset & 2) * 8)) & 0xFFFF) as u16
 }
@@ -34,9 +35,7 @@ pub fn pci_config_write_16(bus: u8, slot: u8, func: u8, offset: u8, value: u16) 
     pci_config_write_32(bus, slot, func, aligned, dw);
 }
 
-pub fn pci_has_msix(bus: u8, slot: u8, func: u8) -> bool {
-    pci_find_msix_cap(bus, slot, func).is_some()
-}
+pub fn pci_has_msix(bus: u8, slot: u8, func: u8) -> bool { pci_find_msix_cap(bus, slot, func).is_some() }
 
 /// (cap_offset, bir, table_offset, table_size_entries)
 pub fn pci_find_msix_cap(bus: u8, slot: u8, func: u8) -> Option<(u8, u8, u32, usize)> {
@@ -68,9 +67,20 @@ pub fn pci_find_msix_cap(bus: u8, slot: u8, func: u8) -> Option<(u8, u8, u32, us
 }
 
 pub fn pci_setup_msix_entry(bus: u8, slot: u8, func: u8, vector: u8, target_core: usize, entry_idx: usize) -> Result<(), ()> {
-    use crate::drivers::pci::{get_bar, PCIBar, PCIDevice};
-    use crate::memory::{HHDMOFFSET, PAGER};
-    use core::ptr::{write_volatile, read_volatile};
+    use core::ptr::{
+        read_volatile,
+        write_volatile,
+    };
+
+    use crate::drivers::pci::{
+        PCIBar,
+        PCIDevice,
+        get_bar,
+    };
+    use crate::memory::{
+        HHDMOFFSET,
+        PAGER,
+    };
 
     let (cap_off, bir, table_offset, entries) = pci_find_msix_cap(bus, slot, func).ok_or(())?;
     if entry_idx >= entries {
@@ -79,7 +89,9 @@ pub fn pci_setup_msix_entry(bus: u8, slot: u8, func: u8, vector: u8, target_core
 
     let reg0 = pci_config_read_32(bus, slot, func, 0x0);
     let dev = PCIDevice {
-        bus, slot, func,
+        bus,
+        slot,
+        func,
         vendor_id: (reg0 & 0xFFFF) as u16,
         device_id: (reg0 >> 16) as u16,
         class: (pci_config_read_32(bus, slot, func, 0x8) >> 24) as u8,
@@ -124,4 +136,3 @@ pub fn pci_setup_msix_entry(bus: u8, slot: u8, func: u8, vector: u8, target_core
 
     Ok(())
 }
-

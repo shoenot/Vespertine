@@ -2,6 +2,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::drivers::virtio::blk::BlockTransferFuture;
+use crate::klogln;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
@@ -9,7 +10,6 @@ use crate::memory::{
     calculate_order,
 };
 use crate::storage::blockdev::AsyncBlockDevice;
-use crate::klogln;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

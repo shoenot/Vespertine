@@ -4,6 +4,7 @@ pub mod file;
 pub mod framebuffer;
 pub mod memman;
 pub mod mempool;
+pub mod mount_dir;
 pub mod process;
 pub mod procman;
 pub mod socket;

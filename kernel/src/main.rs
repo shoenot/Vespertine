@@ -5,6 +5,7 @@ mod arch;
 mod boot;
 mod core;
 mod drivers;
+mod interrupts;
 mod memory;
 mod panic;
 mod storage;
@@ -12,7 +13,6 @@ mod syscall;
 mod tasks;
 mod tests;
 mod util;
-mod interrupts;
 
 use alloc::sync::Arc;
 
@@ -57,9 +57,7 @@ use crate::drivers::pci::{
     PCI_DEVICES,
     enumerate_pci_devices,
 };
-use crate::drivers::virtio::blk::{
-    init_block_device
-};
+use crate::drivers::virtio::blk::init_block_device;
 use crate::drivers::virtio::mmio::init_virtio;
 use crate::memory::GLOBAL_PMM;
 use crate::storage::blockdev::AsyncBlockDevice;

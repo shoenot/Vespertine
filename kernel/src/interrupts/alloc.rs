@@ -1,13 +1,15 @@
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
-use crate::core::sync::TicketLock;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::vec::Vec;
+
+use crate::core::sync::{
+    KernelOnceCell,
+    TicketLock,
+};
 use crate::klogln;
-
-use crate::core::sync::KernelOnceCell;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MsiHandle {
-    id: usize, 
+    id: usize,
 }
 
 impl MsiHandle {
@@ -25,12 +27,8 @@ struct AllocState {
     next_vector: u8,
     handles: BTreeMap<usize, Vec<VectorMeta>>,
 }
- 
-static ALLOC_STATE: TicketLock<AllocState> = TicketLock::new(AllocState {
-    next_handle: 1,
-    next_vector: 0x40,
-    handles: BTreeMap::new(),
-});
+
+static ALLOC_STATE: TicketLock<AllocState> = TicketLock::new(AllocState { next_handle: 1, next_vector: 0x40, handles: BTreeMap::new() });
 
 pub struct ArchMsiFns {
     pub program_msi: fn(vector: u8, target_apic_id: u32, data: u32),
@@ -40,9 +38,7 @@ pub struct ArchMsiFns {
 
 static ARCH_FUNCS: KernelOnceCell<ArchMsiFns> = KernelOnceCell::new();
 
-pub fn init_arch(funcs: ArchMsiFns) {
-    ARCH_FUNCS.get_or_init(|| funcs);
-}
+pub fn init_arch(funcs: ArchMsiFns) { ARCH_FUNCS.get_or_init(|| funcs); }
 
 pub fn msi_allocate(n: usize, _preferred_mask: usize) -> Result<MsiHandle, ()> {
     let mut st = ALLOC_STATE.lock();
@@ -62,16 +58,9 @@ pub fn msi_allocate(n: usize, _preferred_mask: usize) -> Result<MsiHandle, ()> {
 }
 
 pub fn msi_register(
-    handle: &MsiHandle, 
-    idx: usize, 
-    bus: u8,
-    slot: u8,
-    func: u8,
-    handler: extern "C" fn(arg: usize), 
-    arg: usize,
-    entry_idx: usize,
-    target_core: usize) -> Result<u8, ()> {
-
+    handle: &MsiHandle, idx: usize, bus: u8, slot: u8, func: u8, handler: extern "C" fn(arg: usize), arg: usize, entry_idx: usize,
+    target_core: usize,
+) -> Result<u8, ()> {
     let st = ALLOC_STATE.lock();
     let vecs = st.handles.get(&handle.id).ok_or(())?;
     let meta = vecs.get(idx).ok_or(())?;
@@ -86,7 +75,6 @@ pub fn msi_register(
     Ok(v)
 }
 
-
 pub fn msi_free(handle: MsiHandle) {
     let mut st = ALLOC_STATE.lock();
     if let Some(vecs) = st.handles.remove(&handle.id) {
@@ -95,5 +83,5 @@ pub fn msi_free(handle: MsiHandle) {
                 (arch.free_vector)(meta.vector);
             }
         }
-    }	    
+    }
 }

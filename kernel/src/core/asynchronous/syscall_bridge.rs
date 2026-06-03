@@ -56,7 +56,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
-                
+
                 unsafe {
                     if (*tcb).state == ThreadState::Running {
                         (*tcb).state = ThreadState::Blocked;
@@ -69,7 +69,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
                         sched.schedule();
                     }
                 }
-                
+
                 if int_state {
                     enable_interrupts();
                 }
@@ -89,7 +89,7 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
-                
+
                 unsafe {
                     if (*tcb).state == ThreadState::Running {
                         (*tcb).state = ThreadState::Blocked;
@@ -102,7 +102,7 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
                         sched.schedule();
                     }
                 }
-                
+
                 if int_state {
                     enable_interrupts();
                 };
