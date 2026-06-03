@@ -106,6 +106,58 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
     }
 }
 
+pub fn sys_terminate() {
+    unsafe {
+        asm!(
+            "mov rax, 2",
+            "syscall",
+            out("rdx") _,   // clobbered
+            out("rcx") _,   // clobbered
+            out("r11") _,   // clobbered
+            options(nomem, nostack),
+        );
+    }
+}
+
+pub fn sys_yield() {
+    unsafe {
+        asm!(
+            "mov rax, 3",
+            "syscall",
+            out("rdx") _,   // clobbered
+            out("rcx") _,   // clobbered
+            out("r11") _,   // clobbered
+            options(nomem, nostack),
+        );
+    }
+}
+
+pub fn sys_futex_wait(addr: usize, expected: u32) {
+    unsafe {
+        asm!(
+            "mov rax, 4",
+            "syscall",
+            in("rdi") addr, 
+            in("rsi") expected,
+            out("rax") _, out("rcx") _, out("r11") _,
+            options(nomem, nostack),
+        );
+    }
+}
+
+pub fn sys_futex_wake(addr: usize, count: usize) {
+    unsafe {
+        asm!(
+            "mov rax, 5",
+            "syscall",
+            in("rdi") addr, 
+            in("rsi") count,
+            out("rax") _, out("rcx") _, out("r11") _,
+            options(nomem, nostack),
+        );
+    }
+}
+
 //----------------------------------------------------------//
 //--------------------- SOCKET HELPERS ---------------------//
 //----------------------------------------------------------//

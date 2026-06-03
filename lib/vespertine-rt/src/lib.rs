@@ -5,6 +5,7 @@ pub mod sink;
 pub mod source;
 pub mod syscall;
 pub mod thread; 
+pub mod mutex;
 
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -14,17 +15,16 @@ use core::{
     sync::atomic::AtomicUsize,
 };
 use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcessInitPackage, VmoOp};
-use vespertine_common::{lock::TicketLock, slab::SlabAllocator};
+use vespertine_common::slab::SlabAllocator;
 
 use crate::{
-    memory::{UserPageProvider, create_private_pool, get_memory_manager},
-    syscall::{sys_close, sys_invoke},
+    memory::{UserPageProvider, create_private_pool, get_memory_manager}, mutex::Mutex, syscall::{sys_close, sys_invoke}
 };
 
 pub const ARENA_SIZE: usize = 1024 * 64; // pre allocate 64kb per init heap
 
 pub struct GlobalUserAlloc {
-    inner: TicketLock<Option<SlabAllocator<UserPageProvider>>>,
+    inner: Mutex<Option<SlabAllocator<UserPageProvider>>>,
 }
 
 unsafe impl Send for GlobalUserAlloc {}
@@ -50,7 +50,7 @@ unsafe impl GlobalAlloc for GlobalUserAlloc {
 
 #[global_allocator]
 pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc {
-    inner: TicketLock::new(None),
+    inner: Mutex::new(None),
 };
 
 pub fn init_heap() {

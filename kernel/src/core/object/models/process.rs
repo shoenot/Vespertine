@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -40,6 +41,7 @@ use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
+use crate::core::thread::wait::WaitQueue;
 use crate::memory::ALLOCATOR;
 use crate::memory::vmm::VirtMemManager;
 use crate::util::write_to_msr;
@@ -59,6 +61,7 @@ pub struct ProcessControlBlock {
     pub pml4_addr: usize,
     pub active_threads: AtomicUsize,
     pub is_terminated: AtomicBool,
+    pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
 }
 
 impl ProcessControlBlock {
@@ -72,6 +75,7 @@ impl ProcessControlBlock {
             pml4_addr,
             active_threads: AtomicUsize::new(0),
             is_terminated: AtomicBool::new(false),
+            futexes: RwLock::new(BTreeMap::new()),
         })
     }
 
