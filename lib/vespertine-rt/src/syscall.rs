@@ -1,7 +1,7 @@
 use core::arch::asm;
 
 use vespertine_abi::{
-    DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp,
+    ClockOp, DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp, tag::TAG_SYS_CLOCK
 };
 
 #[derive(Debug)]
@@ -239,5 +239,15 @@ pub fn sys_munmap(self_handle: HandleID, vaddr: usize, len: usize) -> Result<(),
 pub fn sys_set_fsbase(self_handle: HandleID, fs_base: usize) -> Result<(), SysError> {
     let op = Invocation::Proc(ProcOp::SetFsBase { fs_base });
     sys_invoke(self_handle, &op)?;
+    Ok(())
+}
+
+//----------------------------------------------------------//
+//---------------------- CLOCK HELPERS ---------------------//
+//----------------------------------------------------------//
+
+pub fn sys_sleep(ms: usize, clock_handle: HandleID) -> Result<(), SysError> {
+    let op = ClockOp::Sleep { ns: ms * 1_000_000 };
+    sys_invoke(clock_handle, &Invocation::Clock(op))?;
     Ok(())
 }

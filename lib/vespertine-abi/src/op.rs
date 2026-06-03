@@ -162,6 +162,7 @@ pub enum MemPoolOp {
 #[derive(Debug)]
 pub enum ClockOp {
     GetTimestamp,
+    Sleep { ns: usize },
 }
 
 #[repr(C)]

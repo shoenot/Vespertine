@@ -63,6 +63,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         cursor_x: 0,
         cursor_y: 0,
         input_len: 0,
+        raw_mode: false,
+        cursor_visible: true,
+        cursor_blink_on: true,
         current_fg: FG_COLOR,
         current_bg: BG_COLOR,
         cells: vec![
@@ -117,6 +120,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     ];
 
     loop {
+        grid.draw_cursor(true);
         // block until either kbd or stdout is readable
         let wait_op = WaitOp::Many {
             items_ptr: wait_items.as_mut_ptr() as usize,
@@ -124,28 +128,33 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         };
         sys_invoke(env::self_handle(), &Invocation::Wait(wait_op))?;
 
+        grid.draw_cursor(false);
         // kbd input - fwd to shell, also echo locally
         if wait_items[0].pending.contains(Signal::READABLE) {
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
-                    let first_char = buf[0];
-                    if first_char == b'\x08' {
-                        // backspace
-                        if grid.input_len > 0 {
-                            grid.input_len -= 1;
+                    if grid.raw_mode {
+                        let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
+                    } else {
+                        let first_char = buf[0];
+                        if first_char == b'\x08' {
+                            // backspace
+                            if grid.input_len > 0 {
+                                grid.input_len -= 1;
+                                vte_parser.advance(&mut grid, &buf[..n]);
+                                let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
+                            }
+                        } else {
+                            // reset input_len on enter
+                            if first_char == b'\n' || first_char == b'\r' {
+                                grid.input_len = 0;
+                            } else if first_char >= 32 || first_char == b'\t' {
+                                // increment len by number of read bytes
+                                grid.input_len += n;
+                            }
                             vte_parser.advance(&mut grid, &buf[..n]);
                             let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
                         }
-                    } else {
-                        // reset input_len on enter
-                        if first_char == b'\n' || first_char == b'\r' {
-                            grid.input_len = 0;
-                        } else if first_char >= 32 || first_char == b'\t' {
-                            // increment len by number of read bytes
-                            grid.input_len += n;
-                        }
-                        vte_parser.advance(&mut grid, &buf[..n]);
-                        let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
                     }
                 }
                 _ => {}

@@ -4,8 +4,7 @@ use core::sync::atomic::Ordering;
 
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
-    TAG_SYS_PROCMAN,
-    TAG_SYS_SOCKFAC,
+    TAG_SYS_CLOCK, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC
 };
 use vespertine_abi::{
     AccessRights,
@@ -73,9 +72,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         tests::run_post_vfs_tests().await;
         klogln!("[ASYNC INIT] post vfs tests completed");
 
-        klogln!("[ASYNC INIT] looking for ProcessManager");
         let pm_handle = kernel_walk("/System/Services/ProcessManager", HandleID(0)).await.expect("[FATAL] No Process Manager found");
-        klogln!("[ASYNC INIT] found ProcessManager: {:?}", pm_handle);
         let sf_handle = kernel_walk("/System/Services/SocketFactory", HandleID(0)).await.expect("[FATAL] No Socket Factory found");
 
         // userspace init proc

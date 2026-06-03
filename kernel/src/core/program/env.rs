@@ -143,7 +143,7 @@ impl ProcessEnvironment {
             core::ptr::write(aux_ptr.add(5), AuxEntry { a_type: 0, a_val: 0 }); // AT_NULL
         }
 
-        let safe_stack_top = sysv_vaddr;
+        let safe_stack_top = sysv_vaddr - 8;
         Ok((pkg_vaddr, safe_stack_top))
     }
 }

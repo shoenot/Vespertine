@@ -57,7 +57,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             };
             let mut dir_iter = dir.list()?;
             while let Some(entry) = dir_iter.next() {
-                println!("{}", entry);
+                if entry != "lost+found" { 
+                    println!("{}", entry);
+                }
             }
         }
         "read" | "cat" => {

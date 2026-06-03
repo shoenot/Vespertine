@@ -101,54 +101,52 @@ impl KernelObject for MountDirectory {
 
                 let underlying = self.underlying.read().clone();
 
-                crate::core::asynchronous::Executor::new().spawn(async move {
-                    // 1. Stream virtual overlays first
-                    let mut iter = overlays_entries.iter().peekable();
-                    while let Some((name_str, type_name)) = iter.next() {
-                        let mut entry = AbiDirEntry {
-                            entry_type: match *type_name {
-                                "Directory" => DirEntryType::Directory as u8,
-                                "File" => DirEntryType::File as u8,
-                                _ => DirEntryType::Object as u8,
-                            },
-                            name_len: cmp::min(name_str.len(), 254) as u8,
-                            name: [0u8; 254],
-                        };
-                        let len = entry.name_len as usize;
-                        entry.name[..len].copy_from_slice(&name_str.as_bytes()[..len]);
+                // stream virtual overlays first
+                let mut iter = overlays_entries.iter().peekable();
+                while let Some((name_str, type_name)) = iter.next() {
+                    let mut entry = AbiDirEntry {
+                        entry_type: match *type_name {
+                            "Directory" => DirEntryType::Directory as u8,
+                            "File" => DirEntryType::File as u8,
+                            _ => DirEntryType::Object as u8,
+                        },
+                        name_len: cmp::min(name_str.len(), 254) as u8,
+                        name: [0u8; 254],
+                    };
+                    let len = entry.name_len as usize;
+                    entry.name[..len].copy_from_slice(&name_str.as_bytes()[..len]);
 
-                        let mut flags = PacketFlags::IS_STREAM;
-                        // Always set HAS_NEXT because the underlying disk filesystem will stream next
-                        flags = flags.insert(PacketFlags::HAS_NEXT);
+                    let mut flags = PacketFlags::IS_STREAM;
+                    // set has next because the underlying disk will stream aftter the overlays
+                    flags = flags.insert(PacketFlags::HAS_NEXT);
 
-                        let header = PacketHeader {
-                            magic: VESPER_MAGIC,
-                            version: 1,
-                            packet_flags: flags,
-                            packet_type: 1,
-                            payload_len: size_of::<AbiDirEntry>() as u32,
-                            reserved: 0,
-                        };
+                    let header = PacketHeader {
+                        magic: VESPER_MAGIC,
+                        version: 1,
+                        packet_flags: flags,
+                        packet_type: 1,
+                        payload_len: size_of::<AbiDirEntry>() as u32,
+                        reserved: 0,
+                    };
 
-                        let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<AbiDirEntry>()];
-                        let header_size = size_of::<PacketHeader>();
-                        let entry_size = size_of::<AbiDirEntry>();
-                        unsafe {
-                            let header_ptr = &header as *const _ as *const u8;
-                            let entry_ptr = &entry as *const _ as *const u8;
-                            copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
-                            copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
-                        }
-
-                        let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
-                        if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
-                            return; // sink disconnected
-                        }
+                    let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<AbiDirEntry>()];
+                    let header_size = size_of::<PacketHeader>();
+                    let entry_size = size_of::<AbiDirEntry>();
+                    unsafe {
+                        let header_ptr = &header as *const _ as *const u8;
+                        let entry_ptr = &entry as *const _ as *const u8;
+                        copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
+                        copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
                     }
 
-                    // 2. Delegate to the underlying disk filesystem to stream all of its files/directories
-                    let _ = underlying.invoke(Invocation::Directory(DirectoryOp::List { offset, sink }), calling_rights).await;
-                });
+                    let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
+                    if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
+                        return Ok(0); // sink disconnected
+                    }
+                }
+
+                // stream underlying disk dirs
+                let _ = underlying.invoke(Invocation::Directory(DirectoryOp::List { offset, sink }), calling_rights).await;
 
                 Ok(0)
             },

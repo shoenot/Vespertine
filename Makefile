@@ -88,27 +88,35 @@ kernel: target/build/syscall.o
 .PHONY: userland
 userland: scripts/userland.ld
 	mkdir -p ramdisk/Programs/
+	mkdir -p build_deps/disk/Programs/
 	for prog in $(USER_PROGS); do \
 		echo "Building userland program: $$prog"; \
 		RUSTFLAGS="-C relocation-model=static -C link-arg=-Tscripts/userland.ld" \
 			cargo build -p $$prog --release --target $(TARGET_NAME) || exit 1; \
 		cp target/$(TARGET_NAME)/release/$$prog ramdisk/Programs/$$prog; \
+		cp target/$(TARGET_NAME)/release/$$prog build_deps/disk/Programs/$$prog; \
 	done
 
 .PHONY: update-disk
 update-disk: userland
-	echo "[INFO] Updating ext2 disk image with userland programs"
+	echo "[INFO] Rebuilding ext2 partition from build_deps/disk/"
 	mkdir -p target/build
-	dd if=disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
-	debugfs -w -R "mkdir /Programs" target/build/partition.img 2>/dev/null || true
-	for prog in $(USER_PROGS); do \
-		echo "  -> Writing $$prog to disk.img:/Programs/$$prog"; \
-		debugfs -w -R "rm /Programs/$$prog" target/build/partition.img 2>/dev/null || true; \
-		debugfs -w -R "write target/$(TARGET_NAME)/release/$$prog /Programs/$$prog" target/build/partition.img status=none 2>/dev/null || exit 1; \
-	done
+	mkdir -p build_deps/disk/Programs/
+	dd if=/dev/zero of=target/build/partition.img bs=512 count=$(PART_SECTORS) status=none
+	mke2fs -q -F -t ext2 -d build_deps/disk target/build/partition.img
 	dd if=target/build/partition.img of=disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
 	rm -f target/build/partition.img
-	echo "[SUCCESS] disk.img updated successfully."
+	echo "[SUCCESS] disk.img updated successfully from build_deps/disk/."
+
+.PHONY: sync-from-disk
+sync-from-disk:
+	echo "[INFO] Extracting files from ext2 partition to build_deps/disk/"
+	mkdir -p target/build
+	mkdir -p build_deps/disk
+	dd if=disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
+	debugfs -R "rdump / build_deps/disk" target/build/partition.img 2>/dev/null || true
+	rm -f target/build/partition.img
+	echo "[SUCCESS] build_deps/disk/ updated from disk.img."
 
 ##############################
 # --- ASSEMBLY FILES DONE ---#

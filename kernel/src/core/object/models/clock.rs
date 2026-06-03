@@ -7,6 +7,7 @@ use vespertine_abi::op::ClockOp;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::core::time::get_realtime;
+use crate::core::time::sleep;
 
 #[derive(Debug)]
 pub struct Clock {}
@@ -20,6 +21,10 @@ impl KernelObject for Clock {
     ) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Clock(ClockOp::GetTimestamp) => Ok(get_realtime() as usize),
+            Invocation::Clock(ClockOp::Sleep { ns }) => {
+                sleep(ns);
+                Ok(0)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

@@ -62,6 +62,7 @@ impl Invocation {
             Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
             Invocation::Clock(ClockOp::GetTimestamp) => AccessRights::READ,
+            Invocation::Clock(ClockOp::Sleep { .. }) => AccessRights::WRITE,
             Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
             Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
             Invocation::Wait(..) => AccessRights::READ,

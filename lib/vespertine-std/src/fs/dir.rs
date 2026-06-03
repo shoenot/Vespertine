@@ -34,6 +34,12 @@ impl Display for DirEntry {
     }
 }
 
+impl PartialEq<&str> for DirEntry {
+    fn eq(&self, other: &&str) -> bool {
+        self.name == *other
+    }
+}
+
 #[repr(C)]
 pub enum EntryKind {
     File,
@@ -88,7 +94,7 @@ impl Iterator for ReadDir {
                 }
                 _ => {
                     // eof or read error
-                    if self.limit - self.cursor < 280 {
+                    if self.limit - self.cursor < FULL_ENTRY {
                         self.finished = true;
                         return None;
                     }

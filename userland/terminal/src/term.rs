@@ -1,3 +1,5 @@
+use core::cmp;
+
 use alloc::{format, vec::Vec};
 use vespertine_abi::HandleID;
 use vespertine_rt::syscall::sys_write_bytes;
@@ -21,6 +23,9 @@ pub struct TerminalGrid {
     pub cursor_x: usize,
     pub cursor_y: usize,
     pub input_len: usize,
+    pub raw_mode: bool,
+    pub cursor_visible: bool,
+    pub cursor_blink_on: bool,
 
     pub current_fg: u32,
     pub current_bg: u32,
@@ -94,16 +99,16 @@ impl Perform for TerminalGrid {
                         _ => {}
                     }
                 }
-            }
+            },
             'J' => {
                 self.clear_screen();
-            }
+            },
             'N' => {
                 if self.cursor_x > 0 {
                     self.newline();
                     self.cursor_x = 0;
                 }
-            }
+            },
             'n' => {
                 for param in params.iter() {
                     match param {
@@ -115,14 +120,84 @@ impl Perform for TerminalGrid {
                         _ => {}
                     }
                 }
-            }
-            _ => {}
+            },
+            'H' | 'f' => {  // set cursor position (cup)
+                let mut row = 1;
+                let mut col = 1;
+
+                let mut iter = params.iter();
+                if let Some(r_param) = iter.next() {
+                    if r_param[0] > 0 { row = r_param[0] as usize; }
+                }
+                if let Some(c_param) = iter.next() {
+                    if c_param[0] > 0 { col = c_param[0] as usize; }
+                }
+
+                self.cursor_y = cmp::min(row - 1, self.height_chars - 1);
+                self.cursor_x = cmp::min(col - 1, self.width_chars - 1);
+            },
+            'A' => { // cursor up (cuu)
+                let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
+                self.cursor_y = self.cursor_y.saturating_sub(n);
+            },
+            'B' => { // cursor down (cud)
+                let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
+                self.cursor_y = core::cmp::min(self.cursor_y + n, self.height_chars - 1);
+            },
+            'C' => { // cursor forward/right (cuf)
+                let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
+                self.cursor_x = core::cmp::min(self.cursor_x + n, self.width_chars - 1);
+            },
+            'D' => { // cursor backward/left (cub)
+                let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
+                self.cursor_x = self.cursor_x.saturating_sub(n);
+            },
+            'K' => { // erase in line (el)
+                let mode = params.iter().next().map(|p| p[0]).unwrap_or(0);
+                match mode {
+                    0 => { // cursor to end of line
+                        for col in self.cursor_x..self.width_chars {
+                            self.clear_cell(col, self.cursor_y);
+                        }
+                    },
+                    1 => { // start of line to cursor
+                        for col in 0..=self.cursor_x {
+                            self.clear_cell(col, self.cursor_y);
+                        }
+                    },
+                    2 => { // clear entire line
+                        for col in 0..self.width_chars {
+                            self.clear_cell(col, self.cursor_y);
+                        }
+                    },
+                    _ => {},
+                }
+            },
+            'h' => {
+                for param in params.iter() {
+                    match param {
+                        [25] => self.cursor_visible = true, // show cursor
+                        [2000] => self.raw_mode = true,
+                        _ => {},
+                    }
+                }
+            },
+            'l' => {
+                for param in params.iter() {
+                    match param {
+                        [25] => self.cursor_visible = false, // hide cursor
+                        [2000] => self.raw_mode = false,
+                        _ => {},
+                    }
+                }
+            },
+            _ => {},
         }
     }
 }
 
 impl TerminalGrid {
-    fn draw_cell(&mut self, col: usize, row: usize) {
+    pub fn draw_cell(&mut self, col: usize, row: usize) {
         let cell = self.cells[row * self.width_chars + col];
         let glyph_size = 16;
         // skip header with + 4
@@ -216,6 +291,41 @@ impl TerminalGrid {
         self.cursor_x = 0;
         self.cursor_y = 0;
     }
+
+    pub fn draw_cursor(&mut self, show: bool) {
+        if !self.cursor_visible {
+            return;
+        }
+
+        let col = self.cursor_x;
+        let row = self.cursor_y;
+
+        if col >= self.width_chars || row >= self.height_chars {
+            return;
+        }
+
+        let cell = self.cells[row * self.width_chars + col];
+        let glyph_size = 16;
+        let glyph_offset = 4 + cell.char as usize * glyph_size;
+
+        let x_start = PADDING_X + col * 8;
+        let y_start = PADDING_Y + row * 16;
+
+        for y in 0..16 {
+            let font_byte = FONT_DATA[glyph_offset + y];
+            for x in 0..8 {
+                let bit_is_set = (font_byte & (0x80 >> x)) != 0;
+                let color = if show {
+                    // inverted colors (active cursor block)
+                    if bit_is_set { cell.bg } else { cell.fg }
+                } else {
+                    // normal colors (restore text underneath)
+                    if bit_is_set { cell.fg } else { cell.bg }
+                };
+                self.fb.write_pixel(x_start + x, y_start + y, color);
+            }
+        }
+    }
 }
 
 fn translate_ansi_color(index: u16) -> u32 {
@@ -230,4 +340,23 @@ fn translate_ansi_color(index: u16) -> u32 {
         7 => 0xe0ddd8, // white
         _ => 0xe0ddd8,
     }
+}
+
+fn blend_color(fg: u32, bg: u32, alpha: u8) -> u32 {
+    let a = alpha as u32;
+    let inv_a = 255 - a;
+
+    let fg_r = (fg >> 16) & 0xff;
+    let fg_g = (fg >> 8) & 0xff;
+    let fg_b = fg & 0xff;
+
+    let bg_r = (bg >> 16) & 0xff;
+    let bg_g = (bg >> 8) & 0xff;
+    let bg_b = bg & 0xff;
+
+    let r = (fg_r * a + bg_r * inv_a) / 255;
+    let g = (fg_g * a + bg_g * inv_a) / 255;
+    let b = (fg_b * a + bg_b * inv_a) / 255;
+
+    (r << 16) | (g << 8) | b
 }

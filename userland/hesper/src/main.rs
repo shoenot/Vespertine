@@ -12,7 +12,7 @@ use vespertine_rt::{
     println,
     syscall::{sys_close, sys_create_socket},
 };
-use vespertine_std::{Error, ErrorKind, Exec, Read, Write, env, socket::Socket};
+use vespertine_std::{Error, ErrorKind, Exec, Read, Write, env::{self, find_tag}, socket::Socket};
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {

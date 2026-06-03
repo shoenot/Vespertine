@@ -12,6 +12,9 @@ target
 /build_deps/limine
 /build_deps/edk2-ovmf
 /build_deps/ramdisk.tar
+/build_deps/disk/Programs
 /build
 
 /ramdisk
+
+disk.img
