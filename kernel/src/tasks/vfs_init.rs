@@ -9,11 +9,11 @@ use vespertine_abi::{
 use crate::core::object::models::clock::Clock;
 use crate::core::object::models::directory::*;
 use crate::core::object::models::memman::MemoryManager;
+use crate::core::object::models::mount_dir::MountDirectory;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
-    kernel_register_obj,
-    mount_kernel_dir,
+    ROOT_DIRECTORY, kernel_register_obj, mount_kernel_dir
 };
 use crate::core::sync::KernelOnceCell;
 use crate::drivers::tar::{
@@ -70,10 +70,15 @@ pub async fn init_vfs() {
     let fb_handle = kernel_register_obj(fb_obj, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
     mount_kernel_dir("Framebuffer", fb_handle, dev_handle).await;
 
-    if let Some(blockdev) = BLOCK_DEVICE.get() {
-        let root = mount_ext2_rootfs(blockdev.clone()).await;
-        let handle = kernel_register_obj(root, AccessRights::READ | AccessRights::WRITE);
-        mount_kernel_dir("Disk", handle, HandleID(0)).await;
-        klogln!("[SUCCESS] Ext2 filesystem mounted at /Disk");
-    }
+    let blockdev = BLOCK_DEVICE.get().expect("[FATAL] No block device found for primary storage");
+    let root = mount_ext2_rootfs(blockdev.clone()).await;
+
+    let root_obj = ROOT_DIRECTORY.get().expect("[FATAL] ROOT_DIRECTORY uninitialized");
+    let mount_dir = root_obj
+        .as_any()
+        .downcast_ref::<MountDirectory>()
+        .expect("[FATAL] ROOT_DIRECTORY is not a MountDirectory");
+
+    mount_dir.set_underlying(root);
+    klogln!("[SUCCESS] Ext2 root directory mounted at /");
 }

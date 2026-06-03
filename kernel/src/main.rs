@@ -42,6 +42,7 @@ use crate::core::object::handle::{
     HandleTable,
 };
 use crate::core::object::models::directory::Directory;
+use crate::core::object::models::mount_dir::MountDirectory;
 use crate::core::object::models::process::{
     Process,
     ProcessControlBlock,
@@ -68,7 +69,10 @@ pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 pub fn init_kernel_process() {
     KERNEL_PROCESS.get_or_init(|| {
         let proc = ProcessControlBlock::new(HandleTable::new());
-        let root = ROOT_DIRECTORY.get_or_init(|| Arc::new(Directory::new())).clone();
+        let root = ROOT_DIRECTORY.get_or_init(|| {
+            let root_mem = Arc::new(Directory::new());
+            Arc::new(MountDirectory::new(root_mem))
+        }).clone();
         proc.proc_handles.write().insert_at(HandleID(0), root, AccessRights::all());
         proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::all());
         proc

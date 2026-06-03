@@ -9,14 +9,13 @@ use vespertine_abi::{
 };
 
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::directory::Directory;
 use crate::core::object::models::process::Process;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::get_current_process;
 use crate::klogln;
 
-pub static ROOT_DIRECTORY: KernelOnceCell<Arc<Directory>> = KernelOnceCell::new();
+pub static ROOT_DIRECTORY: KernelOnceCell<Arc<dyn KernelObject>> = KernelOnceCell::new();
 
 pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights) -> HandleID {
     get_current_process().expect("No active process").proc_handles.write().insert(obj, init_rights)

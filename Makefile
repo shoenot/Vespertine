@@ -16,11 +16,14 @@ KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
 USER_PROGS := shell hesper ns terminal dt
 
+PART_START    := 2048
+PART_SECTORS  := 128991
+
 .PHONY: all
 all: target/build/$(IMAGE_NAME).iso
 
 .PHONY: run
-run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
+run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -33,7 +36,7 @@ run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
 		-serial stdio 
 
 .PHONY: run-debug
-run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
+run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -91,6 +94,21 @@ userland: scripts/userland.ld
 			cargo build -p $$prog --release --target $(TARGET_NAME) || exit 1; \
 		cp target/$(TARGET_NAME)/release/$$prog ramdisk/Programs/$$prog; \
 	done
+
+.PHONY: update-disk
+update-disk: userland
+	echo "[INFO] Updating ext2 disk image with userland programs"
+	mkdir -p target/build
+	dd if=disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
+	debugfs -w -R "mkdir /Programs" target/build/partition.img 2>/dev/null || true
+	for prog in $(USER_PROGS); do \
+		echo "  -> Writing $$prog to disk.img:/Programs/$$prog"; \
+		debugfs -w -R "rm /Programs/$$prog" target/build/partition.img 2>/dev/null || true; \
+		debugfs -w -R "write target/$(TARGET_NAME)/release/$$prog /Programs/$$prog" target/build/partition.img status=none 2>/dev/null || exit 1; \
+	done
+	dd if=target/build/partition.img of=disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
+	rm -f target/build/partition.img
+	echo "[SUCCESS] disk.img updated successfully."
 
 ##############################
 # --- ASSEMBLY FILES DONE ---#
