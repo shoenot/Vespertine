@@ -16,5 +16,6 @@ target
 /build
 
 /ramdisk
+/ports/mlibc
 
 disk.img
