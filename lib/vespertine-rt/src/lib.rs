@@ -1,9 +1,10 @@
 #![no_std]
 #![no_main]
-mod memory;
+pub mod memory;
 pub mod sink;
 pub mod source;
 pub mod syscall;
+pub mod thread; 
 
 use core::{
     alloc::{GlobalAlloc, Layout},

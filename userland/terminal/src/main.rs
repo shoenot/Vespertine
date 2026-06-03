@@ -8,7 +8,9 @@ use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{
     AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
-use vespertine_rt::syscall::{sys_create_socket, sys_invoke, sys_read, sys_write_bytes};
+use vespertine_rt::syscall::{sys_create_socket, sys_invoke, sys_read, sys_sleep, sys_write_bytes};
+use vespertine_rt::thread as rt_thread;
+use vespertine_std::fs::walk_path;
 use vespertine_std::{Error, fb::Framebuffer};
 use vespertine_std::{ErrorKind, Exec, env};
 
@@ -51,11 +53,14 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     let shell_stdin_packed = sys_create_socket(sf)?;
     let shell_stdout_packed = sys_create_socket(sf)?;
+    let blink_packed = sys_create_socket(sf)?;
 
     let shell_stdin_write = shell_stdin_packed.1;
     let shell_stdin_read = shell_stdin_packed.0;
     let shell_stdout_read = shell_stdout_packed.0;
     let shell_stdout_write = shell_stdout_packed.1;
+    let blink_read = blink_packed.0;
+    let blink_write = blink_packed.1;
 
     let mut grid = TerminalGrid {
         width_chars,
@@ -103,6 +108,19 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .grant(sf_grant)
         .spawn()?;
 
+    // Spawn the cursor blinker thread
+    let clock = walk_path("/System/Services/Clock", env::root())?;
+    rt_thread::spawn(move || {
+        let dummy = [1u8; 1];
+        loop {
+            let _ = sys_sleep(500, clock);
+            let _ = sys_write_bytes(blink_write, &dummy);
+        }
+    }).map_err(|_| Error {
+        kind: ErrorKind::InvalidArgument,
+        message: "Failed to spawn blink thread".into(),
+    })?;
+
     let mut vte_parser = vte::Parser::new();
     let mut buf = [0u8; 256];
 
@@ -117,10 +135,16 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             signal: Signal::READABLE,
             pending: Signal(0),
         },
+        WaitItem {
+            handle: blink_read,
+            signal: Signal::READABLE,
+            pending: Signal(0),
+        },
     ];
 
     loop {
-        grid.draw_cursor(true);
+        grid.draw_cursor(grid.cursor_blink_on);
+
         // block until either kbd or stdout is readable
         let wait_op = WaitOp::Many {
             items_ptr: wait_items.as_mut_ptr() as usize,
@@ -129,8 +153,17 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         sys_invoke(env::self_handle(), &Invocation::Wait(wait_op))?;
 
         grid.draw_cursor(false);
+
+        // blink cursor
+        if wait_items[2].pending.contains(Signal::READABLE) {
+            let mut dummy = [0u8; 1];
+            let _ = sys_read(blink_read, dummy.as_mut_ptr(), 1, 0);
+            grid.cursor_blink_on = !grid.cursor_blink_on;
+        }
+
         // kbd input - fwd to shell, also echo locally
         if wait_items[0].pending.contains(Signal::READABLE) {
+            grid.cursor_blink_on = true; // make it solid while typing
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
                     if grid.raw_mode {
@@ -177,6 +210,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
         wait_items[0].pending = Signal(0);
         wait_items[1].pending = Signal(0);
+        wait_items[2].pending = Signal(0);
     }
     Ok(())
 }

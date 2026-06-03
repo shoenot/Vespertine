@@ -106,7 +106,7 @@ impl KernelObject for ProcessManager {
                 new_proc.proc_handles.write().insert_at(
                     HandleID(1),
                     new_proc.clone(),
-                    AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE,
+                    AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE,
                 );
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
