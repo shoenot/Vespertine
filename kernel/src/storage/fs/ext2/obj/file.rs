@@ -56,12 +56,9 @@ impl KernelObject for Ext2File {
 
     async fn invoke(&self, invocation: Invocation, _rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::File(FileOp::Read { offset: _, buffer_ptr, len }) => {
-                let mut offset_guard = self.offset.lock();
-                let current_offset = *offset_guard;
-                let bytes_read = self.read_bytes_async(current_offset, buffer_ptr, len).await?;
+            Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
+                let bytes_read = self.read_bytes_async(offset, buffer_ptr, len).await?;
 
-                *offset_guard += bytes_read;
                 Ok(bytes_read)
             }
             Invocation::File(FileOp::Stat) => Ok(self.inode_data.read().size as usize),
@@ -72,12 +69,9 @@ impl KernelObject for Ext2File {
 
                 Ok(handle_id.0 as usize)
             }
-            Invocation::File(FileOp::Write { offset: _, buffer_ptr, len }) => {
-                let mut offset_guard = self.offset.lock();
-                let current_offset = *offset_guard;
-                let bytes_written = self.write_bytes_async(current_offset, buffer_ptr, len).await?;
+            Invocation::File(FileOp::Write { offset, buffer_ptr, len }) => {
+                let bytes_written = self.write_bytes_async(offset, buffer_ptr, len).await?;
 
-                *offset_guard += bytes_written;
                 Ok(bytes_written)
             }
             _ => Err(InvocationError::UnsupportedOperation),

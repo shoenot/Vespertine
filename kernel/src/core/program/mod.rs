@@ -74,6 +74,7 @@ impl fmt::Display for LoaderError {
 }
 
 pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, usize, usize), LoaderError> {
+    klogln!("load elf 1");
     // IN USER THREAD CONTEXT
     let file_obj =
         get_current_process().ok_or(LoaderError::FileReadError)?.proc_handles.read().resolve(file_handle, AccessRights::READ).map_err(
@@ -86,6 +87,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
     // SWITCH TO KERNEL PROCESS TEMPORARILY
     let current_thread = get_core_data().scheduler.get_current_thread();
 
+    klogln!("load elf 2");
     let thread_addr = current_thread as usize;
     let old_proc = unsafe { (*current_thread).process.clone() };
 
@@ -99,6 +101,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
         LoaderError::FileReadError
     })?;
     let header_read_size = cmp::min(file_size, 4096);
+    klogln!("load elf 3");
 
     let file_layout = Layout::from_size_align(header_read_size, 8).map_err(|_| LoaderError::FileReadError)?;
     let buffer_ptr = unsafe { alloc(file_layout) as *mut u8 };
@@ -202,6 +205,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
         }
     }
 
+    klogln!("load elf 4");
     if phdr_addr == 0 {
         for ph in header.prog_headers(file_bytes).unwrap() {
             if ph.p_type == 1 && ph.p_offset == 0 {

@@ -84,24 +84,17 @@ target/build/syscall.o: kernel/src/arch/x86_64/task/syscall.asm target/build/fpu
 kernel: target/build/syscall.o
 	cargo build -p kernel --release --target $(TARGET_NAME)
 
-# Build all userspace programs listed in USER_PROGS with custom userland RUSTFLAGS
-.PHONY: userland
-userland: scripts/userland.ld
-	mkdir -p ramdisk/Programs/
-	mkdir -p build_deps/disk/Programs/
-	for prog in $(USER_PROGS); do \
-		echo "Building userland program: $$prog"; \
-		RUSTFLAGS="-C relocation-model=static -C link-arg=-Tscripts/userland.ld" \
-			cargo build -p $$prog --release --target $(TARGET_NAME) || exit 1; \
-		cp target/$(TARGET_NAME)/release/$$prog ramdisk/Programs/$$prog; \
-		cp target/$(TARGET_NAME)/release/$$prog build_deps/disk/Programs/$$prog; \
-	done
-
 .PHONY: update-disk
 update-disk: userland
 	echo "[INFO] Rebuilding ext2 partition from build_deps/disk/"
 	mkdir -p target/build
 	mkdir -p build_deps/disk/Programs/
+	for prog in $(USER_PROGS); do \
+		echo "Building userland program: $$prog"; \
+		RUSTFLAGS="-C relocation-model=static -C link-arg=-Tscripts/userland.ld" \
+			cargo build -p $$prog --release --target $(TARGET_NAME) || exit 1; \
+		cp target/$(TARGET_NAME)/release/$$prog build_deps/disk/Programs/$$prog; \
+	done
 	dd if=/dev/zero of=target/build/partition.img bs=512 count=$(PART_SECTORS) status=none
 	mke2fs -q -F -t ext2 -d build_deps/disk target/build/partition.img
 	dd if=target/build/partition.img of=disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
@@ -126,13 +119,11 @@ sync-from-disk:
 target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel userland
 	mkdir -p target/build
 	rm -rf iso_root
-	tar -cf build_deps/ramdisk.tar -C ramdisk . --format=ustar
 	mkdir -p iso_root/boot/limine
 	mkdir -p iso_root/EFI/BOOT
 	
 	# Copy the kernel from the cargo target directory
 	cp $(KERNEL_ELF) iso_root/boot/kernel
-	cp build_deps/ramdisk.tar iso_root/boot/ramdisk.tar
 	cp build_deps/limine.conf iso_root/boot/limine/
 	
 	# x86_64 Specific Limine binaries

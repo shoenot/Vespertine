@@ -1,0 +1,15 @@
+language = "C++"
+
+[parse]
+parse_deps = true
+
+[enum]
+prefix_with_name = true
+
+[export]
+# Force cbindgen to export Invocation even if it gets scared of bitflags
+include = ["Invocation", "ProcOp", "MemManOp", "MemPoolOp", "ThreadOp", "VmoOp", "FileOp", "DirectoryOp", "ChannelOp", "SocketOp", "WaitOp", "ClockOp"]
+
+[export.rename]
+"AccessRights" = "AccessRights"
+"Signal" = "Signal"

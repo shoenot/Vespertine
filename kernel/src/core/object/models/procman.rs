@@ -71,6 +71,11 @@ impl KernelObject for ProcessManager {
                     new_proc_table.insert_at(HandleID(3), sink_obj, AccessRights::WRITE);
                 }
 
+                // keep executable file alive for page faults
+                if let Ok(exec_obj) = parent_proc.proc_handles.read().resolve(exec_handle, AccessRights::READ) {
+                    new_proc_table.insert(exec_obj, AccessRights::READ);
+                }
+
                 // extract handles safely
                 let mut child_extra_handles = Vec::with_capacity(extra_handles_len);
 
@@ -102,16 +107,16 @@ impl KernelObject for ProcessManager {
                 // create the process
                 let new_proc = ProcessControlBlock::new(new_proc_table);
 
+                // load_elf uses the parent's executable_handle since we are in the parent's context
+                let (entry_point, phdr_addr, phnum) =
+                    { load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)? };
+
                 // insert self handle at 0 after creating process
                 new_proc.proc_handles.write().insert_at(
                     HandleID(1),
                     new_proc.clone(),
                     AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE,
                 );
-
-                // load_elf uses the parent's executable_handle since we are in the parent's context
-                let (entry_point, phdr_addr, phnum) =
-                    { load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)? };
 
                 let mut args_buffer = Vec::with_capacity(args_buffer_len);
                 let mut argc = 0;

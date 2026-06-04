@@ -122,6 +122,21 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                 sock.close_write();
                 print_stream(&sock)?;
+            },
+            "hello" => {
+                let mut sock = Socket::new().expect("Error creating socket pair");
+                match Exec::new("hello")
+                    .args(&args_vec)
+                    .sink(sock.write_handle()?)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .spawn()
+                {
+                    Ok(_) => {}
+                    Err(e) => println!("[ERROR] hello spawn error: {:?}", e),
+                }
+
+                sock.close_write();
+                print_stream(&sock)?;
             }
             other => {
                 println!("unknown command: {}", other)

@@ -117,6 +117,7 @@ pub struct VirtqueueState {
     pub vq: TicketLock<Virtqueue>,
     pub worker_tcb: AtomicPtr<ThreadControlBlock>,
     pub has_interrupts: AtomicBool,
+    pub awoken: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -301,6 +302,7 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
                 vq: TicketLock::new(vq),
                 worker_tcb: AtomicPtr::new(core::ptr::null_mut()),
                 has_interrupts: AtomicBool::new(false),
+                awoken: AtomicBool::new(false),
             });
         }
 
@@ -596,6 +598,7 @@ pub extern "C" fn virtio_blk_irq_handler(arg: usize) {
         // wake worker thread if set
         let tcb = (*vq_state).worker_tcb.load(Ordering::Acquire);
         if !tcb.is_null() {
+            (*vq_state).awoken.store(true, Ordering::SeqCst);
             wake_thread(tcb);
             return;
         }
@@ -659,11 +662,13 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     read_volatile(vq.used.idx) != last_seen
                 };
 
-                if !recheck {
+                if !recheck && !(*vq_state).awoken.load(Ordering::SeqCst) {
                     let current_thread = get_core_data().scheduler.get_current_thread();
                     (*current_thread).state = ThreadState::Blocked;
                     get_core_data().scheduler.schedule();
                 }
+
+                (*vq_state).awoken.store(false, Ordering::SeqCst);
 
                 if int_state {
                     crate::arch::enable_interrupts();

@@ -28,6 +28,7 @@ use crate::core::thread::{
 
 struct ThreadWaker {
     thread: *mut ThreadControlBlock,
+    awoken: core::sync::atomic::AtomicBool,
 }
 
 unsafe impl Send for ThreadWaker {}
@@ -35,6 +36,11 @@ unsafe impl Sync for ThreadWaker {}
 
 impl Wake for ThreadWaker {
     fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.awoken.store(true, core::sync::atomic::Ordering::SeqCst);
         unsafe {
             if (*self.thread).state == ThreadState::Blocked {
                 wake_thread(self.thread);
@@ -47,27 +53,29 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
     let tcb = get_core_data().scheduler.get_current_thread();
     let mut future = Box::pin(kernel_invoke(handle, invocation));
 
-    let waker = Arc::new(ThreadWaker { thread: tcb }).into();
+    let waker_inner = Arc::new(ThreadWaker { thread: tcb, awoken: core::sync::atomic::AtomicBool::new(false) });
+    let waker = waker_inner.clone().into();
     let mut context = Context::from_waker(&waker);
 
     loop {
+        waker_inner.awoken.store(false, core::sync::atomic::Ordering::SeqCst);
         match future.as_mut().poll(&mut context) {
             Poll::Ready(result) => return result,
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
 
-                unsafe {
-                    if (*tcb).state == ThreadState::Running {
-                        (*tcb).state = ThreadState::Blocked;
-                        let sched = &mut get_core_data().scheduler;
-                        sched.schedule();
-                    } else {
-                        (*tcb).state = ThreadState::Ready;
-                        let sched = &mut get_core_data().scheduler;
-                        sched.push(tcb);
-                        sched.schedule();
+                if waker_inner.awoken.load(core::sync::atomic::Ordering::SeqCst) {
+                    if int_state {
+                        enable_interrupts();
                     }
+                    continue;
+                }
+
+                unsafe {
+                    (*tcb).state = ThreadState::Blocked;
+                    let sched = &mut get_core_data().scheduler;
+                    sched.schedule();
                 }
 
                 if int_state {
@@ -80,27 +88,29 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
 
 pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
     let tcb = get_core_data().scheduler.get_current_thread();
-    let waker = Arc::new(ThreadWaker { thread: tcb }).into();
+    let waker_inner = Arc::new(ThreadWaker { thread: tcb, awoken: core::sync::atomic::AtomicBool::new(false) });
+    let waker = waker_inner.clone().into();
     let mut context = Context::from_waker(&waker);
 
     loop {
+        waker_inner.awoken.store(false, core::sync::atomic::Ordering::SeqCst);
         match future.as_mut().poll(&mut context) {
             Poll::Ready(result) => return result,
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
 
-                unsafe {
-                    if (*tcb).state == ThreadState::Running {
-                        (*tcb).state = ThreadState::Blocked;
-                        let sched = &mut get_core_data().scheduler;
-                        sched.schedule();
-                    } else {
-                        (*tcb).state = ThreadState::Ready;
-                        let sched = &mut get_core_data().scheduler;
-                        sched.push(tcb);
-                        sched.schedule();
+                if waker_inner.awoken.load(core::sync::atomic::Ordering::SeqCst) {
+                    if int_state {
+                        enable_interrupts();
                     }
+                    continue;
+                }
+
+                unsafe {
+                    (*tcb).state = ThreadState::Blocked;
+                    let sched = &mut get_core_data().scheduler;
+                    sched.schedule();
                 }
 
                 if int_state {

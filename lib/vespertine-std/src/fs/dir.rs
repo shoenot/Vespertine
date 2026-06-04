@@ -16,7 +16,7 @@ extern crate alloc;
 
 use alloc::string::String;
 
-pub struct Dir(HandleID);
+pub struct Dir(pub HandleID);
 
 #[repr(C)]
 pub struct DirEntry {
