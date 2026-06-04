@@ -5,7 +5,7 @@ use alloc::alloc::{
     alloc,
 };
 use alloc::sync::Arc;
-use core::ptr::copy_nonoverlapping;
+use core::ptr::{copy_nonoverlapping, write_bytes};
 use core::slice::from_raw_parts;
 use core::{
     cmp,
@@ -174,12 +174,19 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
             let (segment_vmo, map_offset) = if ph.p_filesz == 0 {
                 (Vmo::new(total_map_size) as Arc<dyn PagedBackingStore>, 0)
             } else if ph.p_memsz as usize > ph.p_filesz as usize {
+                if (ph.p_vaddr % NORMAL_PAGE_SIZE as u64) != (ph.p_offset % NORMAL_PAGE_SIZE as u64) {
+                    klogln!("[ERROR] load_elf: Misaligned segment virtual address and file offset");
+                    return Err(LoaderError::FileReadError);
+                }
+
                 let anon_vmo = Vmo::new(total_map_size);
 
                 let mut progress = 0;
-                while progress < ph.p_filesz as usize {
+                let filesz = ph.p_filesz as usize;
+
+                while progress < offset_in_page + filesz {
                     let file_offset = aligned_offset + progress;
-                    let target_offset = offset_in_page + progress;
+                    let target_offset = progress;
 
                     let file_pfn = file_vmo.request_page(file_offset).map_err(|_| LoaderError::FileReadError)?;
 
@@ -193,7 +200,25 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
                     }
                     progress += NORMAL_PAGE_SIZE;
                 }
+                
+                // zero out any trailing bytes in the shared data/bss page
+                let total_copied_bytes = offset_in_page + filesz;
+                if total_copied_bytes % NORMAL_PAGE_SIZE != 0 {
+                    let last_page_offset = total_copied_bytes & !(NORMAL_PAGE_SIZE - 1);
+                    let last_page_pfn = anon_vmo.request_page(last_page_offset)
+                        .map_err(|_| LoaderError::FileReadError)?;
+
+                    let zero_start_offset = total_copied_bytes % NORMAL_PAGE_SIZE;
+                    let zero_len = NORMAL_PAGE_SIZE - zero_start_offset;
+                    let dest_virt = last_page_pfn + *HHDMOFFSET;
+
+                    unsafe {
+                        write_bytes((dest_virt + zero_start_offset) as *mut u8, 0, zero_len);
+                    }
+                }
+
                 (anon_vmo as Arc<dyn PagedBackingStore>, 0)
+
             } else {
                 (file_vmo.clone(), aligned_offset)
             };

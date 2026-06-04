@@ -65,4 +65,8 @@ impl HandleTable {
         let obj_clone = entry.object.clone();
         Ok(self.insert(obj_clone, requested_rights))
     }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }

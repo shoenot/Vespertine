@@ -160,6 +160,7 @@ impl KernelObject for ProcessControlBlock {
         match invocation {
             Invocation::Proc(ProcOp::Kill) => {
                 self.is_terminated.store(true, Ordering::SeqCst);
+                self.proc_handles.write().clear();
                 Ok(0)
             }
             Invocation::Proc(ProcOp::GetStatus { status_ptr }) => self.status(status_ptr as *mut ProcStatus),

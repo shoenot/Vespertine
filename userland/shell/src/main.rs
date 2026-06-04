@@ -129,6 +129,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     .args(&args_vec)
                     .sink(sock.write_handle()?)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .inherit_capabilities()
                     .spawn()
                 {
                     Ok(_) => {}
