@@ -39,18 +39,14 @@ pub struct Vmo {
 
 pub trait PagedBackingStore: Send + Sync + Debug {
     fn request_page(&self, offset: usize) -> Result<usize, ()>;
-
     fn resize_object(&self, new_size: usize) -> Result<(), ()>;
-
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()>;
-
     fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()>;
-
     fn mark_dirty(&self, offset: usize) -> Result<(), ()>;
-
     fn is_dirty(&self, offset: usize) -> bool;
-
     fn clear_dirty(&self, offset: usize);
+    fn get_node(&self) -> Option<Arc<dyn VfsNode>> { None }
+    fn peek_page(&self, offset: usize) -> Option<usize> { None }
 }
 
 impl PagedBackingStore for Vmo {
@@ -74,8 +70,10 @@ impl PagedBackingStore for Vmo {
 
         // allocate directly from the pmm
         let pfn = ALLOCATOR.alloc(BlockSize::Normal);
-        unsafe {
-            write_bytes((pfn + *HHDMOFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
+        if pfn != 0 {
+            unsafe {
+                core::ptr::write_bytes((pfn + *HHDMOFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
+            }
         }
         pages.insert(offset, pfn);
         Ok(pfn as usize)
@@ -129,10 +127,6 @@ impl PagedBackingStore for Vmo {
         let pages = self.pages.lock();
         let current_size = self.size.load(Ordering::Relaxed);
 
-        if offset + len > current_size {
-            return Err(());
-        }
-
         let mut child_pages = BTreeMap::new();
         let mut child_dirty = BTreeMap::new();
         let num_pages = len.div_ceil(NORMAL_PAGE_SIZE);
@@ -142,14 +136,19 @@ impl PagedBackingStore for Vmo {
             let parent_offset = offset + page_offset;
 
             let child_pfn = ALLOCATOR.alloc(BlockSize::Normal);
+            unsafe {
+                write_bytes((child_pfn + *HHDMOFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
+            }
 
             // copy from parent to child if parent was alr allocated. can skip if no
-            if let Some(&parent_pfn) = pages.get(&parent_offset) {
-                if parent_pfn != 0 {
-                    let parent_virt = parent_pfn + *HHDMOFFSET;
-                    let child_virt = child_pfn + *HHDMOFFSET;
-                    unsafe {
-                        copy_nonoverlapping(parent_virt as *mut u8, child_virt as *mut u8, NORMAL_PAGE_SIZE);
+            if parent_offset < current_size {
+                if let Some(&parent_pfn) = pages.get(&parent_offset) {
+                    if parent_pfn != 0 {
+                        let parent_virt = parent_pfn + *HHDMOFFSET;
+                        let child_virt = child_pfn + *HHDMOFFSET;
+                        unsafe {
+                            copy_nonoverlapping(parent_virt as *mut u8, child_virt as *mut u8, NORMAL_PAGE_SIZE);
+                        }
                     }
                 }
             }
@@ -214,6 +213,11 @@ impl PagedBackingStore for Vmo {
         if dirty.contains_key(&offset) {
             dirty.insert(offset, false);
         }
+    }
+
+    fn peek_page(&self, offset: usize) -> Option<usize> {
+        let pages = self.pages.lock();
+        pages.get(&offset).copied().filter(|&pfn| pfn != 0)
     }
 }
 
@@ -301,7 +305,12 @@ pub struct FileVmo {
 }
 
 impl FileVmo {
-    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> { Arc::new(Self { anonymous_vmo: Vmo::new(size), node }) }
+    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> {
+        Arc::new(Self {
+            anonymous_vmo: Vmo::new(size),
+            node,
+        })
+    }
 
     pub async fn flush_to_disk(&self) -> Result<(), ()> {
         let node = self.node.upgrade().ok_or(())?;
@@ -330,6 +339,7 @@ impl FileVmo {
 
         Ok(())
     }
+
 }
 
 impl PagedBackingStore for FileVmo {
@@ -400,6 +410,12 @@ impl PagedBackingStore for FileVmo {
     }
 
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()> {
+        let current_size = self.anonymous_vmo.size.load(Ordering::Relaxed);
+        for page_offset in (offset..(offset + len)).step_by(NORMAL_PAGE_SIZE) {
+            if page_offset < current_size {
+                let _ = self.request_page(page_offset);
+            }
+        }
         self.anonymous_vmo.clone_range(offset, len)
     }
 
@@ -437,4 +453,12 @@ impl PagedBackingStore for FileVmo {
     fn is_dirty(&self, offset: usize) -> bool { self.anonymous_vmo.is_dirty(offset) }
 
     fn clear_dirty(&self, offset: usize) { self.anonymous_vmo.clear_dirty(offset); }
+
+    fn get_node(&self) -> Option<Arc<dyn VfsNode>> {
+        self.node.upgrade()
+    }
+
+    fn peek_page(&self, offset: usize) -> Option<usize> { 
+        self.anonymous_vmo.peek_page(offset) 
+    }
 }

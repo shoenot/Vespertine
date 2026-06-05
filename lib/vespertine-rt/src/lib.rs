@@ -53,9 +53,14 @@ pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc {
     inner: Mutex::new(None),
 };
 
+pub static mut MAIN_MEM_POOL: HandleID = HandleID(0);
+
 pub fn init_heap() {
     let mem_man = get_memory_manager().expect("MemoryManger not found");
     let pool = create_private_pool(mem_man).expect("Failed to create MemPool");
+    unsafe {
+        MAIN_MEM_POOL = pool;
+    }
 
     let op = MemPoolOp::AllocateVmo { size: ARENA_SIZE };
     let vmo_id =

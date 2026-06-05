@@ -37,6 +37,7 @@ use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::socket::SocketEndpoint;
 use crate::core::object::models::thread::Thread;
 use crate::core::object::obj::KernelObject;
+use crate::core::object::vfs::proc_cpy_handle;
 use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
@@ -156,7 +157,7 @@ impl ProcessControlBlock {
 impl KernelObject for ProcessControlBlock {
     fn type_name(&self) -> &'static str { "Process" }
 
-    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Proc(ProcOp::Kill) => {
                 self.is_terminated.store(true, Ordering::SeqCst);
@@ -171,7 +172,6 @@ impl KernelObject for ProcessControlBlock {
                 let tp = ThreadPriority::from(priority);
                 let proc = get_current_process().ok_or(InvocationError::ThreadSpawnFail)?;
                 let thread = spawn_user_thread(entry, stack_top, arg, tp, proc.clone());
-                self.active_threads.fetch_add(1, Ordering::Relaxed);
                 let obj = Arc::new(Thread { tcb: thread });
                 let id = self.proc_handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
@@ -192,6 +192,18 @@ impl KernelObject for ProcessControlBlock {
                     write_to_msr(fs_base as u64, 0xC000_0100);
                 }
                 Ok(0)
+            }
+            Invocation::Proc(ProcOp::InsertHandle { source_handle, rights }) => {
+                if !calling_rights.contains(AccessRights::MUTATE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+                let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let obj = caller.proc_handles.read().resolve(source_handle, rights)?;
+                let new_handle_id = self.proc_handles.write().insert(obj, rights);
+                Ok(new_handle_id.0)
+            }
+            Invocation::Proc(ProcOp::Mprotect { vaddr, len, prot }) => {
+                self.vmm.write().mprotect(vaddr, len, prot).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }

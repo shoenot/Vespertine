@@ -5,11 +5,10 @@ use alloc::sync::Arc;
 use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use vespertine_abi::{Invocation, ProcOp};
+use vespertine_abi::{Invocation, ProcOp, HandleID};
 
 use crate::{
     get_init_pkg,
-    memory::{create_private_pool, get_memory_manager},
     syscall::{SysError, sys_invoke, sys_mmap},
 };
 
@@ -53,9 +52,11 @@ pub fn spawn<F>(f: F) -> Result<JoinHandle, SysError>
 where 
     F: FnOnce() + Send + 'static, 
 {
-    // allocate stack
-    let mem_man = get_memory_manager()?;
-    let pool = create_private_pool(mem_man)?;
+    // allocate stack from main memory pool directly to avoid deadlocks
+    let pool = unsafe { crate::MAIN_MEM_POOL };
+    if pool == HandleID(0) {
+        return Err(SysError::InvalidHandle);
+    }
     let stack_base = sys_mmap(pool, DEFAULT_STACK_SIZE, 0, VM_FLAGS_STACK)?;
     let stack_top = stack_base + DEFAULT_STACK_SIZE;
 

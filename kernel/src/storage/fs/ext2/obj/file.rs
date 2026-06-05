@@ -16,10 +16,7 @@ use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::{
-    RwLock,
-    TicketLock,
-};
+use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::memory::vmo::{
     FileVmo,
@@ -43,7 +40,6 @@ pub struct Ext2File {
     pub inode_num: u32,
     pub inode_data: RwLock<DiskInode>,
     pub file_vmo: Arc<FileVmo>,
-    pub offset: TicketLock<usize>,
     pub write_lock: AsyncMutex<()>,
 }
 
@@ -58,9 +54,8 @@ impl KernelObject for Ext2File {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
                 let bytes_read = self.read_bytes_async(offset, buffer_ptr, len).await?;
-
                 Ok(bytes_read)
-            }
+            },
             Invocation::File(FileOp::Stat) => Ok(self.inode_data.read().size as usize),
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
@@ -68,12 +63,15 @@ impl KernelObject for Ext2File {
                 let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
 
                 Ok(handle_id.0 as usize)
-            }
+            },
             Invocation::File(FileOp::Write { offset, buffer_ptr, len }) => {
                 let bytes_written = self.write_bytes_async(offset, buffer_ptr, len).await?;
-
                 Ok(bytes_written)
-            }
+            },
+            Invocation::File(FileOp::Seek { .. }) => {
+                // Seek is now exclusively handled by the per-process FileDescription wrapper
+                Err(InvocationError::UnsupportedOperation)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

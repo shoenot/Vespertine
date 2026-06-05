@@ -4,7 +4,7 @@ use core::sync::atomic::Ordering;
 
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
-    TAG_SYS_CLOCK, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC
+    TAG_SYS_CLOCK, TAG_SYS_MEMMAN, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC
 };
 use vespertine_abi::{
     AccessRights,
@@ -74,6 +74,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
         let pm_handle = kernel_walk("/System/Services/ProcessManager", HandleID(0)).await.expect("[FATAL] No Process Manager found");
         let sf_handle = kernel_walk("/System/Services/SocketFactory", HandleID(0)).await.expect("[FATAL] No Socket Factory found");
+        let mm_handle = kernel_walk("/System/Services/MemoryManager", HandleID(0)).await.expect("[FATAL] No Memory Manager found");
+        let clk_handle = kernel_walk("/System/Services/Clock", HandleID(0)).await.expect("[FATAL] No Clock Service found");
 
         // userspace init proc
         let screen_writer = Arc::new(ScreenWriter {});
@@ -88,6 +90,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let extra_handles = [
             HandleGrant { id: pm_handle, rights: AccessRights::all(), tag: TAG_SYS_PROCMAN },
             HandleGrant { id: sf_handle, rights: AccessRights::all(), tag: TAG_SYS_SOCKFAC },
+            HandleGrant { id: mm_handle, rights: AccessRights::all(), tag: TAG_SYS_MEMMAN },
+            HandleGrant { id: clk_handle, rights: AccessRights::all(), tag: TAG_SYS_CLOCK },
         ];
 
         let spawn_op = ProcManOp::Spawn {

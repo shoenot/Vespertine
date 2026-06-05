@@ -57,8 +57,10 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
 
                     match expired.payload {
                         CalloutPayload::WakeThread(tcb_ptr) => unsafe {
-                            (*tcb_ptr).state = ThreadState::Ready;
-                            get_core_data().scheduler.push(tcb_ptr);
+                            if (*tcb_ptr).state == ThreadState::Blocked {
+                                (*tcb_ptr).state = ThreadState::Ready;
+                                get_core_data().scheduler.push(tcb_ptr);
+                            }
                         },
                         CalloutPayload::WakeWaker(waker) => {
                             waker.wake();

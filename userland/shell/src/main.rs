@@ -138,6 +138,22 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                 sock.close_write();
                 print_stream(&sock)?;
+            },
+            "kilo" => {
+                let mut sock = Socket::new().expect("Error creating socket pair");
+                match Exec::new("kilo")
+                    .args(&args_vec)
+                    .sink(sock.write_handle()?)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .inherit_capabilities()
+                    .spawn()
+                {
+                    Ok(_) => {}
+                    Err(e) => println!("[ERROR] kilo spawn error: {:?}", e),
+                }
+
+                sock.close_write();
+                print_stream(&sock)?;
             }
             other => {
                 println!("unknown command: {}", other)

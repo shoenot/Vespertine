@@ -4,7 +4,7 @@ use vespertine_abi::{
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_rt::syscall::sys_invoke;
+use vespertine_rt::syscall::{sys_close, sys_invoke};
 
 use crate::{Error, ErrorKind, env, fs::Dir};
 
@@ -114,5 +114,11 @@ impl Exec {
         Ok(Process {
             handle: HandleID(handle),
         })
+    }
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        let _ = sys_close(self.handle);
     }
 }

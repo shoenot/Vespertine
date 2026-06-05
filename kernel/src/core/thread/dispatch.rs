@@ -95,6 +95,9 @@ pub fn spawn_user_thread(
 
 pub fn wake_thread(thread: *mut ThreadControlBlock) {
     unsafe {
+        if (*thread).state != ThreadState::Blocked {
+            return;
+        };
         (*thread).state = ThreadState::Ready;
 
         let this_core = get_core_data().logical_id;
@@ -136,8 +139,9 @@ pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc
 
     // init TCB
     unsafe {
-        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc);
+        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc.clone());
     }
+    proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
     Ok(tcb_ptr)
 }
@@ -164,8 +168,9 @@ pub fn create_user_tcb(
 
     // init TCB
     unsafe {
-        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc);
+        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc.clone());
     }
+    proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
     Ok(tcb_ptr)
 }

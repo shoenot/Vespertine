@@ -166,8 +166,13 @@ impl BlockCache {
         if let Some((old_block, old_data)) = old_writeback {
             let start_sector = old_block as u64 * self.sectors_per_block as u64;
             let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
-            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
-            write_future.await?;
+            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64);
+            if write_future.is_err() || write_future.unwrap().await.is_err() {
+                let mut inner = self.inner.lock();
+                inner.entries[idx].in_flight = false;
+                return Err(());
+            }
+            drop(old_data);
 
             {
                 let mut inner = self.inner.lock();
@@ -186,8 +191,12 @@ impl BlockCache {
             inner.entries[idx].data.as_ptr() as usize - *HHDMOFFSET
         };
 
-        let read_future = self.device.read_sectors(new_sector, self.sectors_per_block as u32, entry_phys as u64)?;
-        read_future.await?;
+        let read_future = self.device.read_sectors(new_sector, self.sectors_per_block as u32, entry_phys as u64);
+        if read_future.is_err() || read_future.unwrap().await.is_err() {
+            let mut inner = self.inner.lock();
+            inner.entries[idx].in_flight = false;
+            return Err(());
+        }
 
         {
             let mut inner = self.inner.lock();
@@ -289,8 +298,12 @@ impl BlockCache {
         if let Some((old_block, old_data)) = old_writeback {
             let start_sector = old_block as u64 * self.sectors_per_block as u64;
             let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
-            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
-            write_future.await?;
+            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64);
+            if write_future.is_err() || write_future.unwrap().await.is_err() {
+                let mut inner = self.inner.lock();
+                inner.entries[idx].in_flight = false;
+                return Err(());
+            }
 
             {
                 let mut inner = self.inner.lock();

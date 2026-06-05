@@ -296,6 +296,13 @@ impl SchedulerState {
 
     pub fn terminate(&mut self) {
         unsafe {
+            let proc = &(*self.current_thread).process;
+            let active = proc.active_threads.fetch_sub(1, core::sync::atomic::Ordering::SeqCst);
+            if active == 1 {
+                proc.is_terminated.store(true, core::sync::atomic::Ordering::SeqCst);
+                proc.proc_handles.write().clear();
+            }
+
             disable_interrupts();
             (*self.current_thread).state = ThreadState::Terminated;
             {

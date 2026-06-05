@@ -6,6 +6,7 @@ use vespertine_abi::{
     HandleID,
 };
 
+use crate::core::object::models::brokerport::ResourceBrokerPort;
 use crate::core::object::models::clock::Clock;
 use crate::core::object::models::directory::*;
 use crate::core::object::models::memman::MemoryManager;
@@ -75,6 +76,10 @@ pub async fn init_vfs() {
     let socket_fac = Arc::new(SocketFactory {});
     let socket_fac_handle = kernel_register_obj(socket_fac, AccessRights::all());
     mount_kernel_dir("SocketFactory", socket_fac_handle, srv_handle).await;
+
+    let broker = Arc::new(ResourceBrokerPort::new());
+    let broker_handle = kernel_register_obj(broker, AccessRights::all());
+    mount_kernel_dir("ResourceBroker", broker_handle, srv_handle).await;
 
     let fb_obj = Arc::new(init_framebuffer());
     let fb_handle = kernel_register_obj(fb_obj, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);

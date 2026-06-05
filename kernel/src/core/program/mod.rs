@@ -2,9 +2,13 @@ pub mod env;
 pub mod parser;
 use alloc::alloc::{
     Layout,
-    alloc,
+    alloc, dealloc,
 };
+
+use alloc::string::String;
+use alloc::vec;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::ptr::{copy_nonoverlapping, write_bytes};
 use core::slice::from_raw_parts;
 use core::{
@@ -23,6 +27,8 @@ use vespertine_abi::{
 use crate::arch::get_core_data;
 use crate::core::object::models::process::Process;
 use crate::core::object::models::vmo::VmoObject;
+use crate::core::object::obj::KernelObject;
+use crate::core::object::vfs::kernel_walk;
 use crate::core::thread::{
     ThreadControlBlock,
     get_current_process,
@@ -73,46 +79,49 @@ impl fmt::Display for LoaderError {
     }
 }
 
-pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, usize, usize), LoaderError> {
-    klogln!("load elf 1");
-    // IN USER THREAD CONTEXT
-    let file_obj =
-        get_current_process().ok_or(LoaderError::FileReadError)?.proc_handles.read().resolve(file_handle, AccessRights::READ).map_err(
-            |e| {
-                klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
-                LoaderError::FileReadError
-            },
-        )?;
+pub struct ElfLoadResult {
+    pub entry_point: usize,
+    pub phdr_addr: usize,
+    pub phnum: usize,
+    pub base_addr: usize,
+    pub interpreter_entry: Option<usize>,
+}
 
+async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError>{
     // SWITCH TO KERNEL PROCESS TEMPORARILY
-    let current_thread = get_core_data().scheduler.get_current_thread();
-
-    klogln!("load elf 2");
-    let thread_addr = current_thread as usize;
-    let old_proc = unsafe { (*current_thread).process.clone() };
-
-    unsafe {
-        (*current_thread).process = KERNEL_PROCESS.get().unwrap().clone();
-    }
-
     // read only first 4k to parse headers
-    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ).await.map_err(|e| {
-        klogln!("[ERROR] load_elf: Stat failed: {:?}", e);
+
+    let (file_size, old_proc, thread_addr) = {
+        let current_thread = get_core_data().scheduler.get_current_thread();
+        let thread_addr = current_thread as usize;
+        let old_proc = unsafe { (*current_thread).process.clone() };
+
+        // print the process' handle table before switching out: 
+        // klogln!("table: {:?}", old_proc.proc_handles.read().entries);
+
+        unsafe {
+            (*current_thread).process = KERNEL_PROCESS.get().unwrap().clone();
+        }
+        (file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ), old_proc, thread_addr)
+    };
+
+    let file_size = file_size.await.map_err(|e| {
+        klogln!("[ERROR] read_elf_header: Stat failed: {:?}", e);
         LoaderError::FileReadError
     })?;
     let header_read_size = cmp::min(file_size, 4096);
-    klogln!("load elf 3");
 
-    let file_layout = Layout::from_size_align(header_read_size, 8).map_err(|_| LoaderError::FileReadError)?;
-    let buffer_ptr = unsafe { alloc(file_layout) as *mut u8 };
-    let buf_addr = buffer_ptr as usize;
+    let (buf_addr, file_layout) = {
+        let file_layout = Layout::from_size_align(header_read_size, 8).map_err(|_| LoaderError::FileReadError)?;
+        let buffer_ptr = unsafe { alloc(file_layout) };
+        (buffer_ptr as usize, file_layout)
+    };
 
     let read_result = file_obj
-        .invoke(Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buffer_ptr as usize, len: header_read_size }), AccessRights::READ);
+        .invoke(Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buf_addr as usize, len: header_read_size }), AccessRights::READ);
 
-    // RESTORE USER PROCESS TO DROP PRIVILEGES
-    let thread_ptr = thread_addr as *mut ThreadControlBlock;
     unsafe {
+        let thread_ptr = thread_addr as *mut ThreadControlBlock;
         (*thread_ptr).process = old_proc;
     }
 
@@ -120,10 +129,25 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
         klogln!("[ERROR] load_elf: Read failed: {:?}", e);
         LoaderError::FileReadError
     })?;
-    let file_bytes = unsafe { from_raw_parts(buf_addr as *mut u8, header_read_size) };
 
-    let header = Elf64_Ehdr::from_bytes(file_bytes)?;
-    let ph_iter = header.prog_headers(file_bytes).unwrap();
+    let mut header_vec = vec![0u8; header_read_size]; 
+    unsafe {
+        copy_nonoverlapping(buf_addr as *const u8, header_vec.as_mut_ptr(), header_read_size);
+        dealloc(buf_addr as *mut u8, file_layout);
+    }
+
+    let ehdr = *Elf64_Ehdr::from_bytes(&header_vec)?;
+    Ok((header_vec, ehdr))
+}
+
+async fn map_elf_segments(
+    file_obj: &Arc<dyn KernelObject>,
+    header: &Elf64_Ehdr,
+    file_bytes: &[u8],
+    proc: &Process,
+    load_base: usize,
+) -> Result<usize, LoaderError> {
+    let ph_iter = header.prog_headers(file_bytes).ok_or(LoaderError::InvalidBuffer)?;
 
     let vmo_handle_id = file_obj.invoke(Invocation::File(FileOp::GetVmo), AccessRights::READ).await.map_err(|e| {
         klogln!("[ERROR] load_elf: GetVmo failed: {:?}", e);
@@ -153,14 +177,14 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
             klogln!(
                 "[INFO] Mapping Segment: file offset 0x{:X} -> virt addr 0x{:X} file size: {}, mem_size: {}",
                 ph.p_offset,
-                ph.p_vaddr,
+                load_base + ph.p_vaddr as usize,
                 ph.p_filesz,
                 ph.p_memsz
             );
 
-            let aligned_vaddr = (ph.p_vaddr & !0xFFF) as usize;
+            let aligned_vaddr = ((load_base + ph.p_vaddr as usize) & !0xFFF);
             let aligned_offset = (ph.p_offset & !0xFFF) as usize;
-            let offset_in_page = (ph.p_vaddr & 0xFFF) as usize;
+            let offset_in_page = ((load_base + ph.p_vaddr as usize) & 0xFFF);
             let total_map_size = align_up(offset_in_page + ph.p_memsz as usize);
 
             let mut vm_flags = VM_FLAG_USER;
@@ -173,7 +197,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
 
             let (segment_vmo, map_offset) = if ph.p_filesz == 0 {
                 (Vmo::new(total_map_size) as Arc<dyn PagedBackingStore>, 0)
-            } else if ph.p_memsz as usize > ph.p_filesz as usize {
+            } else if ph.p_memsz as usize > ph.p_filesz as usize || (ph.p_flags & PF_W) != 0 {
                 if (ph.p_vaddr % NORMAL_PAGE_SIZE as u64) != (ph.p_offset % NORMAL_PAGE_SIZE as u64) {
                     klogln!("[ERROR] load_elf: Misaligned segment virtual address and file offset");
                     return Err(LoaderError::FileReadError);
@@ -229,8 +253,6 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
             })?;
         }
     }
-
-    klogln!("load elf 4");
     if phdr_addr == 0 {
         for ph in header.prog_headers(file_bytes).unwrap() {
             if ph.p_type == 1 && ph.p_offset == 0 {
@@ -240,7 +262,75 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<(usize, u
             }
         }
     }
+    Ok(phdr_addr)
+}
 
-    klogln!("[INFO] Ready to jump to entry 0x{:X}", header.e_entry);
-    Ok((header.e_entry as usize, phdr_addr, header.e_phnum as usize))
+pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadResult, LoaderError> {
+    let file_obj = get_current_process()
+        .ok_or(LoaderError::FileReadError)?
+        .proc_handles
+        .read()
+        .resolve(file_handle, AccessRights::READ)
+        .map_err(|e| {
+            klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
+            LoaderError::FileReadError
+        })?;
+
+    let (file_bytes, header) = read_elf_header(&file_obj).await?;
+
+    // check if there is an interpreter (PT_INTERP) segment
+    let ph_iter = header.prog_headers(&file_bytes).ok_or(LoaderError::InvalidBuffer)?;
+    let mut interpreter_path: Option<String> = None;
+    for ph in ph_iter {
+        if ph.p_type == P_Type::PT_INTERP as u32 {
+            let interp_offset = ph.p_offset as usize;
+            let interp_len = ph.p_filesz as usize;
+            if interp_offset + interp_len <= file_bytes.len() {
+                let raw_path = &file_bytes[interp_offset..interp_offset + interp_len];
+                let len = raw_path.iter().position(|&b| b == 0).unwrap_or(raw_path.len());
+                if let Ok(path_str) = str::from_utf8(&raw_path[..len]) {
+                    interpreter_path = Some(String::from(path_str));
+                }
+            }
+        }
+    }
+
+    let main_phdr_addr = map_elf_segments(&file_obj, &header, &file_bytes, proc, 0).await?;
+
+    let mut load_result = ElfLoadResult {
+        entry_point: header.e_entry as usize,
+        phdr_addr: main_phdr_addr,
+        phnum: header.e_phnum as usize,
+        base_addr: 0,
+        interpreter_entry: None,
+    };
+
+    if let Some(path) = interpreter_path {
+        klogln!("[INFO] ELF requires interpreter: {}", path);
+
+        let interp_handle = kernel_walk(&path, HandleID(0)).await.map_err(|e| {
+            klogln!("[ERROR] load_elf: Failed to resolve interpreter path {}: {:?}", path, e);
+            LoaderError::FileReadError
+        })?;
+
+        let interp_obj = {
+            let proc = get_current_process().ok_or(LoaderError::FileReadError)?;
+            let obj = proc.proc_handles.read().resolve(interp_handle, AccessRights::READ)
+                .map_err(|_| LoaderError::FileReadError)?;
+            let _ = proc.proc_handles.write().close(interp_handle);
+            obj
+        };
+
+        // KEEP INTERPRETER FILE ALIVE FOR PAGE FAULTS:
+        proc.proc_handles.write().insert(interp_obj.clone(), AccessRights::READ);
+
+        let (interp_bytes, interp_header) = read_elf_header(&interp_obj).await?;
+
+        let interp_base = 0x40_0000_0000;
+        let _interp_phdr_addr = map_elf_segments(&interp_obj, &interp_header, &interp_bytes, proc, interp_base).await?;
+
+        load_result.base_addr = interp_base;
+        load_result.interpreter_entry = Some(interp_base + interp_header.e_entry as usize);
+    }
+    Ok(load_result)
 }

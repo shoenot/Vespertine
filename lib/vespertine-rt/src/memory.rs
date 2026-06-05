@@ -2,21 +2,67 @@ use core::{ptr::null_mut, sync::atomic::AtomicUsize};
 
 use crate::{
     get_init_pkg,
-    syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_wait, sys_write},
+    syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_write, sys_wait},
 };
 use vespertine_abi::{
     HandleID, Invocation, MemManOp, MemPoolOp, ProcOp, Signal, VmoOp,
-    protocol::{MemoryRequest, ResourceResponse},
-    tag::TAG_SYS_RES_MAN,
+    protocol::{MemoryRequest, ResourceResponse, BrokerRequest, BrokerResponse},
+    tag::{TAG_SYS_RES_MAN, TAG_SYS_MEMMAN},
 };
 use vespertine_common::slab::PageProvider;
 
 pub fn get_memory_manager() -> Result<HandleID, SysError> {
+    // 1. Check if the MemoryManager is already in the extra handles (e.g. for hesper)
+    let pkg = get_init_pkg();
+    if !pkg.is_null() {
+        if let Some(grant) = unsafe { (*pkg).ext().iter().find(|g| g.tag == TAG_SYS_MEMMAN) } {
+            return Ok(grant.id);
+        }
+    }
+
     let root = HandleID(0);
     let sys_dir = sys_lookup(root, "System")?;
     let srv_dir = sys_lookup(sys_dir, "Services")?;
-    let mem_man = sys_lookup(srv_dir, "MemoryManager")?;
-    Ok(mem_man)
+
+    // 2. Try to use the Resource Broker first
+    if let Ok(broker) = sys_lookup(srv_dir, "ResourceBroker") {
+        let conn_res = sys_invoke(broker, &Invocation::Broker(vespertine_abi::BrokerOp::Connect { socket_to_give: HandleID(0) }));
+        let _ = sys_close(broker);
+
+        if let Ok(conn_val) = conn_res {
+            let conn_sock = HandleID(conn_val);
+
+            // Query for the Memory Manager
+            let req = BrokerRequest { tag: TAG_SYS_MEMMAN };
+            let req_ptr = &req as *const _ as *const u8;
+            let req_size = core::mem::size_of::<BrokerRequest>();
+            
+            if sys_write(conn_sock, req_ptr, req_size, 0).is_ok() {
+                let mut resp = BrokerResponse { handle: 0 };
+                let resp_ptr = &mut resp as *mut _ as *mut u8;
+                let resp_size = core::mem::size_of::<BrokerResponse>();
+
+                if sys_read(conn_sock, resp_ptr, resp_size, 0).is_ok() && resp.handle != 0 {
+                    let _ = sys_close(conn_sock);
+                    let _ = sys_close(sys_dir);
+                    let _ = sys_close(srv_dir);
+                    return Ok(HandleID(resp.handle));
+                }
+            }
+            let _ = sys_close(conn_sock);
+        }
+    }
+
+    // 3. Fallback to direct path lookup
+    if let Ok(mem_man) = sys_lookup(srv_dir, "MemoryManager") {
+        let _ = sys_close(sys_dir);
+        let _ = sys_close(srv_dir);
+        return Ok(mem_man);
+    }
+
+    let _ = sys_close(sys_dir);
+    let _ = sys_close(srv_dir);
+    Err(SysError::InvalidHandle)
 }
 
 pub fn create_private_pool(mem_man: HandleID) -> Result<HandleID, SysError> {

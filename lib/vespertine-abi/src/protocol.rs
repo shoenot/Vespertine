@@ -60,3 +60,16 @@ pub struct MemoryRequest {
 pub struct ResourceResponse {
     pub status: u8,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct BrokerRequest {
+    pub tag: usize,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct BrokerResponse {
+    pub handle: usize,
+}
+

@@ -28,6 +28,7 @@ use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::Filename;
 use crate::core::object::obj::KernelObject;
+use crate::core::object::vfs::FileDescription;
 use crate::core::sync::{
     RwLock,
     TicketLock,
@@ -97,7 +98,8 @@ impl KernelObject for Ext2Directory {
                     if let Some(weak_file) = files.get(&child_inode_id) {
                         cached = weak_file.upgrade();
                     }
-                    if let Some(arc_file) = cached {
+                    
+                    let base_file = if let Some(arc_file) = cached {
                         arc_file
                     } else {
                         // new_cyclic passes a weak ptr to the ext2file being built
@@ -109,13 +111,17 @@ impl KernelObject for Ext2Directory {
                                 inode_num: child_inode_id,
                                 inode_data: RwLock::new(child_inode_data.clone()),
                                 file_vmo: FileVmo::new(child_inode_data.size as usize, weak_node),
-                                offset: TicketLock::new(0),
                                 write_lock: AsyncMutex::new(()),
                             }
                         });
                         files.insert(child_inode_id, Arc::downgrade(&new_file));
                         new_file
-                    }
+                    };
+
+                    Arc::new(FileDescription::new(
+                        base_file as Arc<dyn KernelObject>,
+                        child_inode_data.size as usize
+                    )) as Arc<dyn KernelObject>
                 };
 
                 let rights = AccessRights(calling_rights.0 & (AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE).0);
@@ -462,7 +468,6 @@ impl KernelObject for Ext2Directory {
                         inode_num: new_inode_num,
                         inode_data: RwLock::new(child_inode),
                         file_vmo: FileVmo::new(0, weak_node),
-                        offset: TicketLock::new(0),
                         write_lock: AsyncMutex::new(()),
                     }
                 });
@@ -470,9 +475,14 @@ impl KernelObject for Ext2Directory {
                 // cache file in active node cache
                 self.fs.active_files.lock().insert(new_inode_num, Arc::downgrade(&new_file));
 
+                let file_desc = Arc::new(FileDescription::new(
+                    new_file as Arc<dyn KernelObject>,
+                    0 // Size is 0 for a newly created file
+                ));
+
                 // register standard handle for the active process
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle_id = proc.proc_handles.write().insert(new_file, AccessRights::all());
+                let handle_id = proc.proc_handles.write().insert(file_desc, AccessRights::all());
 
                 Ok(handle_id.0)
             }

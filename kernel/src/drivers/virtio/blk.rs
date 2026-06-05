@@ -472,9 +472,25 @@ impl VirtioBlockDevice {
             let (d0, d1, d2, last_seen) = {
                 let mut vq = vq_state.vq.lock();
 
-                let d0 = vq.alloc_desc()? as u16;
-                let d1 = vq.alloc_desc()? as u16;
-                let d2 = vq.alloc_desc()? as u16;
+                let d0 = match vq.alloc_desc() {
+                    Ok(d) => d as u16,
+                    Err(_) => return Err(()),
+                };
+                let d1 = match vq.alloc_desc() {
+                    Ok(d) => d as u16,
+                    Err(_) => {
+                        vq.free_desc(d0);
+                        return Err(());
+                    }
+                };
+                let d2 = match vq.alloc_desc() {
+                    Ok(d) => d as u16,
+                    Err(_) => {
+                        vq.free_desc(d0);
+                        vq.free_desc(d1);
+                        return Err(());
+                    }
+                };
 
                 // chain desc 0 - header
                 let desc0 = vq.desc.add(d0 as usize);

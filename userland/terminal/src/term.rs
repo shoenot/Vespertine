@@ -1,4 +1,4 @@
-use core::cmp;
+use core::{cmp, ptr::{read_volatile, write_volatile}};
 
 use alloc::{format, vec::Vec};
 use vespertine_abi::HandleID;
@@ -242,37 +242,49 @@ impl TerminalGrid {
         }
     }
 
-    fn scroll(&mut self) {
-        let row_cells = self.width_chars;
-        let cells_len = self.cells.len();
-        self.cells.copy_within(row_cells..cells_len, 0);
+        fn scroll(&mut self) {
+            let row_cells = self.width_chars;
+            let cells_len = self.cells.len();
+            self.cells.copy_within(row_cells..cells_len, 0);
 
-        let last_row_start = (self.height_chars - 1) * self.width_chars;
-        for i in last_row_start..self.cells.len() {
-            self.cells[i] = Cell {
-                char: ' ',
-                fg: self.current_fg,
-                bg: self.current_bg,
-            };
+            let last_row_start = (self.height_chars - 1) * self.width_chars;
+            for i in last_row_start..self.cells.len() {
+                self.cells[i] = Cell {
+                    char: ' ',
+                    fg: self.current_fg,
+                    bg: self.current_bg,
+                };
+            }
+
+            let info = self.fb.info();
+            let screen_words = info.pitch / 4;
+
+            let dst_start = PADDING_Y * screen_words;
+            let src_start = (PADDING_Y + 16) * screen_words;
+            let num_lines = (self.height_chars - 1) * 16;
+
+            unsafe {
+                let ptr = self.fb.pixel_ptr;
+                for y in 0..num_lines {
+                    let dest_row = ptr.add(dst_start + y * screen_words);
+                    let src_row = ptr.add(src_start + y * screen_words);
+                    for x in 0..screen_words {
+                        write_volatile(dest_row.add(x), read_volatile(src_row.add(x)));
+                    }
+                }
+            }
+
+            // fill bottom 16 scanlines with bg color
+            unsafe {
+                let ptr = self.fb.pixel_ptr;
+                let last_row_y_start = PADDING_Y + (self.height_chars - 1) * 16;
+                let start_word = last_row_y_start * screen_words;
+                let total_words = self.fb.size_in_bytes / 4;
+                for i in start_word..total_words {
+                    write_volatile(ptr.add(i), self.current_bg);
+                }
+            }
         }
-
-        let info = self.fb.info();
-        let screen_words = info.pitch / 4;
-
-        let dst_start = PADDING_Y * screen_words;
-        let src_start = (PADDING_Y + 16) * screen_words;
-        let count = (self.height_chars - 1) * 16 * screen_words;
-
-        let pixels = self.fb.pixels_mut();
-        pixels.copy_within(src_start..(src_start + count), dst_start);
-
-        // fill bottom 16 scanlines with bg color
-        let last_row_y_start = (self.height_chars - 1) * 16;
-        let start_word = last_row_y_start * screen_words;
-        for i in start_word..pixels.len() {
-            pixels[i] = self.current_bg;
-        }
-    }
 
     pub fn clear_screen(&mut self) {
         let _w = self.width_chars;

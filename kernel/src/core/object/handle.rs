@@ -14,12 +14,12 @@ use crate::core::object::obj::{
 
 #[derive(Debug)]
 pub struct HandleTable {
-    entries: BTreeMap<HandleID, HandleEntry>,
+    pub entries: BTreeMap<HandleID, HandleEntry>,
     next_id: usize,
 }
 
 impl HandleTable {
-    pub const fn new() -> Self { Self { entries: BTreeMap::new(), next_id: 1 } }
+    pub const fn new() -> Self { Self { entries: BTreeMap::new(), next_id: 100 } }
 
     pub fn insert(&mut self, obj: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {
         let id = HandleID(self.next_id);

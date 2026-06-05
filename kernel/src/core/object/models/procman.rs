@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr::null;
+use crate::klogln;
 
 use async_trait::async_trait;
 use vespertine_abi::op::ProcManOp;
@@ -108,8 +109,7 @@ impl KernelObject for ProcessManager {
                 let new_proc = ProcessControlBlock::new(new_proc_table);
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
-                let (entry_point, phdr_addr, phnum) =
-                    { load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)? };
+                let load_result = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?;
 
                 // insert self handle at 0 after creating process
                 new_proc.proc_handles.write().insert_at(
@@ -137,7 +137,7 @@ impl KernelObject for ProcessManager {
                 }
 
                 // stack building
-                let stack_size = 8192 * 2; // cba to calculate 16 kbs, fix later
+                let stack_size = 1024 * 1024; // 1 MB
                 let stack_vmo = Vmo::new(stack_size);
 
                 let stack_addr = new_proc
@@ -168,14 +168,16 @@ impl KernelObject for ProcessManager {
                         &args_buffer,
                         argc,
                         initpkg,
-                        entry_point,
-                        phdr_addr,
-                        phnum,
+                        load_result.entry_point,
+                        load_result.phdr_addr,
+                        load_result.phnum,
+                        load_result.base_addr,
                     )?
                 };
 
                 // spawn thread, passing the struct pointer as an arg
-                spawn_user_thread(entry_point, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone());
+                let start_ip = load_result.interpreter_entry.unwrap_or(load_result.entry_point);
+                spawn_user_thread(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone());
 
                 let new_handle_id =
                     parent_proc.proc_handles.write().insert(new_proc, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);

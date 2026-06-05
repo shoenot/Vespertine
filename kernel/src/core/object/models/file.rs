@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::cmp::min;
 
+
 use async_trait::async_trait;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
@@ -13,6 +14,7 @@ use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
+use crate::core::sync::TicketLock;
 use crate::core::thread::get_current_process;
 use crate::memory::vmo::{
     PagedBackingStore,
@@ -28,6 +30,7 @@ use crate::memory::{
 pub struct FileObj {
     addr: *const u8,
     size: usize,
+    offset: TicketLock<usize>,
 }
 
 unsafe impl Send for FileObj {}
@@ -37,7 +40,21 @@ unsafe impl Sync for FileObj {}
 impl KernelObject for FileObj {
     async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => self.read_file(offset, buffer_ptr as *mut u8, len),
+            Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
+                let mut current_offset = offset;
+                let use_cursor = offset == usize::MAX;
+                if use_cursor {
+                    current_offset = *self.offset.lock();
+                }
+
+                let bytes_read = self.read_file(current_offset, buffer_ptr as *mut u8, len)?;
+
+                if use_cursor {
+                    *self.offset.lock() += bytes_read;
+                }
+
+                Ok(bytes_read)
+            },
             Invocation::File(FileOp::Stat) => self.stat(),
             Invocation::File(FileOp::GetVmo) => {
                 let vmo = Vmo::new(self.size);
@@ -58,7 +75,23 @@ impl KernelObject for FileObj {
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
                 let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
                 Ok(handle_id.0 as usize)
-            }
+            },
+            Invocation::File(FileOp::Seek { offset, whence }) => {
+                let mut cursor = self.offset.lock();
+                let new_pos = match whence {
+                    0 => offset,
+                    1 => (*cursor as i64) + offset,
+                    2 => (self.size as i64) + offset,
+                    _ => return Err(InvocationError::UnsupportedOperation),
+                };
+
+                if new_pos < 0 {
+                    return Err(InvocationError::UnsupportedOperation);
+                }
+
+                *cursor = new_pos as usize;
+                Ok(*cursor)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -67,7 +100,7 @@ impl KernelObject for FileObj {
 }
 
 impl FileObj {
-    pub const fn new(addr: *const u8, size: usize) -> Self { Self { addr, size } }
+    pub const fn new(addr: *const u8, size: usize) -> Self { Self { addr, size, offset: TicketLock::new(0) } }
 
     // unix behavior: returns 0 if there's nothing to read
     fn read_file(&self, offset: usize, buffer_ptr: *mut u8, req_len: usize) -> Result<usize, InvocationError> {
@@ -91,3 +124,5 @@ impl FileObj {
 
     fn stat(&self) -> Result<usize, InvocationError> { Ok(self.size) }
 }
+
+

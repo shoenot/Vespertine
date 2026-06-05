@@ -21,6 +21,7 @@ pub enum Invocation {
     Thread(ThreadOp),
     ProcessManager(ProcManOp),
     MemoryManager(MemManOp),
+    Broker(BrokerOp),
     MemPool(MemPoolOp),
     Clock(ClockOp),
     Socket(SocketOp),
@@ -43,8 +44,9 @@ impl Invocation {
             Invocation::Directory(DirectoryOp::CreateDir { .. }) => AccessRights::WRITE,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
             Invocation::File(FileOp::Write { .. }) => AccessRights::WRITE,
-            Invocation::File(FileOp::Stat) => AccessRights::READ,
+            Invocation::File(FileOp::Stat) => AccessRights::new(),
             Invocation::File(FileOp::GetVmo) => AccessRights::READ,
+            Invocation::File(FileOp::Seek { .. }) => AccessRights::new(),
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
@@ -54,6 +56,8 @@ impl Invocation {
             Invocation::Proc(ProcOp::Unmap { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::SpawnThread { .. }) => AccessRights::CREATE,
             Invocation::Proc(ProcOp::SetFsBase { .. }) => AccessRights::WRITE,
+            Invocation::Proc(ProcOp::InsertHandle { .. }) => AccessRights::MUTATE,
+            Invocation::Proc(ProcOp::Mprotect { .. }) => AccessRights::MUTATE,
             Invocation::Thread(ThreadOp::Kill) => AccessRights::WRITE,
             Invocation::Thread(ThreadOp::Join) => AccessRights::READ,
             Invocation::Thread(ThreadOp::GetID) => AccessRights::READ,
@@ -66,6 +70,8 @@ impl Invocation {
             Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
             Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
             Invocation::Wait(..) => AccessRights::READ,
+            Invocation::Broker(BrokerOp::Connect { .. }) => AccessRights::READ,
+            Invocation::Broker(BrokerOp::Accept) => AccessRights::READ,
         }
     }
 }

@@ -5,6 +5,7 @@ use limine::framebuffer::Framebuffer;
 use crate::boot::FRAMEBUFFER_REQUEST;
 use crate::core::object::models::framebuffer::FramebufferDevice;
 use crate::core::object::models::vmo::VmoObject;
+use crate::core::sync::TicketLock;
 use crate::drivers::logger;
 use crate::memory::HHDMOFFSET;
 use crate::memory::vmo::Vmo;
@@ -41,5 +42,5 @@ pub fn init_framebuffer() -> FramebufferDevice {
 
     let fb_vmo_obj = Arc::new(VmoObject::new(fb_vmo));
     let info = FramebufferInfo { width, height, pitch, bpp };
-    FramebufferDevice { vmo: fb_vmo_obj, info }
+    FramebufferDevice { vmo: fb_vmo_obj, info, offset: TicketLock::new(0) }
 }

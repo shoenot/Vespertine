@@ -75,6 +75,10 @@ pub enum FileOp {
     },
     Stat,
     GetVmo,
+    Seek {
+        offset: i64,
+        whence: u32,
+    },
 }
 
 #[repr(C)]
@@ -117,6 +121,15 @@ pub enum ProcOp {
     SetFsBase {
         fs_base: usize,
     },
+    InsertHandle {
+        source_handle: HandleID,
+        rights: AccessRights,
+    },
+    Mprotect {
+        vaddr: usize,
+        len: usize,
+        prot: usize,
+    }
 }
 
 #[repr(C)]
@@ -170,4 +183,11 @@ pub enum ClockOp {
 pub enum WaitOp {
     One(Signal),
     Many { items_ptr: usize, count: usize },
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum BrokerOp {
+    Connect { socket_to_give: HandleID },
+    Accept,
 }
