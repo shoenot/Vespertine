@@ -3,14 +3,18 @@
 
 mod term;
 
+use alloc::vec::Vec;
 use alloc::vec;
-use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
+use vespertine_abi::app::termios::*;
+use vespertine_abi::protocol::PacketType;
+use vespertine_abi::tag::{TAG_APP_TERMI, TAG_APP_TERMO, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{
     AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
 use vespertine_rt::syscall::{sys_create_socket, sys_invoke, sys_read, sys_sleep, sys_write_bytes};
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::fs::walk_path;
+use vespertine_std::socket::Socket;
 use vespertine_std::{Error, fb::Framebuffer};
 use vespertine_std::{ErrorKind, Exec, env};
 
@@ -51,26 +55,34 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let width_chars = (info.width - 2 * PADDING_X) / 8;
     let height_chars = (info.height - 2 * PADDING_Y) / 16;
 
-    let shell_stdin_packed = sys_create_socket(sf)?;
-    let shell_stdout_packed = sys_create_socket(sf)?;
+    let app_stdin_packed = sys_create_socket(sf)?;
+    let app_stdout_packed = sys_create_socket(sf)?;
     let blink_packed = sys_create_socket(sf)?;
+    let control_read_packed = sys_create_socket(sf)?;
+    let control_write_packed = sys_create_socket(sf)?;
 
-    let shell_stdin_write = shell_stdin_packed.1;
-    let shell_stdin_read = shell_stdin_packed.0;
-    let shell_stdout_read = shell_stdout_packed.0;
-    let shell_stdout_write = shell_stdout_packed.1;
+    let app_stdin_write = app_stdin_packed.1;
+    let app_stdin_read = app_stdin_packed.0;
+    let app_stdout_read = app_stdout_packed.0;
+    let app_stdout_write = app_stdout_packed.1;
+
     let blink_read = blink_packed.0;
     let blink_write = blink_packed.1;
+
+    let control_read_app = control_read_packed.0;
+    let control_read_term = control_read_packed.1;
+    let control_write_term = control_write_packed.0;
+    let control_write_app = control_write_packed.1;
 
     let mut grid = TerminalGrid {
         width_chars,
         height_chars,
         cursor_x: 0,
         cursor_y: 0,
-        input_len: 0,
-        raw_mode: false,
         cursor_visible: true,
         cursor_blink_on: true,
+        termios: Termios::new(),
+        can_buffer: Vec::new(),
         current_fg: FG_COLOR,
         current_bg: BG_COLOR,
         cells: vec![
@@ -82,7 +94,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             width_chars * height_chars
         ],
         fb,
-        shell_source: shell_stdin_write,
+        app_source: app_stdin_write,
     };
 
     grid.clear_screen();
@@ -99,13 +111,25 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         rights: AccessRights::all(),
         tag: TAG_SYS_PROCMAN,
     };
+    let ctrl_read_grant = HandleGrant {
+        id: control_read_app,
+        rights: AccessRights::all(),
+        tag: TAG_APP_TERMO,
+    };
+    let ctrl_write_grant = HandleGrant {
+        id: control_write_app,
+        rights: AccessRights::all(),
+        tag: TAG_APP_TERMI,
+    };
 
     Exec::new("shell")
-        .source(shell_stdin_read)
-        .sink(shell_stdout_write)
+        .source(app_stdin_read)
+        .sink(app_stdout_write)
         .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
         .grant(pm_grant)
         .grant(sf_grant)
+        .grant(ctrl_read_grant)
+        .grant(ctrl_write_grant)
         .spawn()?;
 
     // Spawn the cursor blinker thread
@@ -121,9 +145,6 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         message: "Failed to spawn blink thread".into(),
     })?;
 
-    let mut vte_parser = vte::Parser::new();
-    let mut buf = [0u8; 256];
-
     let mut wait_items = [
         WaitItem {
             handle: kbd_handle,
@@ -131,7 +152,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             pending: Signal(0),
         },
         WaitItem {
-            handle: shell_stdout_read,
+            handle: app_stdout_read,
             signal: Signal::READABLE,
             pending: Signal(0),
         },
@@ -140,7 +161,17 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             signal: Signal::READABLE,
             pending: Signal(0),
         },
+        WaitItem {
+            handle: control_write_term,
+            signal: Signal::READABLE,
+            pending: Signal(0),
+        }
     ];
+
+    let mut vte_parser = vte::Parser::new();
+    let mut buf = [0u8; 256];
+    let ctrl_in_sock = Socket::from_read_handle(control_write_term);
+    let ctrl_out_sock = Socket::from_write_handle(control_read_term);
 
     loop {
         grid.draw_cursor(grid.cursor_blink_on);
@@ -161,32 +192,86 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             grid.cursor_blink_on = !grid.cursor_blink_on;
         }
 
-        // kbd input - fwd to shell, also echo locally
+        // kbd input - fwd to app, also echo locally
         if wait_items[0].pending.contains(Signal::READABLE) {
             grid.cursor_blink_on = true; // make it solid while typing
+            
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
-                    if grid.raw_mode {
-                        let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
-                    } else {
-                        let first_char = buf[0];
-                        if first_char == b'\x08' {
-                            // backspace
-                            if grid.input_len > 0 {
-                                grid.input_len -= 1;
-                                vte_parser.advance(&mut grid, &buf[..n]);
-                                let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
+                    for &raw_byte in &buf[..n] {
+                        let mut processed_byte = raw_byte;
+                        let iflag = grid.termios.c_iflag;
+                        let lflag = grid.termios.c_lflag;
+                        let oflag = grid.termios.c_oflag;
+
+                        let mut should_echo = false;
+
+                        // c_iflag transformations 
+                        if check_flag(iflag, ISTRIP) {
+                            processed_byte &= 0x7f; 
+                        }
+
+                        if check_flag(iflag, IUCLC) && processed_byte.is_ascii_uppercase() {
+                            processed_byte = processed_byte.to_ascii_lowercase();
+                        }
+
+                        if processed_byte == b'\r' {
+                            if check_flag(iflag, IGNCR) {
+                                continue;
                             }
+                            if check_flag(iflag, ICRNL) {
+                                processed_byte = b'\n'
+                            }
+                        } else if processed_byte == b'\n' {
+                            if check_flag(iflag, INLCR) {
+                                processed_byte = b'\r'
+                            }
+                        }
+
+                        
+                        // TODO: ISIG handling 
+                        
+                        // ECHO / ECHONL handling 
+                        if check_flag(lflag, ECHO) {
+                            should_echo = true;
+                        } else if check_flag(lflag, ECHONL) && processed_byte == b'\n' {
+                            should_echo = true;
+                        }
+
+                        if should_echo && !matches!(processed_byte, b'\x08' | b'\x7f') {
+                            if processed_byte == b'\n' && 
+                               check_flag(oflag, OPOST) &&
+                               check_flag(oflag, ONLCR) {
+                                vte_parser.advance(&mut grid, &[b'\r', b'\n']);
+                            } else {
+                                vte_parser.advance(&mut grid, &[processed_byte]);
+                            }
+                        }
+
+                        // ICANON
+                        if (grid.termios.c_lflag & ICANON) == 0 {
+                            // raw mode: send immediately to application
+                            let out_buf = [processed_byte];
+                            let _ = sys_write_bytes(app_stdin_write, &out_buf);
                         } else {
-                            // reset input_len on enter
-                            if first_char == b'\n' || first_char == b'\r' {
-                                grid.input_len = 0;
-                            } else if first_char >= 32 || first_char == b'\t' {
-                                // increment len by number of read bytes
-                                grid.input_len += n;
+                            // canonical mode: buffer locally until enter/newline
+                            match processed_byte {
+                                b'\x08' | b'\x7f' => {
+                                    if let Some(_popped) = grid.can_buffer.pop() {
+                                        if check_flag(lflag, ECHOE) {
+                                            vte_parser.advance(&mut grid, &[b'\x08', b' ', b'\x08']);
+                                        }
+                                    }
+                                }
+                                b'\n' => {
+                                    grid.can_buffer.push(b'\n');
+                                    let _ = sys_write_bytes(app_stdin_write, &grid.can_buffer);
+                                    grid.can_buffer.clear();
+                                }
+                                other => {
+                                    grid.can_buffer.push(other);
+                                }
                             }
-                            vte_parser.advance(&mut grid, &buf[..n]);
-                            let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
                         }
                     }
                 }
@@ -194,23 +279,86 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             }
         }
 
-        // shell output
+        // application output
         if wait_items[1].pending.contains(Signal::READABLE) {
-            grid.input_len = 0;
-            match sys_read(shell_stdout_read, buf.as_mut_ptr(), buf.len(), 0) {
+            let mut app_buf = [0u8; 256];
+            match sys_read(app_stdout_read, app_buf.as_mut_ptr(), app_buf.len(), 0) {
                 Ok(n) if n > 0 => {
-                    vte_parser.advance(&mut grid, &buf[..n]);
-                }
+                    let oflag = grid.termios.c_oflag;
+
+                    if check_flag(oflag, OPOST) {
+                        for &app_byte in &app_buf[..n] {
+                            let mut processed_byte = app_byte;
+
+                            if check_flag(oflag, OLCUC) && processed_byte.is_ascii_lowercase() {
+                                processed_byte = processed_byte.to_ascii_uppercase();
+                            }
+
+                            if processed_byte == b'\r' {
+                                if check_flag(oflag, OCRNL) {
+                                    processed_byte = b'\n';
+                                } else if check_flag(oflag, ONOCR) && grid.cursor_x == 0 {
+                                    continue
+                                }
+                            } else if processed_byte == b'\n' && check_flag(oflag, ONLCR) {
+                                vte_parser.advance(&mut grid, &[b'\r', b'\n']);
+                                continue
+                            }
+
+                            if processed_byte == b'\n' && check_flag(oflag, ONLRET) {
+                                grid.cursor_x = 0;
+                            }
+
+                            vte_parser.advance(&mut grid, &[processed_byte]);
+                        }
+                    } else {
+                        // raw mode
+                        vte_parser.advance(&mut grid, &app_buf[..n]);
+                    }
+                },
                 Ok(0) => {
                     break;
-                }
+                },
                 _ => {}
+            }
+        }
+
+        if wait_items[3].pending.contains(Signal::READABLE) {
+            match ctrl_in_sock.recv_packet::<TermCommand>() {
+                Ok((header, cmd)) => {
+                    match cmd {
+                        TermCommand::SetTermios(t) => grid.apply_termios(t),
+                        TermCommand::GetTermios => {
+                            let _ = ctrl_out_sock.send_packet(PacketType::Termios as u32, &grid.termios);
+                        },
+                        TermCommand::GetWindowSize => {
+                            let _ = ctrl_out_sock.send_packet::<(u32, u32)>(PacketType::TermSize as u32, &(width_chars as u32, height_chars as u32));
+                            grid.current_bg = 0x0000DD;
+                            grid.clear_screen();
+                        }
+                    }
+                },
+                Err(_) => {},
             }
         }
 
         wait_items[0].pending = Signal(0);
         wait_items[1].pending = Signal(0);
         wait_items[2].pending = Signal(0);
+        wait_items[3].pending = Signal(0);
     }
     Ok(())
+}
+
+impl TerminalGrid {
+    pub fn apply_termios(&mut self, new_termios: Termios) {
+        let old_icanon = check_flag(self.termios.c_lflag, ICANON);
+        let new_icanon = check_flag(new_termios.c_lflag, ICANON);
+
+        self.termios = new_termios;
+
+        if old_icanon && !new_icanon {
+            self.can_buffer.clear();
+        }
+    }
 }

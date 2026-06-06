@@ -26,6 +26,22 @@ pub trait Read {
             message: "Stream contains invalid UTF-8".into(),
         })
     }
+
+    fn read_exact(&self, mut buf: &mut [u8]) -> Result<(), Error> {
+        while !buf.is_empty() {
+            match self.read(buf) {
+                Ok(0) => {
+                    return Err(Error {
+                        kind: ErrorKind::OutOfMemory,
+                        message: "Unexpected end of stream during read".into(),
+                    });
+                }
+                Ok(n) => buf = &mut buf[n..],
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
 }
 
 pub trait Write {

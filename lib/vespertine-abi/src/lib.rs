@@ -4,6 +4,7 @@ mod bitwise;
 pub mod op;
 pub mod protocol;
 pub mod tag;
+pub mod app;
 
 use core::{fmt::Debug, slice};
 pub use op::*;

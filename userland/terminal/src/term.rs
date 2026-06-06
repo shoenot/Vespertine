@@ -6,6 +6,8 @@ use vespertine_rt::syscall::sys_write_bytes;
 use vespertine_std::fb::Framebuffer;
 use vte::Perform;
 
+use vespertine_abi::app::termios::*;
+
 static FONT_DATA: &[u8] = include_bytes!("zap-ext-light16.psf");
 pub const PADDING_X: usize = 12;
 pub const PADDING_Y: usize = 12;
@@ -22,17 +24,18 @@ pub struct TerminalGrid {
     pub height_chars: usize,
     pub cursor_x: usize,
     pub cursor_y: usize,
-    pub input_len: usize,
-    pub raw_mode: bool,
     pub cursor_visible: bool,
     pub cursor_blink_on: bool,
+    
+    pub termios: Termios,
+    pub can_buffer: Vec<u8>,
 
     pub current_fg: u32,
     pub current_bg: u32,
 
     pub cells: Vec<Cell>,
     pub fb: Framebuffer,
-    pub shell_source: HandleID,
+    pub app_source: HandleID,
 }
 
 impl Perform for TerminalGrid {
@@ -61,7 +64,6 @@ impl Perform for TerminalGrid {
         match byte {
             b'\n' => {
                 self.newline();
-                self.cursor_x = 0;
             }
             b'\r' => self.cursor_x = 0,
             b'\x08' => {
@@ -115,7 +117,7 @@ impl Perform for TerminalGrid {
                         [6] => {
                             let reply =
                                 format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
-                            let _ = sys_write_bytes(self.shell_source, reply.as_bytes());
+                            let _ = sys_write_bytes(self.app_source, reply.as_bytes());
                         }
                         _ => {}
                     }
@@ -177,7 +179,6 @@ impl Perform for TerminalGrid {
                 for param in params.iter() {
                     match param {
                         [25] => self.cursor_visible = true, // show cursor
-                        [2000] => self.raw_mode = true,
                         _ => {},
                     }
                 }
@@ -186,7 +187,6 @@ impl Perform for TerminalGrid {
                 for param in params.iter() {
                     match param {
                         [25] => self.cursor_visible = false, // hide cursor
-                        [2000] => self.raw_mode = false,
                         _ => {},
                     }
                 }

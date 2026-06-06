@@ -12,6 +12,13 @@ use vespertine_abi::HandleGrant;
 use vespertine_abi::HandleID;
 use vespertine_abi::Invocation;
 use vespertine_abi::ProcessInitPackage;
+use vespertine_abi::app::termios::TermCommand;
+use vespertine_abi::protocol::PacketFlags;
+use vespertine_abi::protocol::PacketHeader;
+use vespertine_abi::protocol::PacketType;
+use vespertine_abi::protocol::VESPER_MAGIC;
+use vespertine_abi::tag::TAG_APP_TERMI;
+use vespertine_abi::tag::TAG_APP_TERMO;
 use vespertine_abi::tag::TAG_SYS_CLOCK;
 use vespertine_abi::tag::TAG_SYS_PROCMAN;
 use vespertine_abi::tag::TAG_SYS_SOCKFAC;
@@ -19,6 +26,7 @@ use vespertine_rt::print;
 use vespertine_rt::println;
 use vespertine_rt::source::read_line;
 use vespertine_rt::syscall::sys_invoke;
+use vespertine_rt::syscall::sys_write_bytes;
 use vespertine_std::Error;
 use vespertine_std::ErrorKind;
 use vespertine_std::Exec;
@@ -49,6 +57,21 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             message: "Socket Factory capability not found".into(),
         })?
         .id;
+    let ctrl_write_handle = env::find_tag(TAG_APP_TERMI)
+        .ok_or(Error {
+            kind: ErrorKind::AccessDenied,
+            message: "Term control capability not found".into(),
+        })?
+        .id;
+    let ctrl_read_handle = env::find_tag(TAG_APP_TERMO)
+        .ok_or(Error {
+            kind: ErrorKind::AccessDenied,
+            message: "Term control capability not found".into(),
+        })?
+        .id;
+
+    let ctrl_read_sock = Socket::from_read_handle(ctrl_read_handle);
+    let ctrl_write_sock = Socket::from_write_handle(ctrl_write_handle);
 
     loop {
         let mut kbd_backlog: Vec<u8> = Vec::new();
@@ -160,7 +183,14 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 } else {
                     println!("[ERROR] failed to create pipe for kilo");
                 }
-            }
+            },
+            "test" => {
+                let cmd = TermCommand::GetWindowSize;
+                ctrl_write_sock.send_packet(PacketType::TermCommand as u32, &cmd)?;
+
+                let (res_header, res_payload) = ctrl_read_sock.recv_packet::<(u32, u32)>()?;
+                println!("Width: {}, Height: {}", res_payload.0, res_payload.1);
+            },
             other => {
                 println!("unknown command: {}", other)
             }

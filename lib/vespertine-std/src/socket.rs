@@ -1,4 +1,6 @@
-use vespertine_abi::{HandleID, Signal, tag::TAG_SYS_SOCKFAC};
+use core::{mem::zeroed, slice};
+
+use vespertine_abi::{HandleID, Signal, protocol::{PacketFlags, PacketHeader, VESPER_MAGIC}, tag::TAG_SYS_SOCKFAC};
 use vespertine_rt::syscall::{
     sys_close, sys_create_socket, sys_read, sys_set_nb, sys_wait, sys_write,
 };
@@ -84,6 +86,64 @@ impl Socket {
             sys_wait(handle, signal).map_err(Error::from)?;
         }
         Ok(())
+    }
+
+    pub fn send_packet<T: Copy>(&self, packet_type: u32, payload: &T) -> Result<(), Error> {
+        let payload_size = size_of::<T>();
+
+        let header = PacketHeader {
+            magic: VESPER_MAGIC,
+            version: 1,
+            packet_flags: PacketFlags::IS_BUFFER,
+            packet_type,
+            payload_len: payload_size as u32,
+            reserved: 0,
+        };
+
+        let header_bytes = unsafe {
+            slice::from_raw_parts(&header as *const _ as *const u8, size_of::<PacketHeader>())
+        };
+        self.write_all(header_bytes)?;
+
+        let payload_bytes = unsafe {
+            slice::from_raw_parts(payload as *const _ as *const u8, payload_size)
+        };
+        self.write_all(payload_bytes)?;
+
+        Ok(())
+    }
+
+    pub fn recv_packet<T: Copy>(&self) -> Result<(PacketHeader, T), Error> {
+        let mut header = PacketHeader::default();
+        let header_size = size_of::<PacketHeader>();
+
+        let header_bytes = unsafe {
+            slice::from_raw_parts_mut(&mut header as *mut _ as *mut u8, header_size)
+        };
+
+        self.read_exact(header_bytes)?;
+
+        if header.magic != VESPER_MAGIC {
+            return Err(Error {
+                kind: ErrorKind::InvalidArgument,
+                message: "Invalid packet magic number".into(),
+            })
+        }
+
+        if header.payload_len as usize != size_of::<T>() {
+            return Err(Error {
+                kind: ErrorKind::InvalidArgument,
+                message: "Packet payload size mismatch".into(),
+            })
+        }
+
+        let mut payload = unsafe { zeroed::<T>() };
+        let payload_bytes = unsafe {
+            slice::from_raw_parts_mut(&mut payload as *mut T as *mut u8, size_of::<T>())
+        };
+        self.read_exact(payload_bytes)?;
+
+        Ok((header, payload))
     }
 }
 

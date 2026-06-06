@@ -12,6 +12,19 @@ pub struct PacketHeader {
     pub reserved: u32, // padding to make header 24 bytes
 }
 
+impl Default for PacketHeader {
+    fn default() -> Self {
+        Self { 
+            magic: VESPER_MAGIC,
+            version: 1,
+            packet_flags: PacketFlags(0),
+            packet_type: PacketType::Error as u32,
+            payload_len: 0,
+            reserved: 0,
+        }
+    }
+}
+
 #[repr(C)]
 pub enum PacketType {
     Error = 0,
@@ -20,6 +33,11 @@ pub enum PacketType {
     MemoryInfo = 3,
     HandleInfo = 4,
     SystemLog = 5,
+
+    // OS Default App packet types:
+    Termios = 201,
+    TermSize = 202,
+    TermCommand = 203,
 }
 
 define_bitflags! {
