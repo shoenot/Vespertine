@@ -29,11 +29,6 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 }
 
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
-    let _sf = env::find_tag(TAG_SYS_SOCKFAC).ok_or(Error {
-        kind: ErrorKind::AccessDenied,
-        message: "Socket Factory capability not found".into(),
-    })?;
-
     let args = env::args();
 
     if args.len() < 2 {

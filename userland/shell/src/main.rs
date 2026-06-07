@@ -17,8 +17,7 @@ use vespertine_abi::protocol::PacketFlags;
 use vespertine_abi::protocol::PacketHeader;
 use vespertine_abi::protocol::PacketType;
 use vespertine_abi::protocol::VESPER_MAGIC;
-use vespertine_abi::tag::TAG_APP_TERMI;
-use vespertine_abi::tag::TAG_APP_TERMO;
+use vespertine_abi::tag::TAG_APP_TERM;
 use vespertine_abi::tag::TAG_SYS_CLOCK;
 use vespertine_abi::tag::TAG_SYS_PROCMAN;
 use vespertine_abi::tag::TAG_SYS_SOCKFAC;
@@ -57,21 +56,14 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             message: "Socket Factory capability not found".into(),
         })?
         .id;
-    let ctrl_write_handle = env::find_tag(TAG_APP_TERMI)
-        .ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "Term control capability not found".into(),
-        })?
-        .id;
-    let ctrl_read_handle = env::find_tag(TAG_APP_TERMO)
+    let ctrl_handle = env::find_tag(TAG_APP_TERM)
         .ok_or(Error {
             kind: ErrorKind::AccessDenied,
             message: "Term control capability not found".into(),
         })?
         .id;
 
-    let ctrl_read_sock = Socket::from_read_handle(ctrl_read_handle);
-    let ctrl_write_sock = Socket::from_write_handle(ctrl_write_handle);
+    let ctrl_sock = Socket::from_handle(ctrl_handle);
 
     loop {
         let mut kbd_backlog: Vec<u8> = Vec::new();
@@ -100,95 +92,40 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             "" => {}
             "echo" => cmd_echo(args_vec),
             "ns" => {
-                let mut sock = Socket::new().expect("Error creating socket pair");
-
-                let pmg = HandleGrant {
-                    id: pm_handle,
-                    rights: AccessRights::all(),
-                    tag: TAG_SYS_PROCMAN,
-                };
-                let sfg = HandleGrant {
-                    id: sf_handle,
-                    rights: AccessRights::all(),
-                    tag: TAG_SYS_SOCKFAC,
-                };
-
-                let _ = Exec::new("ns".into())
+                let (proc, rx) = Exec::new("ns".into())
                     .args(&args_vec)
-                    .sink(sock.write_handle()?)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(pmg)
-                    .grant(sfg)
-                    .spawn();
+                    .grant(TAG_SYS_PROCMAN, AccessRights::all())?
+                    .grant(TAG_SYS_SOCKFAC, AccessRights::all())?
+                    .spawn_piped_sink()?;
 
-                sock.close_write();
-                print_stream(&sock)?;
+                print_stream(&rx)?;
             }
             "dt" => {
-                let mut sock = Socket::new().expect("Error creating socket pair");
-                let clk = walk_path("/System/Services/Clock", env::root())?;
-                let clkg = HandleGrant {
-                    id: clk,
-                    rights: AccessRights::READ,
-                    tag: TAG_SYS_CLOCK,
-                };
-                match Exec::new("dt")
+                let (proc, rx) = Exec::new("dt")
                     .args(&args_vec)
-                    .sink(sock.write_handle()?)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(clkg)
-                    .spawn()
-                {
-                    Ok(_) => {}
-                    Err(e) => println!("[ERROR] dt spawn error: {:?}", e),
-                }
+                    .grant(TAG_SYS_CLOCK, AccessRights::all())?
+                    .spawn_piped_sink()?;
 
-                sock.close_write();
-                print_stream(&sock)?;
+                print_stream(&rx)?;
             },
             "hello" => {
-                let mut sock = Socket::new().expect("Error creating socket pair");
-                match Exec::new("hello")
+                let (proc, rx) = Exec::new("hello")
                     .args(&args_vec)
-                    .sink(sock.write_handle()?)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
                     .inherit_capabilities()
-                    .spawn()
-                {
-                    Ok(_) => {}
-                    Err(e) => println!("[ERROR] hello spawn error: {:?}", e),
-                }
+                    .spawn_piped_sink()?;
 
-                sock.close_write();
-                print_stream(&sock)?;
+                print_stream(&rx)?;
             },
             "kilo" => {
-                if let Ok(mut sock) = Socket::new() {
-                    let res = Exec::new("kilo")
-                        .args(&args_vec)
-                        .source(env::source())
-                        .sink(env::sink())
-                        .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                        .inherit_capabilities()
-                        .spawn();
-                    match res {
-                        Ok(_) => {
-                            sock.close_write();
-                            if let Err(e) = print_stream(&sock) {
-                                println!("[ERROR] failed to read kilo output: {:?}", e);
-                            }
-                        }
-                        Err(e) => println!("[ERROR] kilo spawn error: {:?}", e),
-                    }
-                } else {
-                    println!("[ERROR] failed to create pipe for kilo");
-                }
             },
             "test" => {
                 let cmd = TermCommand::GetWindowSize;
-                ctrl_write_sock.send_packet(PacketType::TermCommand as u32, &cmd)?;
+                ctrl_sock.send_packet(PacketType::TermCommand as u32, &cmd)?;
 
-                let (res_header, res_payload) = ctrl_read_sock.recv_packet::<(u32, u32)>()?;
+                let (res_header, res_payload) = ctrl_sock.recv_packet::<(u32, u32)>()?;
                 println!("Width: {}, Height: {}", res_payload.0, res_payload.1);
             },
             other => {

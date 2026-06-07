@@ -54,6 +54,7 @@ pub static LOGGER: TicketLock<Logger> = TicketLock::new(Logger {
     max_cols: 0,
 });
 
+#[derive(Debug)]
 pub struct Logger {
     pub serial_writer: MaybeUninit<SerialWriter>,
     pub screen_enabled: bool,
@@ -219,6 +220,7 @@ impl KernelObject for ScreenWriter {
         }
     }
 }
+
 
 #[macro_export]
 macro_rules! klog {

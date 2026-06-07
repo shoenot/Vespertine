@@ -8,7 +8,7 @@ prefix_with_name = true
 
 [export]
 # Force cbindgen to export Invocation even if it gets scared of bitflags
-include = ["Invocation", "ProcOp", "MemManOp", "MemPoolOp", "ThreadOp", "VmoOp", "FileOp", "DirectoryOp", "ChannelOp", "SocketOp", "WaitOp", "ClockOp", "BrokerOp"]
+include = ["Invocation", "ProcOp", "MemManOp", "MemPoolOp", "ThreadOp", "VmoOp", "FileOp", "DirectoryOp", "ChannelOp", "SocketOp", "WaitOp", "ClockOp", "BrokerOp", "Termios", "TermCommand"]
 
 [export.rename]
 "AccessRights" = "AccessRights"

@@ -3,12 +3,12 @@
 
 use chrono::DateTime;
 use chrono_tz::Tz;
-use vespertine_abi::{ClockOp, Invocation, ProcessInitPackage, tag::TAG_SYS_CLOCK};
+use vespertine_abi::ProcessInitPackage;
 use vespertine_rt::{
     println,
-    syscall::{sys_close, sys_invoke},
+    syscall::sys_close,
 };
-use vespertine_std::{Error, ErrorKind, env};
+use vespertine_std::{Error, ErrorKind, clock::Clock, env};
 
 extern crate alloc;
 
@@ -22,15 +22,7 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 }
 
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
-    let clk = env::find_tag(TAG_SYS_CLOCK)
-        .ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "Clock capability not found".into(),
-        })?
-        .id;
-    let op = Invocation::Clock(ClockOp::GetTimestamp);
-
-    let ts = sys_invoke(clk, &op)?;
+    let ts = Clock::now();
     let dt = DateTime::from_timestamp_secs(ts as i64)
         .ok_or(0)
         .map_err(|_| Error {

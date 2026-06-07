@@ -8,9 +8,9 @@ use vespertine_abi::{
 };
 use vespertine_rt::{
     println,
-    syscall::{sys_close, sys_create_socket, sys_invoke, sys_sleep},
+    syscall::{sys_close, sys_invoke, sys_sleep},
 };
-use vespertine_std::{Error, ErrorKind, Exec, Read, Write, env::{self, find_tag}, fs::walk_path, socket::Socket};
+use vespertine_std::{Error, ErrorKind, Exec, Read, Write, env::{self, find_tag}, fs::walk_path, log::{self, SystemLog}, socket::Socket};
 
 use vespertine_rt::thread as rt_thread;
 
@@ -34,50 +34,26 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 }
 
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
+    let log = SystemLog::connect();
     println!("[INFO] Hesper init system online");
-
-    let pm_handle = env::find_tag(TAG_SYS_PROCMAN)
-        .ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "Process Manager capability not found".into(),
-        })?
-        .id;
-    let sf_handle = env::find_tag(TAG_SYS_SOCKFAC)
-        .ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "Socket Factory capability not found".into(),
-        })?
-        .id;
+    log.write_string("Hesper init system online".into())?;
 
     // create comms socket for terminal
-    let (hesper_end, client_end) = sys_create_socket(sf_handle).map_err(Error::from)?;
-    let hesper_sock = Socket::from_read_handle(hesper_end);
-    let _ = hesper_sock.setnb(true);
+    let (hesper_sock, client_sock) = Socket::new_pair()?;
+    let _ = hesper_sock.set_nonblocking(true);
 
-    println!("[INFO] Launching shell...");
-    let pm_grant = HandleGrant {
-        id: pm_handle,
-        rights: AccessRights::all(),
-        tag: TAG_SYS_PROCMAN,
-    };
-    let sf_grant = HandleGrant {
-        id: sf_handle,
-        rights: AccessRights::all(),
-        tag: TAG_SYS_SOCKFAC,
-    };
-    let sock_grant = HandleGrant {
-        id: client_end,
-        rights: AccessRights::READ | AccessRights::WRITE,
-        tag: TAG_SYS_RES_MAN,
-    };
+    println!("[INFO] Launching terminal...");
+    log.write_string("Launching terminal".into())?;
 
     Exec::new("terminal")
         .source(env::source())
         .sink(env::sink())
         .root_rights(AccessRights::all())
-        .grant(pm_grant)
-        .grant(sf_grant)
-        .grant(sock_grant)
+        .grant(TAG_SYS_PROCMAN, AccessRights::all())?
+        .grant(TAG_SYS_SOCKFAC, AccessRights::all())?
+        .grant(TAG_SYS_LOGGER, AccessRights::WRITE)?
+        .grant(TAG_SYS_CLOCK, AccessRights::all())?
+        .grant_new(client_sock.handle(), TAG_SYS_SOCKFAC, AccessRights::all())?
         .spawn()?;
 
     let broker_handle = walk_path("/System/Services/ResourceBroker", env::root())?;
@@ -149,7 +125,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 }
 
 fn handle_client(sock_handle: HandleID, proc_handle: HandleID) -> Result<(), Error> {
-    let sock = Socket::from_read_handle(sock_handle);
+    let sock = Socket::from_handle(sock_handle);
+    let proc = Socket::from_handle(proc_handle);
 
     // cache the capabilities to grant
     let pm = env::find_tag(TAG_SYS_PROCMAN).map(|g| g.id).unwrap_or(HandleID(0));
@@ -180,7 +157,7 @@ fn handle_client(sock_handle: HandleID, proc_handle: HandleID) -> Result<(), Err
                             source_handle: source_cap,
                             rights,
                     });
-                    match sys_invoke(proc_handle, &insert_op) {
+                    match sys_invoke(proc.handle(), &insert_op) {
                         Ok(new_child_handle) => {
                             resp.handle = new_child_handle;
                         },
@@ -205,7 +182,7 @@ fn handle_client(sock_handle: HandleID, proc_handle: HandleID) -> Result<(), Err
         }
     }
 
-    let _ = sys_close(sock_handle);
-    let _ = sys_close(proc_handle);
+    sock.close();
+    proc.close();
     Ok(())
 }

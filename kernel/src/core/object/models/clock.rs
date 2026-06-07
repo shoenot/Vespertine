@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 
 use async_trait::async_trait;
+use vespertine_abi::AccessRights;
 use vespertine_abi::Invocation;
 use vespertine_abi::op::ClockOp;
 
@@ -17,7 +18,7 @@ impl KernelObject for Clock {
     fn type_name(&self) -> &'static str { "Clock" }
 
     async fn invoke(
-        &self, invocation: Invocation, _calling_rights: crate::core::object::handle::AccessRights,
+        &self, invocation: Invocation, _calling_rights: AccessRights,
     ) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Clock(ClockOp::GetTimestamp) => Ok(get_realtime() as usize),

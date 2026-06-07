@@ -303,3 +303,10 @@ pub fn sys_sleep(ms: usize, clock_handle: HandleID) -> Result<(), SysError> {
     sys_invoke(clock_handle, &Invocation::Clock(op))?;
     Ok(())
 }
+
+pub fn sys_get_time(clock_handle: HandleID) -> usize {
+    let op = Invocation::Clock(ClockOp::GetTimestamp);
+    let res = sys_invoke(clock_handle, &op)
+        .expect("[PANIC] Failed to get time.");
+    res
+}

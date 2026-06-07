@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use vespertine_rt::syscall::{sys_close, sys_invoke};
 
-use crate::{Error, ErrorKind, env, fs::Dir};
+use crate::{Error, ErrorKind::{self, NotFound}, env, fs::Dir, socket::Socket};
 
 #[allow(dead_code)]
 pub struct Process {
@@ -22,6 +22,14 @@ pub struct Exec {
     extra_handles: Vec<HandleGrant>,
     root_rights: AccessRights,
 }
+
+// --------------------------------------------------------//
+// Handle table convention: 
+// Handle(0) = process root namespace
+// Handle(1) = self handle
+// Handle(2) = source
+// Handle(3) = sink
+// --------------------------------------------------------//
 
 impl Exec {
     pub fn new(name: &'static str) -> Self {
@@ -63,9 +71,16 @@ impl Exec {
         self
     }
 
-    pub fn grant(mut self, grant: HandleGrant) -> Self {
+    pub fn grant(mut self, tag: usize, rights: AccessRights) -> Result<Self, Error> {
+        let handle = env::find_tag(tag)
+            .ok_or(Error { kind: ErrorKind::NotFound, message: "Must own handle to grant it".into() })?.id;
+        self.grant_new(handle, tag, rights)
+    }
+
+    pub fn grant_new(mut self, id: HandleID, tag: usize, rights: AccessRights) -> Result<Self, Error> {
+        let grant = HandleGrant { id, tag, rights };
         self.extra_handles.push(grant);
-        self
+        Ok(self)
     }
 
     pub fn inherit_capabilities(mut self) -> Self {
@@ -114,6 +129,20 @@ impl Exec {
         Ok(Process {
             handle: HandleID(handle),
         })
+    }
+
+    pub fn spawn_piped_source(self) -> Result<(Process, Socket), Error> {
+        let (rx, tx) = Socket::new_pair()?;
+        let proc = self.source(rx.handle()).spawn()?;
+        drop(rx);
+        Ok((proc, tx))
+    }
+
+    pub fn spawn_piped_sink(self) -> Result<(Process, Socket), Error> {
+        let (rx, tx) = Socket::new_pair()?;
+        let proc = self.sink(tx.handle()).spawn()?;
+        drop(tx);
+        Ok((proc, rx))
     }
 }
 

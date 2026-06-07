@@ -14,5 +14,4 @@ pub const TAG_SYS_CLOCK: usize = 0x2005;
 pub const TAG_SYS_MEMMAN: usize = 0x2006;
 
 // tags for applications
-pub const TAG_APP_TERMI: usize = 0x3000;
-pub const TAG_APP_TERMO: usize = 0x3001;
+pub const TAG_APP_TERM: usize = 0x3000;

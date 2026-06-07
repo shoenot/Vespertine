@@ -7,16 +7,17 @@ use alloc::vec::Vec;
 use alloc::vec;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::{TAG_APP_TERMI, TAG_APP_TERMO, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
+use vespertine_abi::tag::{TAG_APP_TERM, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{
     AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
-use vespertine_rt::syscall::{sys_create_socket, sys_invoke, sys_read, sys_sleep, sys_write_bytes};
+use vespertine_rt::syscall::{sys_invoke, sys_read, sys_sleep, sys_write_bytes};
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::fs::walk_path;
+use vespertine_std::log::SystemLog;
 use vespertine_std::socket::Socket;
 use vespertine_std::{Error, fb::Framebuffer};
-use vespertine_std::{ErrorKind, Exec, env};
+use vespertine_std::{ErrorKind, Exec, Write, env};
 
 use crate::term::Cell;
 use crate::term::{PADDING_X, PADDING_Y, TerminalGrid};
@@ -36,43 +37,21 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 
 #[unsafe(no_mangle)]
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
-    let sf = env::find_tag(TAG_SYS_SOCKFAC)
-        .ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "SockFac not passed to terminal".into(),
-        })?
-        .id;
-    let pm = env::find_tag(TAG_SYS_PROCMAN)
-        .ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "ProcMan not passed to terminal".into(),
-        })?
-        .id;
-
+    let log = SystemLog::connect();
     let fb = Framebuffer::open()?;
     let info = fb.info();
 
     let width_chars = (info.width - 2 * PADDING_X) / 8;
     let height_chars = (info.height - 2 * PADDING_Y) / 16;
 
-    let app_stdin_packed = sys_create_socket(sf)?;
-    let app_stdout_packed = sys_create_socket(sf)?;
-    let blink_packed = sys_create_socket(sf)?;
-    let control_read_packed = sys_create_socket(sf)?;
-    let control_write_packed = sys_create_socket(sf)?;
+    log.write_string("Creating sockets".into())?;
 
-    let app_stdin_write = app_stdin_packed.1;
-    let app_stdin_read = app_stdin_packed.0;
-    let app_stdout_read = app_stdout_packed.0;
-    let app_stdout_write = app_stdout_packed.1;
+    let (term_stdin, app_stdin) = Socket::new_pair()?;
+    let (term_stdout, app_stdout) = Socket::new_pair()?;
+    let (ctrl_term, app_ctrl) = Socket::new_pair()?;
+    let (blink_read, blink_write) = Socket::new_pair()?;
 
-    let blink_read = blink_packed.0;
-    let blink_write = blink_packed.1;
-
-    let control_read_app = control_read_packed.0;
-    let control_read_term = control_read_packed.1;
-    let control_write_term = control_write_packed.0;
-    let control_write_app = control_write_packed.1;
+    log.write_string("Created sockets".into())?;
 
     let mut grid = TerminalGrid {
         width_chars,
@@ -94,42 +73,21 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             width_chars * height_chars
         ],
         fb,
-        app_source: app_stdin_write,
+        app_source: term_stdin.handle(),
     };
 
     grid.clear_screen();
 
     let kbd_handle = env::source();
 
-    let sf_grant = HandleGrant {
-        id: sf,
-        rights: AccessRights::all(),
-        tag: TAG_SYS_SOCKFAC,
-    };
-    let pm_grant = HandleGrant {
-        id: pm,
-        rights: AccessRights::all(),
-        tag: TAG_SYS_PROCMAN,
-    };
-    let ctrl_read_grant = HandleGrant {
-        id: control_read_app,
-        rights: AccessRights::all(),
-        tag: TAG_APP_TERMO,
-    };
-    let ctrl_write_grant = HandleGrant {
-        id: control_write_app,
-        rights: AccessRights::all(),
-        tag: TAG_APP_TERMI,
-    };
+    log.write_string("Launching shell".into())?;
 
     Exec::new("shell")
-        .source(app_stdin_read)
-        .sink(app_stdout_write)
+        .source(app_stdin.handle())
+        .sink(app_stdout.handle())
         .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-        .grant(pm_grant)
-        .grant(sf_grant)
-        .grant(ctrl_read_grant)
-        .grant(ctrl_write_grant)
+        .grant_new(app_ctrl.handle(), TAG_APP_TERM, AccessRights::all())?
+        .inherit_capabilities()
         .spawn()?;
 
     // Spawn the cursor blinker thread
@@ -138,7 +96,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         let dummy = [1u8; 1];
         loop {
             let _ = sys_sleep(500, clock);
-            let _ = sys_write_bytes(blink_write, &dummy);
+            let _ = sys_write_bytes(blink_write.handle(), &dummy);
         }
     }).map_err(|_| Error {
         kind: ErrorKind::InvalidArgument,
@@ -152,17 +110,17 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             pending: Signal(0),
         },
         WaitItem {
-            handle: app_stdout_read,
+            handle: term_stdout.handle(),
             signal: Signal::READABLE,
             pending: Signal(0),
         },
         WaitItem {
-            handle: blink_read,
+            handle: blink_read.handle(),
             signal: Signal::READABLE,
             pending: Signal(0),
         },
         WaitItem {
-            handle: control_write_term,
+            handle: ctrl_term.handle(),
             signal: Signal::READABLE,
             pending: Signal(0),
         }
@@ -170,8 +128,6 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     let mut vte_parser = vte::Parser::new();
     let mut buf = [0u8; 256];
-    let ctrl_in_sock = Socket::from_read_handle(control_write_term);
-    let ctrl_out_sock = Socket::from_write_handle(control_read_term);
 
     loop {
         grid.draw_cursor(grid.cursor_blink_on);
@@ -188,7 +144,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         // blink cursor
         if wait_items[2].pending.contains(Signal::READABLE) {
             let mut dummy = [0u8; 1];
-            let _ = sys_read(blink_read, dummy.as_mut_ptr(), 1, 0);
+            let _ = sys_read(blink_read.handle(), dummy.as_mut_ptr(), 1, 0);
             grid.cursor_blink_on = !grid.cursor_blink_on;
         }
 
@@ -252,7 +208,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         if (grid.termios.c_lflag & ICANON) == 0 {
                             // raw mode: send immediately to application
                             let out_buf = [processed_byte];
-                            let _ = sys_write_bytes(app_stdin_write, &out_buf);
+                            let _ = sys_write_bytes(term_stdin.handle(), &out_buf);
                         } else {
                             // canonical mode: buffer locally until enter/newline
                             match processed_byte {
@@ -265,7 +221,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                 }
                                 b'\n' => {
                                     grid.can_buffer.push(b'\n');
-                                    let _ = sys_write_bytes(app_stdin_write, &grid.can_buffer);
+                                    let _ = sys_write_bytes(term_stdin.handle(), &grid.can_buffer);
                                     grid.can_buffer.clear();
                                 }
                                 other => {
@@ -282,7 +238,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         // application output
         if wait_items[1].pending.contains(Signal::READABLE) {
             let mut app_buf = [0u8; 256];
-            match sys_read(app_stdout_read, app_buf.as_mut_ptr(), app_buf.len(), 0) {
+            match sys_read(term_stdout.handle(), app_buf.as_mut_ptr(), app_buf.len(), 0) {
                 Ok(n) if n > 0 => {
                     let oflag = grid.termios.c_oflag;
 
@@ -324,15 +280,15 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         }
 
         if wait_items[3].pending.contains(Signal::READABLE) {
-            match ctrl_in_sock.recv_packet::<TermCommand>() {
+            match ctrl_term.recv_packet::<TermCommand>() {
                 Ok((header, cmd)) => {
                     match cmd {
                         TermCommand::SetTermios(t) => grid.apply_termios(t),
                         TermCommand::GetTermios => {
-                            let _ = ctrl_out_sock.send_packet(PacketType::Termios as u32, &grid.termios);
+                            let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);
                         },
                         TermCommand::GetWindowSize => {
-                            let _ = ctrl_out_sock.send_packet::<(u32, u32)>(PacketType::TermSize as u32, &(width_chars as u32, height_chars as u32));
+                            let _ = ctrl_term.send_packet::<(u32, u32)>(PacketType::TermSize as u32, &(width_chars as u32, height_chars as u32));
                             grid.current_bg = 0x0000DD;
                             grid.clear_screen();
                         }
