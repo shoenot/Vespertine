@@ -120,6 +120,23 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 print_stream(&rx)?;
             },
             "kilo" => {
+                let res = Exec::new("kilo")
+                    .source(env::source())
+                    .sink(env::sink())
+                    .args(&args_vec)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .grant(TAG_APP_TERM, AccessRights::all())?
+                    .inherit_capabilities()
+                    .spawn();
+
+                match res {
+                    Ok(p) => {
+                        if let Err(e) = p.wait() {
+                            println!("[ERROR] kilo wait error: {:?}", e);
+                        }
+                    }
+                    Err(e) => println!("{:?}", e),
+                }
             },
             "test" => {
                 let cmd = TermCommand::GetWindowSize;

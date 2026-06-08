@@ -13,7 +13,7 @@ impl Clock {
         sys_sleep(ms, handle).map_err(|e| Error::from(e))
     }
 
-    pub fn now() -> usize {
+    pub fn now() -> (usize, usize) {
         let handle = find_tag(TAG_SYS_CLOCK)
             .ok_or(Error { kind: ErrorKind::NotFound, message: "No clock handle in process".into()})
             .expect("No clock handle in process")

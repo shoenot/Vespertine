@@ -142,7 +142,7 @@ pub extern "C" fn time_print_dispatcher(_arg: usize) -> ! {
 
 pub extern "C" fn time_print(_arg: usize) -> ! {
     enable_interrupts();
-    klogln!("Current time is: {}", epoch_to_datetime(time::get_realtime()));
+    klogln!("Current time is: {}", epoch_to_datetime(time::get_realtime().0));
     terminate_thread!();
 }
 

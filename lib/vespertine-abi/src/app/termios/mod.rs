@@ -49,3 +49,12 @@ pub enum TermCommand {
     GetTermios,
     GetWindowSize,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct WinSize {
+    pub ws_row: core::ffi::c_ushort,
+    pub ws_col: core::ffi::c_ushort,
+    pub ws_xpixel: core::ffi::c_ushort,
+    pub ws_ypixel: core::ffi::c_ushort,
+}

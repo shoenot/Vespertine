@@ -425,7 +425,7 @@ impl KernelObject for Ext2Directory {
 
                 let new_inode_num = self.fs.allocate_inode(false).await.map_err(|_| InvocationError::OutOfMemory)?;
 
-                let current_time = get_realtime() as u32;
+                let current_time = get_realtime().0 as u32;
 
                 // populate diskinode for regular file
                 let child_inode = DiskInode {
@@ -550,7 +550,7 @@ impl KernelObject for Ext2Directory {
                     return Err(InvocationError::UnsupportedOperation);
                 }
 
-                let current_time = get_realtime() as u32;
+                let current_time = get_realtime().0 as u32;
 
                 let child_inode = DiskInode {
                     mode: 0x41ED, // directory (0x4000) + permissions (0o755)

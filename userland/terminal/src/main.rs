@@ -41,8 +41,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let fb = Framebuffer::open()?;
     let info = fb.info();
 
-    let width_chars = (info.width - 2 * PADDING_X) / 8;
-    let height_chars = (info.height - 2 * PADDING_Y) / 16;
+    let width_cols = (info.width - 2 * PADDING_X);
+    let height_rows = (info.height - 2 * PADDING_Y);
+    let width_chars = width_cols / 8;
+    let height_chars = height_rows / 16;
 
     log.write_string("Creating sockets".into())?;
 
@@ -288,9 +290,13 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                             let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);
                         },
                         TermCommand::GetWindowSize => {
-                            let _ = ctrl_term.send_packet::<(u32, u32)>(PacketType::TermSize as u32, &(width_chars as u32, height_chars as u32));
-                            grid.current_bg = 0x0000DD;
-                            grid.clear_screen();
+                            let wsize = WinSize {
+                                ws_col: width_cols as u16,
+                                ws_row: height_rows as u16,
+                                ws_xpixel: width_chars as u16,
+                                ws_ypixel: height_chars as u16,
+                            };
+                            let _ = ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
                         }
                     }
                 },

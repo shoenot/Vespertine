@@ -22,7 +22,7 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 }
 
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
-    let ts = Clock::now();
+    let (ts, _) = Clock::now();
     let dt = DateTime::from_timestamp_secs(ts as i64)
         .ok_or(0)
         .map_err(|_| Error {

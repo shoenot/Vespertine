@@ -1,5 +1,5 @@
 use vespertine_abi::{
-    AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, tag::TAG_SYS_PROCMAN,
+    AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, ProcStatus, tag::TAG_SYS_PROCMAN
 };
 extern crate alloc;
 use alloc::string::String;
@@ -11,6 +11,29 @@ use crate::{Error, ErrorKind::{self, NotFound}, env, fs::Dir, socket::Socket};
 #[allow(dead_code)]
 pub struct Process {
     handle: HandleID,
+}
+
+impl Process {
+    pub fn wait(&self) -> Result<(), Error> {
+        loop {
+            let mut status = ProcStatus {
+                pid: 0,
+                active_threads: 0,
+                is_terminated: false,
+                memory_usage: 0,
+            };
+            let op = vespertine_abi::ProcOp::GetStatus {
+                status_ptr: &mut status as *mut _ as usize,
+            };
+            let res = sys_invoke(self.handle, &Invocation::Proc(op));
+            if res.is_err() || status.is_terminated {
+                break;
+            }
+            // yield or sleep
+            crate::clock::Clock::sleep_ms(10);
+        }
+        Ok(())
+    }
 }
 
 pub struct Exec {

@@ -304,9 +304,11 @@ pub fn sys_sleep(ms: usize, clock_handle: HandleID) -> Result<(), SysError> {
     Ok(())
 }
 
-pub fn sys_get_time(clock_handle: HandleID) -> usize {
-    let op = Invocation::Clock(ClockOp::GetTimestamp);
-    let res = sys_invoke(clock_handle, &op)
-        .expect("[PANIC] Failed to get time.");
-    res
+pub fn sys_get_time(clock_handle: HandleID) -> (usize, usize) {
+    let (mut s, mut ns) = (0, 0);
+    let s_ptr = &mut s as *mut _ as usize;
+    let ns_ptr = &mut ns as *mut _ as usize;
+    let op = Invocation::Clock(ClockOp::GetTimestamp { s_ptr, ns_ptr });
+    sys_invoke(clock_handle, &op).expect("[PANIC] Failed to get time.");
+    (s, ns)
 }

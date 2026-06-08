@@ -174,7 +174,7 @@ pub enum MemPoolOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum ClockOp {
-    GetTimestamp,
+    GetTimestamp { s_ptr: usize, ns_ptr: usize },
     Sleep { ns: usize },
 }
 

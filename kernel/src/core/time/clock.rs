@@ -34,9 +34,16 @@ pub fn init_realtime() {
     BOOT_TIMESTAMP.get_or_init(|| get_time() as i64);
 }
 
-pub fn get_realtime() -> i64 {
-    let seconds_passed = (get_time() as i64 - *BOOT_TIMESTAMP) / *TIME_SRC_FQ as i64;
-    *BOOT_RTC_TIMESTAMP + seconds_passed
+pub fn get_realtime() -> (i64, i64) {
+    let current_time = get_time() as i64;
+    let elapsed_ticks = current_time - *BOOT_TIMESTAMP;
+    let tsc_fq = *TIME_SRC_FQ as i64;
+
+    let (seconds_passed, remainder_ticks) = (elapsed_ticks / tsc_fq, elapsed_ticks % tsc_fq);
+    let total_seconds = *BOOT_RTC_TIMESTAMP + seconds_passed;
+    let nanos = (remainder_ticks * 1_000_000_000) / tsc_fq;
+
+    (total_seconds, nanos)
 }
 
 pub fn arm_sleep_ns(ns: usize) {
