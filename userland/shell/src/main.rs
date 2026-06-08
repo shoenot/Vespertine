@@ -3,6 +3,8 @@
 
 extern crate alloc;
 
+mod launch;
+
 use alloc::str;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -33,6 +35,8 @@ use vespertine_std::Read;
 use vespertine_std::env;
 use vespertine_std::fs::walk_path;
 use vespertine_std::socket::Socket;
+use launch::launch;
+use vespertine_std::term::unset_raw_mode;
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
@@ -102,7 +106,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 print_stream(&rx)?;
             }
             "dt" => {
-                let (proc, rx) = Exec::new("dt")
+                let (proc, rx) = Exec::new(cmd.into())
                     .args(&args_vec)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
                     .grant(TAG_SYS_CLOCK, AccessRights::all())?
@@ -111,7 +115,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 print_stream(&rx)?;
             },
             "hello" => {
-                let (proc, rx) = Exec::new("hello")
+                let (proc, rx) = Exec::new(cmd.into())
                     .args(&args_vec)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
                     .inherit_capabilities()
@@ -120,7 +124,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 print_stream(&rx)?;
             },
             "kilo" => {
-                let res = Exec::new("kilo")
+                let res = Exec::new("kilo".into())
                     .source(env::source())
                     .sink(env::sink())
                     .args(&args_vec)
@@ -139,11 +143,67 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 }
             },
             "test" => {
-                let cmd = TermCommand::GetWindowSize;
-                ctrl_sock.send_packet(PacketType::TermCommand as u32, &cmd)?;
+                let res = Exec::new("tctest".into())
+                    .source(env::source())
+                    .sink(env::sink())
+                    .args(&args_vec)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .grant(TAG_APP_TERM, AccessRights::all())?
+                    .inherit_capabilities()
+                    .spawn();
 
-                let (res_header, res_payload) = ctrl_sock.recv_packet::<(u32, u32)>()?;
-                println!("Width: {}, Height: {}", res_payload.0, res_payload.1);
+                match res {
+                    Ok(p) => {
+                        if let Err(e) = p.wait() {
+                            println!("[ERROR] tctest error: {:?}", e);
+                        }
+                    }
+                    Err(e) => println!("{:?}", e),
+                }
+
+                let _ = unset_raw_mode();
+            },
+            "ctest" => {
+                let res = Exec::new("tctestc".into())
+                    .source(env::source())
+                    .sink(env::sink())
+                    .args(&args_vec)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .grant(TAG_APP_TERM, AccessRights::all())?
+                    .inherit_capabilities()
+                    .spawn();
+
+                match res {
+                    Ok(p) => {
+                        if let Err(e) = p.wait() {
+                            println!("[ERROR] tctest error: {:?}", e);
+                        }
+                    }
+                    Err(e) => println!("{:?}", e),
+                }
+
+                let _ = unset_raw_mode();
+            },
+            "cowsay" => {
+                let res = Exec::new("cowsay".into())
+                    .source(env::source())
+                    .sink(env::sink())
+                    .args(&args_vec)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .grant(TAG_APP_TERM, AccessRights::all())?
+                    .inherit_capabilities()
+                    .spawn();
+
+                match res {
+                    Ok(p) => {
+                        if let Err(e) = p.wait() {
+                            println!("[ERROR] tctest error: {:?}", e);
+                        }
+                    }
+                    Err(e) => println!("{:?}", e),
+                }
+
+                let _ = unset_raw_mode();
             },
             other => {
                 println!("unknown command: {}", other)

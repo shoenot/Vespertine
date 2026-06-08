@@ -84,7 +84,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     log.write_string("Launching shell".into())?;
 
-    Exec::new("shell")
+    Exec::new("shell".into())
         .source(app_stdin.handle())
         .sink(app_stdout.handle())
         .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
@@ -156,6 +156,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
+                    let mut raw_trans_buffer = Vec::new();
+
                     for &raw_byte in &buf[..n] {
                         let mut processed_byte = raw_byte;
                         let iflag = grid.termios.c_iflag;
@@ -175,20 +177,25 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                         if processed_byte == b'\r' {
                             if check_flag(iflag, IGNCR) {
-                                continue;
+                                continue;                       // ignore carriage return 
                             }
                             if check_flag(iflag, ICRNL) {
-                                processed_byte = b'\n'
+                                processed_byte = b'\n'          // \r -> \n
                             }
                         } else if processed_byte == b'\n' {
                             if check_flag(iflag, INLCR) {
-                                processed_byte = b'\r'
+                                processed_byte = b'\r'          // \n -> \r
                             }
                         }
 
                         
                         // TODO: ISIG handling 
-                        
+                        if check_flag(lflag, ISIG) {
+                            if processed_byte == grid.termios.c_cc[VINTR as usize] {
+
+                            }
+                        }
+
                         // ECHO / ECHONL handling 
                         if check_flag(lflag, ECHO) {
                             should_echo = true;
@@ -208,9 +215,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                         // ICANON
                         if (grid.termios.c_lflag & ICANON) == 0 {
-                            // raw mode: send immediately to application
-                            let out_buf = [processed_byte];
-                            let _ = sys_write_bytes(term_stdin.handle(), &out_buf);
+                            // raw mode: accumulate into raw mode buffer for atomicity
+                            raw_trans_buffer.push(processed_byte);
                         } else {
                             // canonical mode: buffer locally until enter/newline
                             match processed_byte {
@@ -230,6 +236,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                     grid.can_buffer.push(other);
                                 }
                             }
+                        }
+                        if !check_flag(grid.termios.c_lflag, ICANON) && !raw_trans_buffer.is_empty() {
+                            let _ = sys_write_bytes(term_stdin.handle(), &raw_trans_buffer);
                         }
                     }
                 }

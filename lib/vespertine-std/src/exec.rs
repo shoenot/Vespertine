@@ -37,7 +37,7 @@ impl Process {
 }
 
 pub struct Exec {
-    exec_name: &'static str,
+    exec_name: String,
     args: Vec<String>,
     root: HandleID,
     source: HandleID,
@@ -55,7 +55,7 @@ pub struct Exec {
 // --------------------------------------------------------//
 
 impl Exec {
-    pub fn new(name: &'static str) -> Self {
+    pub fn new(name: String) -> Self {
         // common case with child inheriting root/source/sink from parent
         // but no extra handles and no rights
         Self {
@@ -124,7 +124,7 @@ impl Exec {
 
         let exec = Dir::from(env::root())
             .subdir("Programs")?
-            .lookup(self.exec_name)?;
+            .lookup(self.exec_name.as_str())?;
 
         // null terminated args buffer
         let mut args_buf = Vec::new();

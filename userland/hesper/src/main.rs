@@ -45,7 +45,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     println!("[INFO] Launching terminal...");
     log.write_string("Launching terminal".into())?;
 
-    Exec::new("terminal")
+    Exec::new("terminal".into())
         .source(env::source())
         .sink(env::sink())
         .root_rights(AccessRights::all())

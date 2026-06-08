@@ -200,7 +200,7 @@ impl Dir {
         })
     }
 
-    pub fn subdir(&self, name: &'static str) -> Result<Dir, Error> {
+    pub fn subdir(&self, name: &str) -> Result<Dir, Error> {
         let op = DirectoryOp::Lookup {
             name: name.as_ptr() as usize,
             name_len: name.len(),
@@ -209,7 +209,7 @@ impl Dir {
         Ok(Dir::from(HandleID(handle)))
     }
 
-    pub fn lookup(&self, name: &'static str) -> Result<HandleID, Error> {
+    pub fn lookup(&self, name: &str) -> Result<HandleID, Error> {
         let op = DirectoryOp::Lookup {
             name: name.as_ptr() as usize,
             name_len: name.len(),

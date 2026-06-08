@@ -14,3 +14,4 @@ pub use exec::*;
 pub mod fb;
 pub mod clock;
 pub mod log;
+pub mod term;
