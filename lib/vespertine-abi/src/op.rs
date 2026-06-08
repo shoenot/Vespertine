@@ -28,6 +28,10 @@ pub enum SocketOp {
     SetNB {
         nb: bool,
     }, // non blocking not non binary. but could be non binary. up to u.
+    SetReadPolicy {
+        min: usize,
+        timeout_ds: usize,
+    },
 }
 
 #[repr(C)]
@@ -78,6 +82,9 @@ pub enum FileOp {
     Seek {
         offset: i64,
         whence: u32,
+    },
+    Truncate {
+        size: usize,
     },
 }
 

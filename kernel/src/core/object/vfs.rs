@@ -94,15 +94,13 @@ pub fn proc_cpy_handle(
 #[derive(Debug)]
 pub struct FileDescription {
     pub inner: Arc<dyn KernelObject>, // The globally shared Ext2File
-    pub file_size: usize,             // Cached for SEEK operations
     pub cursor: AtomicUsize,          // The PER-PROCESS implicit cursor
 }
 
 impl FileDescription {
-    pub fn new(inner: Arc<dyn KernelObject>, file_size: usize) -> Self {
+    pub fn new(inner: Arc<dyn KernelObject>) -> Self {
         Self {
             inner,
-            file_size,
             cursor: AtomicUsize::new(0),
         }
     }
@@ -141,7 +139,13 @@ impl KernelObject for FileDescription {
             },
             Invocation::File(FileOp::Seek { offset, whence }) => {
                 let current = self.cursor.load(Ordering::SeqCst) as i64;
-                let file_size = self.file_size as i64;
+                let file_size = if *whence == 2 {
+                    self.inner
+                        .invoke(Invocation::File(FileOp::Stat), rights)
+                        .await? as i64
+                } else {
+                    0
+                };
                 
                 let new_cursor = match *whence {
                     0 => *offset,                                    // SEEK_SET

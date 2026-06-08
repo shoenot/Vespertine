@@ -181,6 +181,12 @@ pub fn sys_wait(handle: HandleID, signal: Signal) -> Result<usize, SysError> {
     sys_invoke(handle, &Invocation::Wait(WaitOp::One(signal)))
 }
 
+
+pub fn sys_set_read_policy(handle: HandleID, min: usize, timeout_ds: usize) -> Result<usize, SysError> {
+    let op = Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds });
+    sys_invoke(handle, &op)
+}
+
 //----------------------------------------------------------//
 //------------------- FILESYSTEM HELPERS -------------------//
 //----------------------------------------------------------//
@@ -249,9 +255,26 @@ pub fn sys_write(
     sys_invoke(handle, &Invocation::File(op))
 }
 
-pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError> {
-    sys_write(handle, data.as_ptr(), data.len(), 0)
-}
+    pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError> {
+        let mut written = 0;
+    
+        while written < data.len() {
+            let count = sys_write(
+                handle,
+                data[written..].as_ptr(),
+                data.len() - written,
+                0,
+            )?;
+    
+            if count == 0 {
+                break;
+            }
+    
+            written += count;
+        }
+    
+        Ok(written)
+    }
 
 //----------------------------------------------------------//
 //----------------------- VMO HELPERS ----------------------//

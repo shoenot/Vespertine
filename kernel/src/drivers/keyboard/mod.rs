@@ -89,6 +89,8 @@ pub fn init_keyboard_irq() {
 pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);
     let mut shift_held = false;
+    let mut ctrl_held = false;
+    let mut alt_held = false;
     let mut caps_lock = false;
     let mut is_extended = false;
 
@@ -109,9 +111,9 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
         let key = (scancode & 0x7F) as usize;
 
         match key {
-            0x2A | 0x36 => {
-                shift_held = !is_release;
-            }
+            0x1D => ctrl_held = !is_release,
+            0x38 => alt_held = !is_release,
+            0x2A | 0x36 => shift_held = !is_release,
             0x3A => {
                 if !is_release {
                     caps_lock = !caps_lock;
@@ -120,7 +122,7 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
             _ => {}
         }
 
-        if !is_release {
+        if !is_release && !matches!(key, 0x1D | 0x2A | 0x36 | 0x38 | 0x3A) {
             let mut c = {
                 if shift_held {
                     KBD_US_SHIFT[key]
@@ -137,6 +139,32 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                 } else {
                     c = c.to_ascii_lowercase();
                 }
+            }
+
+
+            if ctrl_held {
+                c = match c {
+                    '@' | ' ' => '\x00',
+                    'a'..='z' => ((c as u8 - b'a') + 1) as char,
+                    'A'..='Z' => ((c as u8 - b'A') + 1) as char,
+                    '[' => '\x1b',
+                    '\\' => '\x1c',
+                    ']' => '\x1d',
+                    '^' => '\x1e',
+                    '_' => '\x1f',
+                    '?' => '\x7f',
+                    _ => c,
+                };
+            }
+
+            if alt_held {
+                let escape = [0x1b];
+                let write_op = Invocation::File(FileOp::Write {
+                    offset: 0,
+                    buffer_ptr: escape.as_ptr() as usize,
+                    len: escape.len(),
+                });
+                let _ = handle_sys_invoke(chan_handle, write_op);
             }
 
             if c != '\0' {

@@ -11,7 +11,7 @@ use vespertine_abi::tag::{TAG_APP_TERM, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{
     AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
-use vespertine_rt::syscall::{sys_invoke, sys_read, sys_sleep, sys_write_bytes};
+use vespertine_rt::syscall::{sys_invoke, sys_read, sys_set_read_policy, sys_sleep, sys_write_bytes};
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::fs::walk_path;
 use vespertine_std::log::SystemLog;
@@ -294,16 +294,33 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             match ctrl_term.recv_packet::<TermCommand>() {
                 Ok((header, cmd)) => {
                     match cmd {
-                        TermCommand::SetTermios(t) => grid.apply_termios(t),
+                        TermCommand::SetTermios(t) => {
+                            let canonical = check_flag(t.c_lflag, ICANON);
+
+                            let min = if canonical {
+                                1
+                            } else {
+                                t.c_cc[VMIN] as usize
+                            };
+
+                            let timeout_ds = if canonical {
+                                0
+                            } else {
+                                t.c_cc[VTIME] as usize
+                            };
+
+                            grid.apply_termios(t);
+                            let _ = sys_set_read_policy(term_stdin.handle(), min, timeout_ds);
+                        },
                         TermCommand::GetTermios => {
                             let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);
                         },
                         TermCommand::GetWindowSize => {
                             let wsize = WinSize {
-                                ws_col: width_cols as u16,
-                                ws_row: height_rows as u16,
-                                ws_xpixel: width_chars as u16,
-                                ws_ypixel: height_chars as u16,
+                                ws_row: height_chars as u16,
+                                ws_col: width_chars as u16,
+                                ws_xpixel: width_cols as u16,
+                                ws_ypixel: height_rows as u16,
                             };
                             let _ = ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
                         }

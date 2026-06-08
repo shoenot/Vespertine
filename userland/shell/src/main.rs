@@ -184,8 +184,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                 let _ = unset_raw_mode();
             },
-            "cowsay" => {
-                let res = Exec::new("cowsay".into())
+            "cat" => {
+                let res = Exec::new("cat".into())
                     .source(env::source())
                     .sink(env::sink())
                     .args(&args_vec)
@@ -197,13 +197,22 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 match res {
                     Ok(p) => {
                         if let Err(e) = p.wait() {
-                            println!("[ERROR] tctest error: {:?}", e);
+                            println!("[ERROR] cat error: {:?}", e);
                         }
                     }
                     Err(e) => println!("{:?}", e),
                 }
 
                 let _ = unset_raw_mode();
+            },
+            "trunc" => {
+                let (proc, rx) = Exec::new("trunc".into())
+                    .args(&args_vec)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .inherit_capabilities()
+                    .spawn_piped_sink()?;
+
+                print_stream(&rx)?;
             },
             other => {
                 println!("unknown command: {}", other)

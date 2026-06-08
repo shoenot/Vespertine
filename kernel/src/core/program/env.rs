@@ -6,8 +6,7 @@ use core::ptr::{
 use crate::klogln;
 
 use vespertine_abi::{
-    HandleGrant,
-    ProcessInitPackage,
+    AT_VESPERTINE_INITPKG, HandleGrant, ProcessInitPackage
 };
 use vespertine_common::slab::NORMAL_PAGE_SIZE;
 
@@ -17,6 +16,8 @@ use crate::memory::vmo::{
     PagedBackingStore,
     Vmo,
 };
+
+const AUX_ENTRY_COUNT: usize = 8;
 
 pub struct ProcessEnvironment;
 
@@ -43,7 +44,7 @@ impl ProcessEnvironment {
         let strings_size = args_buffer.len();
 
         // System V stack structure: argc (usize) + argv (pointers) + null + envp (pointers, none) + null + 7 aux entries
-        let sysv_total_size = (1 + (argc + 1) + 1) * size_of::<usize>() + 7 * size_of::<AuxEntry>();
+        let sysv_total_size = (1 + (argc + 1) + 1) * size_of::<usize>() + AUX_ENTRY_COUNT * size_of::<AuxEntry>();
 
         // Pack top-down: sysv (lowest) -> pkg -> handles -> strings (highest)
         // This ensures RSP (at sysv) has the entire payload ABOVE it.
@@ -109,13 +110,14 @@ impl ProcessEnvironment {
 
             // build aux vector
             let aux_ptr = sysv_ptr as *mut AuxEntry;
-            ptr::write(aux_ptr.add(0), AuxEntry { a_type: 3, a_val: phdr_addr }); // AT_PHDR
-            ptr::write(aux_ptr.add(1), AuxEntry { a_type: 4, a_val: 56 });        // AT_PHENT
-            ptr::write(aux_ptr.add(2), AuxEntry { a_type: 5, a_val: phnum });      // AT_PHNUM
-            ptr::write(aux_ptr.add(3), AuxEntry { a_type: 6, a_val: 4096 });      // AT_PAGESZ
-            ptr::write(aux_ptr.add(4), AuxEntry { a_type: 7, a_val: base_addr }); // AT_BASE
-            ptr::write(aux_ptr.add(5), AuxEntry { a_type: 9, a_val: entry_point }); // AT_ENTRY
-            ptr::write(aux_ptr.add(6), AuxEntry { a_type: 0, a_val: 0 });          // AT_NULL
+            ptr::write(aux_ptr.add(0), AuxEntry { a_type: 3, a_val: phdr_addr });                     // AT_PHDR
+            ptr::write(aux_ptr.add(1), AuxEntry { a_type: 4, a_val: 56 });                            // AT_PHENT
+            ptr::write(aux_ptr.add(2), AuxEntry { a_type: 5, a_val: phnum });                         // AT_PHNUM
+            ptr::write(aux_ptr.add(3), AuxEntry { a_type: 6, a_val: 4096 });                          // AT_PAGESZ
+            ptr::write(aux_ptr.add(4), AuxEntry { a_type: 7, a_val: base_addr });                     // AT_BASE
+            ptr::write(aux_ptr.add(5), AuxEntry { a_type: 9, a_val: entry_point });                   // AT_ENTRY
+            ptr::write(aux_ptr.add(6), AuxEntry { a_type: AT_VESPERTINE_INITPKG, a_val: pkg_vaddr }); // AT_NULL
+            ptr::write(aux_ptr.add(7), AuxEntry { a_type: 0, a_val: 0 });
 
             // Write init package
             initpkg.extra_handles_ptr = handles_vaddr as *const HandleGrant;

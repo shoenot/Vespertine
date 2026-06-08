@@ -1,10 +1,11 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::cmp::min;
 use core::future::poll_fn;
+use core::pin::Pin;
 use core::sync::atomic::{
-    AtomicBool,
-    Ordering,
+    AtomicBool, AtomicUsize, Ordering
 };
 use core::task::{
     Context,
@@ -29,6 +30,7 @@ use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
 };
+use crate::core::asynchronous::async_sleep::{AsyncSleep, sleep_async};
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::{
@@ -81,6 +83,8 @@ pub struct SocketBus {
     pub is_closed: AtomicBool,
     pub read_waker: TicketLock<Option<Waker>>,
     pub write_waker: TicketLock<Option<Waker>>,
+    pub read_min: AtomicUsize,
+    pub read_timeout_ds: AtomicUsize,
 }
 
 impl SocketBus {
@@ -90,6 +94,8 @@ impl SocketBus {
             is_closed: AtomicBool::new(false),
             read_waker: TicketLock::new(None),
             write_waker: TicketLock::new(None),
+            read_min: AtomicUsize::new(1),
+            read_timeout_ds: AtomicUsize::new(0),
         }
     }
 }
@@ -111,7 +117,7 @@ impl KernelObject for SocketEndpoint {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                poll_fn(|cx| self.read_async(buffer_ptr as *mut u8, len, cx)).await
+                self.read_with_policy(buffer_ptr, len).await
             }
             Invocation::File(FileOp::Write { buffer_ptr, len, .. }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
@@ -124,6 +130,14 @@ impl KernelObject for SocketEndpoint {
                     return Err(InvocationError::AccessDenied);
                 }
                 self.is_nb.store(nb, Ordering::SeqCst);
+                Ok(0)
+            }
+            Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds }) => {
+                if !calling_rights.contains(AccessRights::WRITE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+                self.write_bus.read_min.store(min, Ordering::SeqCst);
+                self.write_bus.read_timeout_ds.store(timeout_ds, Ordering::SeqCst);
                 Ok(0)
             }
             Invocation::Wait(WaitOp::One(signal)) => {
@@ -170,74 +184,173 @@ impl SocketEndpoint {
         (ep1, ep2)
     }
 
-    fn read_async(&self, buffer_ptr: *mut u8, len: usize, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
+    async fn read_with_policy(
+        &self,
+        buffer_ptr: usize,
+        len: usize,
+    ) -> Result<usize, InvocationError> {
         if len == 0 {
-            return Poll::Ready(Ok(0));
+            return Ok(0);
         }
-        let mut bus = self.read_bus.buffer.lock();
-        if !bus.is_empty() {
-            let mut temp_buf = [0u8; 512];
-            let to_read = min(len, temp_buf.len());
-            let count = bus.pop_slice(&mut temp_buf[..to_read]);
-
-            if !safe_copy_to(buffer_ptr, temp_buf.as_ptr(), count) {
-                return Poll::Ready(Err(InvocationError::InvalidPointer));
+    
+        let min_bytes = self.read_bus.read_min.load(Ordering::SeqCst);
+        let timeout_ds = self.read_bus.read_timeout_ds.load(Ordering::SeqCst);
+    
+        // reads currently use a 512-byte temporary buffer.
+        let requested_min = min(min_bytes, len);
+        let timeout_ms = timeout_ds.saturating_mul(100);
+    
+        let mut timer: Option<Pin<Box<AsyncSleep>>> =
+            if requested_min == 0 && timeout_ms > 0 {
+                // MIN=0, TIME>0: timer starts immediately.
+                Some(Box::pin(sleep_async(timeout_ms)))
+            } else {
+                None
+            };
+    
+        let mut last_available = 0usize;
+    
+        poll_fn(|cx| {
+            let mut bus = self.read_bus.buffer.lock();
+            let available = bus.len();
+    
+            if self.is_nb.load(Ordering::SeqCst) {
+                if available == 0 {
+                    return Poll::Ready(Err(InvocationError::WouldBlock));
+                }
+    
+                return Poll::Ready(self.copy_from_read_bus(
+                    &mut bus,
+                    buffer_ptr,
+                    len,
+                ));
             }
-
-            if let Some(waker) = self.read_bus.write_waker.lock().take() {
-                waker.wake();
+    
+            if self.read_bus.is_closed.load(Ordering::SeqCst) && available == 0 {
+                return Poll::Ready(Ok(0));
             }
-
-            return Poll::Ready(Ok(count));
-        }
-
-        if self.read_bus.is_closed.load(Ordering::SeqCst) {
-            return Poll::Ready(Ok(0));
-        }
-
-        if self.is_nb.load(Ordering::SeqCst) {
-            return Poll::Ready(Err(InvocationError::WouldBlock));
-        }
-
-        *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
-        Poll::Pending
+    
+            let enough_data = if requested_min == 0 {
+                available > 0
+            } else {
+                available >= requested_min
+            };
+    
+            if enough_data {
+                return Poll::Ready(self.copy_from_read_bus(
+                    &mut bus,
+                    buffer_ptr,
+                    len,
+                ));
+            }
+    
+            if timeout_ms == 0 {
+                // MIN=0, TIME=0: return immediately, including zero bytes.
+                if requested_min == 0 {
+                    return Poll::Ready(self.copy_from_read_bus(
+                        &mut bus,
+                        buffer_ptr,
+                        len,
+                    ));
+                }
+    
+                // MIN>0, TIME=0: wait indefinitely for MIN bytes.
+                *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+    
+            if requested_min > 0 && available > 0 && available != last_available {
+                // MIN>0, TIME>0: inter-byte timer starts after the first
+                // byte and restarts whenever additional bytes arrive.
+                timer = Some(Box::pin(sleep_async(timeout_ms)));
+                last_available = available;
+            }
+    
+            if let Some(active_timer) = timer.as_mut() {
+                if active_timer.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(self.copy_from_read_bus(
+                        &mut bus,
+                        buffer_ptr,
+                        len,
+                    ));
+                }
+            }
+    
+            *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
+            Poll::Pending
+        })
+        .await
     }
 
-    fn write_async(&self, buffer_ptr: *const u8, len: usize, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
-        if self.write_bus.is_closed.load(Ordering::SeqCst) {
-            return Poll::Ready(Err(InvocationError::UnsupportedOperation)); // Broken pipe
+    fn copy_from_read_bus(
+        &self,
+        bus: &mut RingBuffer,
+        buffer_ptr: usize,
+        len: usize,
+    ) -> Result<usize, InvocationError> {
+        let count = min(len, bus.len());
+    
+        let mut temp = Vec::new();
+        temp.try_reserve_exact(count)
+            .map_err(|_| InvocationError::OutOfMemory)?;
+        temp.resize(count, 0);
+    
+        bus.pop_slice(&mut temp);
+    
+        if !safe_copy_to(buffer_ptr as *mut u8, temp.as_ptr(), count) {
+            return Err(InvocationError::InvalidPointer);
         }
+    
+        if let Some(waker) = self.read_bus.write_waker.lock().take() {
+            waker.wake();
+        }
+    
+        Ok(count)
+    }
+
+    fn write_async(
+        &self,
+        buffer_ptr: *const u8,
+        len: usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<usize, InvocationError>> {
         if len == 0 {
             return Poll::Ready(Ok(0));
         }
-
-        let mut temp_buf = [0u8; 512];
-        let to_write = min(len, temp_buf.len());
-        if !safe_copy_from(temp_buf.as_mut_ptr(), buffer_ptr, to_write) {
-            return Poll::Ready(Err(InvocationError::InvalidPointer));
-        }
-
-        let mut bus = self.write_bus.buffer.lock();
-
+    
         if self.write_bus.is_closed.load(Ordering::SeqCst) {
             return Poll::Ready(Err(InvocationError::UnsupportedOperation));
         }
-
-        if bus.is_full() {
+    
+        let mut bus = self.write_bus.buffer.lock();
+        let count = min(len, bus.available_space());
+    
+        if count == 0 {
             if self.is_nb.load(Ordering::SeqCst) {
                 return Poll::Ready(Err(InvocationError::WouldBlock));
             }
+    
             *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
             return Poll::Pending;
         }
-
-        let count = bus.push_slice(&temp_buf[..to_write]);
-
+    
+        let mut temp = Vec::new();
+        if temp.try_reserve_exact(count).is_err() {
+            return Poll::Ready(Err(InvocationError::OutOfMemory));
+        }
+        temp.resize(count, 0);
+    
+        if !safe_copy_from(temp.as_mut_ptr(), buffer_ptr, count) {
+            return Poll::Ready(Err(InvocationError::InvalidPointer));
+        }
+    
+        let written = bus.push_slice(&temp);
+    
         if let Some(waker) = self.write_bus.read_waker.lock().take() {
             waker.wake();
         }
-
-        Poll::Ready(Ok(count))
+    
+        Poll::Ready(Ok(written))
     }
 
     fn wait_for_signals_async(&self, signal: Signal, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {

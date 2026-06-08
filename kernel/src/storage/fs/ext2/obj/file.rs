@@ -69,8 +69,11 @@ impl KernelObject for Ext2File {
                 Ok(bytes_written)
             },
             Invocation::File(FileOp::Seek { .. }) => {
-                // Seek is now exclusively handled by the per-process FileDescription wrapper
                 Err(InvocationError::UnsupportedOperation)
+            },
+            Invocation::File(FileOp::Truncate { size }) => {
+                self.truncate(size).await?;
+                Ok(0)
             },
             _ => Err(InvocationError::UnsupportedOperation),
         }
@@ -168,6 +171,105 @@ impl Ext2File {
 
         Ok(bytes_copied)
     }
+
+
+    async fn truncate(&self, new_size: usize) -> Result<(), InvocationError> {
+        if new_size > u32::MAX as usize {
+            return Err(InvocationError::InvalidArgument);
+        }
+    
+        let _guard = self.write_lock.lock().await;
+    
+        let old_size = self.inode_data.read().size as usize;
+        if new_size == old_size {
+            return Ok(());
+        }
+    
+        let block_size = self.fs.block_size as usize;
+    
+        if new_size < old_size {
+            // Zero bytes after the new EOF in the final retained block.
+            if new_size % block_size != 0 {
+                let block_index = new_size / block_size;
+                let block_offset = new_size % block_size;
+    
+                let block_id = {
+                    let inode = self.inode_data.read();
+    
+                    self.fs
+                        .resolve_file_block(&*inode, block_index)
+                        .await
+                        .map_err(|_| InvocationError::UnsupportedOperation)?
+                };
+    
+                if block_id != 0 {
+                    let page = ALLOCATOR.alloc(BlockSize::Normal);
+                    if page == 0 {
+                        return Err(InvocationError::OutOfMemory);
+                    }
+    
+                    if self.fs.read_block(block_id, page as u64).await.is_err() {
+                        ALLOCATOR.free(page, BlockSize::Normal);
+                        return Err(InvocationError::UnsupportedOperation);
+                    }
+    
+                    unsafe {
+                        core::ptr::write_bytes(
+                            (page + *HHDMOFFSET + block_offset) as *mut u8,
+                            0,
+                            block_size - block_offset,
+                        );
+                    }
+    
+                    if self
+                        .fs
+                        .cache
+                        .write_block(block_id as usize, page as u64)
+                        .await
+                        .is_err()
+                    {
+                        ALLOCATOR.free(page, BlockSize::Normal);
+                        return Err(InvocationError::UnsupportedOperation);
+                    }
+    
+                    ALLOCATOR.free(page, BlockSize::Normal);
+                }
+            }
+    
+            let old_blocks = old_size.div_ceil(block_size);
+            let new_blocks = new_size.div_ceil(block_size);
+    
+            let mut inode = self.inode_data.write();
+    
+            for block_index in new_blocks..old_blocks {
+                self.fs
+                    .clear_file_block(&mut inode, block_index)
+                    .await
+                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+            }
+    
+            inode.size = new_size as u32;
+    
+            self.fs
+                .write_inode(self.inode_num, &*inode)
+                .await
+                .map_err(|_| InvocationError::UnsupportedOperation)?;
+        } else {
+            let mut inode = self.inode_data.write();
+            inode.size = new_size as u32;
+    
+            self.fs
+                .write_inode(self.inode_num, &*inode)
+                .await
+                .map_err(|_| InvocationError::UnsupportedOperation)?;
+        }
+    
+        self.file_vmo
+            .resize_object(new_size)
+            .map_err(|_| InvocationError::OutOfMemory)?;
+    
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -245,215 +347,11 @@ impl VfsNode for Ext2File {
             };
 
             if disk_block_id == 0 {
-                disk_block_id = self.fs.allocate_block().await.map_err(|_| ())?;
+                let mut inode = self.inode_data.write();
 
-                let mut inode_write = self.inode_data.write();
-                if file_block_idx < 12 {
-                    unsafe {
-                        inode_write.data.blocks.direct[file_block_idx] = disk_block_id;
-                    }
-                } else {
-                    let pointers_per_block = (self.fs.block_size / 4) as usize;
-                    let blocks_per_double = pointers_per_block * pointers_per_block;
-                    let blocks_per_triple = blocks_per_double * pointers_per_block;
-                    let remaining = file_block_idx - 12;
-
-                    if remaining < pointers_per_block {
-                        // single indirect resolution
-                        let mut single_indirect = unsafe { inode_write.data.blocks.single_indirect };
-                        if single_indirect == 0 {
-                            single_indirect = self.fs.allocate_block().await.map_err(|_| ())?;
-                            inode_write.data.blocks.single_indirect = single_indirect;
-
-                            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                            if page_phys == 0 {
-                                return Err(());
-                            }
-                            unsafe {
-                                core::ptr::write_bytes((page_phys + *HHDMOFFSET) as *mut u8, 0, block_size);
-                            }
-                            let sector = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                            let write_fut =
-                                self.fs.partition.write_sectors(sector, self.fs.sectors_per_block, page_phys as u64).map_err(|_| ())?;
-                            write_fut.await.map_err(|_| ())?;
-                            ALLOCATOR.free(page_phys, BlockSize::Normal);
-                        }
-
-                        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                        if page_phys == 0 {
-                            return Err(());
-                        }
-                        let sector = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                        let read_fut =
-                            self.fs.partition.read_sectors(sector, self.fs.sectors_per_block, page_phys as u64).map_err(|_| ())?;
-                        read_fut.await.map_err(|_| ())?;
-
-                        unsafe {
-                            let table_ptr = (page_phys + *HHDMOFFSET) as *mut u32;
-                            core::ptr::write(table_ptr.add(remaining), disk_block_id);
-                        }
-
-                        let write_fut =
-                            self.fs.partition.write_sectors(sector, self.fs.sectors_per_block, page_phys as u64).map_err(|_| ())?;
-                        write_fut.await.map_err(|_| ())?;
-                        ALLOCATOR.free(page_phys, BlockSize::Normal);
-                    } else if remaining < pointers_per_block + blocks_per_double {
-                        // double indirect
-                        let doubly_idx = remaining - pointers_per_block;
-                        let mut double_indirect = unsafe { inode_write.data.blocks.double_indirect };
-
-                        if double_indirect == 0 {
-                            double_indirect = self.fs.allocate_block().await.map_err(|_| ())?;
-                            inode_write.data.blocks.double_indirect = double_indirect;
-
-                            // zero initialize l1 table
-                            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                            if page_phys == 0 {
-                                return Err(());
-                            }
-                            unsafe {
-                                core::ptr::write_bytes((page_phys + *HHDMOFFSET) as *mut u8, 0, block_size);
-                            }
-                            self.fs.cache.write_block(double_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-                            ALLOCATOR.free(page_phys, BlockSize::Normal);
-                        }
-
-                        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                        if page_phys == 0 {
-                            return Err(());
-                        }
-
-                        self.fs.read_block(double_indirect, page_phys as u64).await.map_err(|_| ())?;
-                        let level1_idx = doubly_idx / pointers_per_block;
-                        let level2_idx = doubly_idx % pointers_per_block;
-
-                        let mut single_indirect = unsafe {
-                            let table_ptr = (page_phys + *HHDMOFFSET) as *const u32;
-                            core::ptr::read(table_ptr.add(level1_idx))
-                        };
-
-                        if single_indirect == 0 {
-                            single_indirect = self.fs.allocate_block().await.map_err(|_| ())?;
-                            unsafe {
-                                let table_ptr = (page_phys + *HHDMOFFSET) as *mut u32;
-                                core::ptr::write(table_ptr.add(level1_idx), single_indirect);
-                            }
-                            self.fs.cache.write_block(double_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-
-                            // zero init l2 table
-                            let page_phys_sub = ALLOCATOR.alloc(BlockSize::Normal);
-                            if page_phys_sub == 0 {
-                                ALLOCATOR.free(page_phys, BlockSize::Normal);
-                                return Err(());
-                            }
-                            unsafe {
-                                core::ptr::write_bytes((page_phys_sub + *HHDMOFFSET) as *mut u8, 0, block_size);
-                            }
-                            self.fs.cache.write_block(single_indirect as usize, page_phys_sub as u64).await.map_err(|_| ())?;
-                            ALLOCATOR.free(page_phys_sub, BlockSize::Normal);
-                        }
-
-                        self.fs.read_block(single_indirect, page_phys as u64).await.map_err(|_| ())?;
-                        unsafe {
-                            let table_ptr = (page_phys + *HHDMOFFSET) as *mut u32;
-                            core::ptr::write(table_ptr.add(level2_idx), disk_block_id);
-                        }
-                        self.fs.cache.write_block(single_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-                        ALLOCATOR.free(page_phys, BlockSize::Normal);
-                    } else if remaining < pointers_per_block + blocks_per_double + blocks_per_triple {
-                        // triple indirect
-                        let triply_idx = remaining - pointers_per_block - blocks_per_double;
-                        let mut triple_indirect = unsafe { inode_write.data.blocks.triple_indirect };
-
-                        if triple_indirect == 0 {
-                            triple_indirect = self.fs.allocate_block().await.map_err(|_| ())?;
-                            inode_write.data.blocks.triple_indirect = triple_indirect;
-
-                            // zero initialize l1 table
-                            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                            if page_phys == 0 {
-                                return Err(());
-                            }
-                            unsafe {
-                                core::ptr::write_bytes((page_phys + *HHDMOFFSET) as *mut u8, 0, block_size);
-                            }
-                            self.fs.cache.write_block(triple_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-                            ALLOCATOR.free(page_phys, BlockSize::Normal);
-                        }
-
-                        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                        if page_phys == 0 {
-                            return Err(());
-                        }
-
-                        let level1_idx = triply_idx / blocks_per_double;
-                        let level2_idx = (triply_idx % blocks_per_double) / pointers_per_block;
-                        let level3_idx = (triply_idx % blocks_per_double) % pointers_per_block;
-
-                        self.fs.read_block(triple_indirect, page_phys as u64).await.map_err(|_| ())?;
-                        let mut double_indirect = unsafe {
-                            let table_ptr = (page_phys + *HHDMOFFSET) as *const u32;
-                            core::ptr::read(table_ptr.add(level1_idx))
-                        };
-
-                        if double_indirect == 0 {
-                            double_indirect = self.fs.allocate_block().await.map_err(|_| ())?;
-                            unsafe {
-                                let table_ptr = (page_phys + *HHDMOFFSET) as *mut u32;
-                                core::ptr::write(table_ptr.add(level1_idx), double_indirect);
-                            }
-                            self.fs.cache.write_block(triple_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-
-                            let page_phys_sub = ALLOCATOR.alloc(BlockSize::Normal);
-                            if page_phys_sub == 0 {
-                                ALLOCATOR.free(page_phys, BlockSize::Normal);
-                                return Err(());
-                            }
-                            unsafe {
-                                core::ptr::write_bytes((page_phys_sub + *HHDMOFFSET) as *mut u8, 0, block_size);
-                            }
-                            self.fs.cache.write_block(double_indirect as usize, page_phys_sub as u64).await.map_err(|_| ())?;
-                            ALLOCATOR.free(page_phys_sub, BlockSize::Normal);
-                        }
-
-                        self.fs.read_block(double_indirect, page_phys as u64).await.map_err(|_| ())?;
-                        let mut single_indirect = unsafe {
-                            let table_ptr = (page_phys + *HHDMOFFSET) as *const u32;
-                            core::ptr::read(table_ptr.add(level2_idx))
-                        };
-
-                        if single_indirect == 0 {
-                            single_indirect = self.fs.allocate_block().await.map_err(|_| ())?;
-                            unsafe {
-                                let table_ptr = (page_phys + *HHDMOFFSET) as *mut u32;
-                                core::ptr::write(table_ptr.add(level2_idx), single_indirect);
-                            }
-                            self.fs.cache.write_block(double_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-
-                            let page_phys_sub = ALLOCATOR.alloc(BlockSize::Normal);
-                            if page_phys_sub == 0 {
-                                ALLOCATOR.free(page_phys, BlockSize::Normal);
-                                return Err(());
-                            }
-                            unsafe {
-                                core::ptr::write_bytes((page_phys_sub + *HHDMOFFSET) as *mut u8, 0, block_size);
-                            }
-                            self.fs.cache.write_block(single_indirect as usize, page_phys_sub as u64).await.map_err(|_| ())?;
-                            ALLOCATOR.free(page_phys_sub, BlockSize::Normal);
-                        }
-
-                        self.fs.read_block(single_indirect, page_phys as u64).await.map_err(|_| ())?;
-                        unsafe {
-                            let table_ptr = (page_phys + *HHDMOFFSET) as *mut u32;
-                            core::ptr::write(table_ptr.add(level3_idx), disk_block_id);
-                        }
-                        self.fs.cache.write_block(single_indirect as usize, page_phys as u64).await.map_err(|_| ())?;
-                        ALLOCATOR.free(page_phys, BlockSize::Normal);
-                    } else {
-                        return Err(());
-                    }
-                }
-                inode_write.blocks += self.fs.sectors_per_block;
+                disk_block_id = self.fs
+                    .allocate_file_block(&mut inode, file_block_idx)
+                    .await?;
             }
 
             // write direct from vmo frame to part (bypass cache)

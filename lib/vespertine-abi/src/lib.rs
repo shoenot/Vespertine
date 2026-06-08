@@ -6,6 +6,8 @@ pub mod protocol;
 pub mod tag;
 pub mod app;
 
+pub const AT_VESPERTINE_INITPKG: usize = 0x6fff_0001;
+
 use core::{fmt::Debug, slice};
 pub use op::*;
 
@@ -48,6 +50,7 @@ impl Invocation {
             Invocation::File(FileOp::Stat) => AccessRights::new(),
             Invocation::File(FileOp::GetVmo) => AccessRights::READ,
             Invocation::File(FileOp::Seek { .. }) => AccessRights::new(),
+            Invocation::File(FileOp::Truncate { .. }) => AccessRights::WRITE,
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
@@ -70,6 +73,7 @@ impl Invocation {
             Invocation::Clock(ClockOp::Sleep { .. }) => AccessRights::WRITE,
             Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
             Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
+            Invocation::Socket(SocketOp::SetReadPolicy { .. }) => AccessRights::WRITE,
             Invocation::Wait(..) => AccessRights::READ,
             Invocation::Broker(BrokerOp::Connect { .. }) => AccessRights::READ,
             Invocation::Broker(BrokerOp::Accept) => AccessRights::READ,

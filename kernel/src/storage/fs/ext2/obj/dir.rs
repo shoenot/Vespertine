@@ -118,10 +118,7 @@ impl KernelObject for Ext2Directory {
                         new_file
                     };
 
-                    Arc::new(FileDescription::new(
-                        base_file as Arc<dyn KernelObject>,
-                        child_inode_data.size as usize
-                    )) as Arc<dyn KernelObject>
+                    Arc::new(FileDescription::new(base_file as Arc<dyn KernelObject>)) as Arc<dyn KernelObject>
                 };
 
                 let rights = AccessRights(calling_rights.0 & (AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE).0);
@@ -475,10 +472,7 @@ impl KernelObject for Ext2Directory {
                 // cache file in active node cache
                 self.fs.active_files.lock().insert(new_inode_num, Arc::downgrade(&new_file));
 
-                let file_desc = Arc::new(FileDescription::new(
-                    new_file as Arc<dyn KernelObject>,
-                    0 // Size is 0 for a newly created file
-                ));
+                let file_desc = Arc::new(FileDescription::new(new_file as Arc<dyn KernelObject>));
 
                 // register standard handle for the active process
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
