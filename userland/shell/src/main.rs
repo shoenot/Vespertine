@@ -96,14 +96,21 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             "" => {}
             "echo" => cmd_echo(args_vec),
             "ns" => {
-                let (proc, rx) = Exec::new("ns".into())
+                let res = Exec::new("ns".into())
                     .args(&args_vec)
                     .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
                     .grant(TAG_SYS_PROCMAN, AccessRights::all())?
                     .grant(TAG_SYS_SOCKFAC, AccessRights::all())?
-                    .spawn_piped_sink()?;
+                    .spawn();
 
-                print_stream(&rx)?;
+                match res {
+                    Ok(p) => {
+                        if let Err(e) = p.wait() {
+                            println!("[ERROR] kilo wait error: {:?}", e);
+                        }
+                    }
+                    Err(e) => println!("{:?}", e),
+                }
             }
             "dt" => {
                 let (proc, rx) = Exec::new(cmd.into())

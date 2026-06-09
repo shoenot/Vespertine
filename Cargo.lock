@@ -236,15 +236,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tctest"
-version = "0.1.0"
-dependencies = [
- "vespertine-abi",
- "vespertine-rt",
- "vespertine-std",
-]
-
-[[package]]
 name = "terminal"
 version = "0.1.0"
 dependencies = [

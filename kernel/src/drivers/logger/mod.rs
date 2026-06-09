@@ -35,7 +35,7 @@ use crate::core::sync::{
 pub const COLOR_BG: u32 = 0x11080d;
 pub const COLOR_FG: u32 = 0xe0ddd8;
 
-const FONT_DATA: &[u8] = include_bytes!("../../../../build_deps/zap-ext-light16.psf");
+const FONT_DATA: &[u8] = include_bytes!("zap-ext-light16.psf");
 static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();
 
 fn load_font() -> Psf<'static> {

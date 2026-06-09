@@ -22,13 +22,29 @@ PART_SECTORS  := 128991
 .PHONY: all
 all: target/build/$(IMAGE_NAME).iso
 
+.PHONY: lib
+lib:
+	$(MAKE) -C lib
+
+.PHONY: ports
+ports: lib
+	$(MAKE) -C ports
+
+.PHONY: kernel
+kernel:
+	$(MAKE) -C kernel
+
+.PHONY: userland
+userland:
+	$(MAKE) -C userland
+
 .PHONY: run
-run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
+run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
 	qemu-system-x86_64 \
 		-M q35 \
-		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
+		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom target/build/$(IMAGE_NAME).iso \
-		-drive file=disk.img,format=raw,id=disk0,if=none \
+		-drive file=target/disk.img,format=raw,id=disk0,if=none \
 		-device virtio-blk-pci,drive=disk0,disable-legacy=on \
 		-accel kvm \
 		-cpu host,migratable=no,+invtsc \
@@ -36,12 +52,12 @@ run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso upd
 		-serial stdio 
 
 .PHONY: run-debug
-run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
+run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
 	qemu-system-x86_64 \
 		-M q35 \
-		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
+		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom target/build/$(IMAGE_NAME).iso \
-		-drive file=disk.img,format=raw,id=disk0,if=none \
+		-drive file=target/disk.img,format=raw,id=disk0,if=none \
 		-device virtio-blk-pci,drive=disk0,disable-legacy=on \
 		-accel kvm \
 		-cpu host,migratable=no,+invtsc \
@@ -56,67 +72,35 @@ run-bios: target/build/$(IMAGE_NAME).iso
 		-boot d \
 		$(QEMUFLAGS)
 
-##############################
-# --- ASSEMBLY FILES HERE ---#
-##############################
-
-target/build/gdt.o: kernel/src/arch/x86_64/cpu/gdt.asm
-	mkdir -p target/build/
-	$(AS) -f elf64 kernel/src/arch/x86_64/cpu/gdt.asm -o target/build/gdt.o
-	
-target/build/idt.o: kernel/src/arch/x86_64/interrupts/idt.asm target/build/gdt.o
-	mkdir -p target/build/
-	$(AS) -f elf64 kernel/src/arch/x86_64/interrupts/idt.asm -o target/build/idt.o
-	
-target/build/switch.o: kernel/src/arch/x86_64/task/switch.asm target/build/idt.o
-	mkdir -p target/build/
-	$(AS) -f elf64 kernel/src/arch/x86_64/task/switch.asm -o target/build/switch.o
-
-target/build/fpu.o: kernel/src/arch/x86_64/cpu/fpu.asm target/build/switch.o
-	mkdir -p target/build/
-	$(AS) -f elf64 kernel/src/arch/x86_64/cpu/fpu.asm -o target/build/fpu.o
-
-target/build/syscall.o: kernel/src/arch/x86_64/task/syscall.asm target/build/fpu.o
-	mkdir -p target/build/
-	$(AS) -f elf64 kernel/src/arch/x86_64/task/syscall.asm -o target/build/syscall.o
-
-.PHONY: kernel
-kernel: target/build/syscall.o
-	cargo build -p kernel --release --target $(TARGET_NAME)
+target/disk.img:
+	echo "[INFO] Creating new target/disk.img"
+	dd if=/dev/zero of=target/disk.img bs=1M count=64 status=none
+	sgdisk -n 1:$(PART_START):$$(($(PART_START) + $(PART_SECTORS) - 1)) -t 1:8300 target/disk.img > /dev/null
 
 .PHONY: update-disk
-update-disk: userland
-	echo "[INFO] Rebuilding ext2 partition from build_deps/disk/"
+update-disk: userland ports target/disk.img
+	echo "[INFO] Rebuilding ext2 partition from target/build_deps/disk/"
 	mkdir -p target/build
-	mkdir -p build_deps/disk/Programs/
-	for prog in $(USER_PROGS); do \
-		echo "Building userland program: $$prog"; \
-		RUSTFLAGS="-C relocation-model=static -C link-arg=-Tscripts/userland.ld" \
-			cargo build -p $$prog --release --target $(TARGET_NAME) || exit 1; \
-		cp target/$(TARGET_NAME)/release/$$prog build_deps/disk/Programs/$$prog; \
-	done
+	# Copy static assets to target/build_deps/disk before creating the image
+	cp -r assets/disk/* target/build_deps/disk/
 	dd if=/dev/zero of=target/build/partition.img bs=512 count=$(PART_SECTORS) status=none
-	mke2fs -q -F -t ext2 -d build_deps/disk target/build/partition.img
-	dd if=target/build/partition.img of=disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
+	mke2fs -q -F -t ext2 -d target/build_deps/disk target/build/partition.img
+	dd if=target/build/partition.img of=target/disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
 	rm -f target/build/partition.img
-	echo "[SUCCESS] disk.img updated successfully from build_deps/disk/."
+	echo "[SUCCESS] target/disk.img updated successfully from target/build_deps/disk/."
 
 .PHONY: sync-from-disk
 sync-from-disk:
-	echo "[INFO] Extracting files from ext2 partition to build_deps/disk/"
+	echo "[INFO] Extracting files from ext2 partition to target/build_deps/disk/"
 	mkdir -p target/build
-	mkdir -p build_deps/disk
-	dd if=disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
-	debugfs -R "rdump / build_deps/disk" target/build/partition.img 2>/dev/null || true
+	mkdir -p target/build_deps/disk
+	dd if=target/disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
+	debugfs -R "rdump / target/build_deps/disk" target/build/partition.img 2>/dev/null || true
 	rm -f target/build/partition.img
-	echo "[SUCCESS] build_deps/disk/ updated from disk.img."
-
-##############################
-# --- ASSEMBLY FILES DONE ---#
-##############################
+	echo "[SUCCESS] target/build_deps/disk/ updated from target/disk.img."
 
 # ISO Creation (Hybrid BIOS/UEFI)
-target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel userland
+target/build/$(IMAGE_NAME).iso: target/build_deps/limine/limine kernel update-disk
 	mkdir -p target/build
 	rm -rf iso_root
 	mkdir -p iso_root/boot/limine
@@ -124,12 +108,12 @@ target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel userland
 	
 	# Copy the kernel from the cargo target directory
 	cp $(KERNEL_ELF) iso_root/boot/kernel
-	cp build_deps/limine.conf iso_root/boot/limine/
+	cp assets/limine.conf iso_root/boot/limine/
 	
 	# x86_64 Specific Limine binaries
-	cp build_deps/limine/limine-bios.sys build_deps/limine/limine-bios-cd.bin build_deps/limine/limine-uefi-cd.bin iso_root/boot/limine/
-	cp build_deps/limine/BOOTX64.EFI iso_root/EFI/BOOT/
-	cp build_deps/limine/BOOTIA32.EFI iso_root/EFI/BOOT/
+	cp target/build_deps/limine/limine-bios.sys target/build_deps/limine/limine-bios-cd.bin target/build_deps/limine/limine-uefi-cd.bin iso_root/boot/limine/
+	cp target/build_deps/limine/BOOTX64.EFI iso_root/EFI/BOOT/
+	cp target/build_deps/limine/BOOTIA32.EFI iso_root/EFI/BOOT/
 	
 	xorriso -report_about FAILURE -as mkisofs -b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -137,25 +121,30 @@ target/build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel userland
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
 		iso_root -o target/build/$(IMAGE_NAME).iso
 	
-	./build_deps/limine/limine bios-install target/build/$(IMAGE_NAME).iso
+	./target/build_deps/limine/limine bios-install target/build/$(IMAGE_NAME).iso
 	rm -rf iso_root
 
-# External Dependencies (Limine and OVMF)
-build_deps/limine/limine:
-	rm -rf build_deps/limine
-	mkdir -p build_deps/limine
-	curl -sL https://github.com/limine-bootloader/limine/releases/latest/download/limine-binary.tar.gz | tar -xz --strip-components=1 -C build_deps/limine
-	$(MAKE) -C build_deps/limine
 
-build_deps/edk2-ovmf/ovmf-code-x86_64.fd:
-	mkdir -p build_deps
-	curl -L https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/edk2-ovmf.tar.gz | tar -xzf - -C build_deps/
+# External Dependencies (Limine and OVMF)
+target/build_deps/limine/limine:
+	rm -rf target/build_deps/limine
+	mkdir -p target/build_deps/limine
+	curl -sL https://github.com/limine-bootloader/limine/releases/latest/download/limine-binary.tar.gz | tar -xz --strip-components=1 -C target/build_deps/limine
+	$(MAKE) -C target/build_deps/limine
+
+target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd:
+	mkdir -p target/build_deps
+	curl -L https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/edk2-ovmf.tar.gz | tar -xzf - -C target/build_deps/
 
 .PHONY: clean
 clean:
+	$(MAKE) -C lib clean
+	$(MAKE) -C ports clean
+	$(MAKE) -C kernel clean
+	$(MAKE) -C userland clean
 	cargo clean
 	rm -rf iso_root target/build
 
 .PHONY: distclean
 distclean: clean
-	rm -rf build_deps/limine build_deps/edk2-ovmf
+	rm -rf target/build_deps/limine target/build_deps/edk2-ovmf ports/mlibc
