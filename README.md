@@ -6,7 +6,7 @@ The end goal is to provide modern semantics that allow for an ergonomic user exp
 The kernel is hybrid in nature. Drivers currently all run in ring 0, but the plan is to move everything except the performance critical drivers into userspace eventually. 
 The ABI and everything is still very volatile so there is no documentation just yet, but that is a definite priority as soon as some things are solidified. 
 
-## Compiling and running:
+## Compiling and running
 Vespertine currently only has a virtio block driver, and relies on QEMU to run. If you want to try it out, simply clone the repository and run 
 
 ```bash
@@ -15,7 +15,7 @@ make run
 
 to build the disk image and launch it in QEMU. You can adjust the makefile for cores and memory and other options if necessary. 
 
-## Credits:
+## Credits
 Managarm team: for providing [mlibc](https://github.com/managarm/mlibc) and also for the fact that my ext2 driver started off based on their code.  
 
 ## Third-Party Licenses
