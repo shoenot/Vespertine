@@ -12,11 +12,72 @@ use core::task::{
 
 use crate::core::sync::TicketLock;
 use crate::drivers::virtio::blk::BlockTransferFuture;
-use crate::memory::HHDMOFFSET;
+use crate::memory::{
+    ALLOCATOR,
+    HHDMOFFSET,
+    calculate_order,
+};
+
+#[derive(Debug)]
+pub struct DmaBuffer {
+    phys: usize,
+    len: usize,
+    order: usize,
+}
+
+impl DmaBuffer {
+    pub fn new(len: usize) -> Result<Arc<Self>, ()> {
+        let alloc_len = len.max(1);
+        let order = calculate_order(alloc_len);
+        let phys = ALLOCATOR.alloc_order(order).ok_or(())?;
+        Ok(Arc::new(Self { phys, len, order }))
+    }
+
+    pub fn from_phys(src_phys: usize, len: usize) -> Result<Arc<Self>, ()> {
+        let buffer = Self::new(len)?;
+        unsafe {
+            copy_nonoverlapping((src_phys + *HHDMOFFSET) as *const u8, (buffer.phys + *HHDMOFFSET) as *mut u8, len);
+        }
+        Ok(buffer)
+    }
+
+    pub fn from_slice(src: &[u8]) -> Result<Arc<Self>, ()> {
+        let buffer = Self::new(src.len())?;
+        unsafe {
+            copy_nonoverlapping(src.as_ptr(), (buffer.phys + *HHDMOFFSET) as *mut u8, src.len());
+        }
+        Ok(buffer)
+    }
+
+    pub fn copy_to_phys(&self, dst_phys: usize) {
+        unsafe {
+            copy_nonoverlapping((self.phys + *HHDMOFFSET) as *const u8, (dst_phys + *HHDMOFFSET) as *mut u8, self.len);
+        }
+    }
+
+    pub fn copy_to_slice(&self, dst: &mut [u8]) {
+        assert!(dst.len() >= self.len, "dma destination slice too small");
+        unsafe {
+            copy_nonoverlapping((self.phys + *HHDMOFFSET) as *const u8, dst.as_mut_ptr(), self.len);
+        }
+    }
+
+    pub fn phys(&self) -> usize { self.phys }
+
+    pub fn len(&self) -> usize { self.len }
+}
+
+impl Drop for DmaBuffer {
+    fn drop(&mut self) { ALLOCATOR.free_order(self.phys, self.order); }
+}
 
 pub trait AsyncBlockDevice: Send + Sync + Debug {
+    /// Reads are staged through a driver-owned DMA buffer and copied back
+    /// into `buf_phys` only when the returned future resolves successfully.
     fn read_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()>;
 
+    /// Writes are staged through a driver-owned DMA buffer before submission,
+    /// so the device does not retain access to `buf_phys` after this call returns.
     fn write_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()>;
 
     fn sector_size(&self) -> usize { 512 }
@@ -165,8 +226,8 @@ impl BlockCache {
         // eviction writeback
         if let Some((old_block, old_data)) = old_writeback {
             let start_sector = old_block as u64 * self.sectors_per_block as u64;
-            let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
-            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64);
+            let dma = DmaBuffer::from_slice(old_data.as_slice())?;
+            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, dma.phys() as u64);
             if write_future.is_err() || write_future.unwrap().await.is_err() {
                 let mut inner = self.inner.lock();
                 inner.entries[idx].in_flight = false;
@@ -186,12 +247,8 @@ impl BlockCache {
         }
 
         let new_sector = block_id as u64 * self.sectors_per_block as u64;
-        let entry_phys = {
-            let inner = self.inner.lock();
-            inner.entries[idx].data.as_ptr() as usize - *HHDMOFFSET
-        };
-
-        let read_future = self.device.read_sectors(new_sector, self.sectors_per_block as u32, entry_phys as u64);
+        let dma = DmaBuffer::new(self.block_size)?;
+        let read_future = self.device.read_sectors(new_sector, self.sectors_per_block as u32, dma.phys() as u64);
         if read_future.is_err() || read_future.unwrap().await.is_err() {
             let mut inner = self.inner.lock();
             inner.entries[idx].in_flight = false;
@@ -201,6 +258,7 @@ impl BlockCache {
         {
             let mut inner = self.inner.lock();
             let entry = &mut inner.entries[idx];
+            dma.copy_to_slice(entry.data.as_mut_slice());
             entry.referenced = true;
             entry.in_flight = false;
             entry.version += 1; // mark slot as changed
@@ -297,8 +355,8 @@ impl BlockCache {
 
         if let Some((old_block, old_data)) = old_writeback {
             let start_sector = old_block as u64 * self.sectors_per_block as u64;
-            let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
-            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64);
+            let dma = DmaBuffer::from_slice(old_data.as_slice())?;
+            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, dma.phys() as u64);
             if write_future.is_err() || write_future.unwrap().await.is_err() {
                 let mut inner = self.inner.lock();
                 inner.entries[idx].in_flight = false;
@@ -344,8 +402,8 @@ impl BlockCache {
 
         for (idx, block_id, version, data) in dirty_entries {
             let start_sector = block_id as u64 * self.sectors_per_block as u64;
-            let buffer_phys = data.as_ptr() as usize - *HHDMOFFSET;
-            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
+            let dma = DmaBuffer::from_slice(data.as_slice())?;
+            let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, dma.phys() as u64)?;
             write_future.await?;
 
             // reset the dirty flag only if the version matches the version flushed to disk

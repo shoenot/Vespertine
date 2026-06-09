@@ -1,4 +1,8 @@
-use core::{cell::UnsafeCell, ops::{Deref, DerefMut}, sync::atomic::{AtomicBool, AtomicU32, Ordering}};
+use core::{
+    cell::UnsafeCell,
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+};
 
 use crate::syscall::{sys_futex_wait, sys_futex_wake, sys_yield};
 
@@ -28,7 +32,11 @@ impl<T> Mutex<T> {
 
     pub fn lock(&self) -> MutexGuard<'_, T> {
         // fast path = if 0 change to 1
-        while self.locked.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+        while self
+            .locked
+            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
             return MutexGuard { lock: self };
         }
 
@@ -75,4 +83,3 @@ impl<T> Drop for MutexGuard<'_, T> {
         }
     }
 }
-

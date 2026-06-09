@@ -1,13 +1,18 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
-
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
 use async_trait::async_trait;
 use vespertine_abi::op::DirectoryOp;
 use vespertine_abi::{
-    AccessRights, FileOp, HandleID, Invocation
+    AccessRights,
+    FileOp,
+    HandleID,
+    Invocation,
 };
 
 use crate::core::object::invoke::InvocationError;
@@ -61,7 +66,8 @@ pub async fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, Invoc
             continue;
         };
 
-        let res = kernel_invoke(last, Invocation::Directory(DirectoryOp::Lookup { name: dir.as_ptr() as usize, name_len: dir.len() })).await;
+        let res =
+            kernel_invoke(last, Invocation::Directory(DirectoryOp::Lookup { name: dir.as_ptr() as usize, name_len: dir.len() })).await;
 
         if last != start {
             let _ = kernel_close(last);
@@ -98,12 +104,7 @@ pub struct FileDescription {
 }
 
 impl FileDescription {
-    pub fn new(inner: Arc<dyn KernelObject>) -> Self {
-        Self {
-            inner,
-            cursor: AtomicUsize::new(0),
-        }
-    }
+    pub fn new(inner: Arc<dyn KernelObject>) -> Self { Self { inner, cursor: AtomicUsize::new(0) } }
 }
 
 #[async_trait]
@@ -115,42 +116,36 @@ impl KernelObject for FileDescription {
                 if use_cursor {
                     *offset = self.cursor.load(Ordering::SeqCst);
                 }
-                
+
                 // Delegate to Ext2File with the explicit offset
                 let bytes = self.inner.invoke(invocation, rights).await?;
-                
+
                 if use_cursor {
                     self.cursor.fetch_add(bytes, Ordering::SeqCst);
                 }
                 Ok(bytes)
-            },
+            }
             Invocation::File(FileOp::Write { offset, .. }) => {
                 let use_cursor = *offset == usize::MAX;
                 if use_cursor {
                     *offset = self.cursor.load(Ordering::SeqCst);
                 }
-                
+
                 let bytes = self.inner.invoke(invocation, rights).await?;
-                
+
                 if use_cursor {
                     self.cursor.fetch_add(bytes, Ordering::SeqCst);
                 }
                 Ok(bytes)
-            },
+            }
             Invocation::File(FileOp::Seek { offset, whence }) => {
                 let current = self.cursor.load(Ordering::SeqCst) as i64;
-                let file_size = if *whence == 2 {
-                    self.inner
-                        .invoke(Invocation::File(FileOp::Stat), rights)
-                        .await? as i64
-                } else {
-                    0
-                };
-                
+                let file_size = if *whence == 2 { self.inner.invoke(Invocation::File(FileOp::Stat), rights).await? as i64 } else { 0 };
+
                 let new_cursor = match *whence {
-                    0 => *offset,                                    // SEEK_SET
-                    1 => current + *offset,                          // SEEK_CUR
-                    2 => file_size + *offset,                        // SEEK_END
+                    0 => *offset,             // SEEK_SET
+                    1 => current + *offset,   // SEEK_CUR
+                    2 => file_size + *offset, // SEEK_END
                     _ => return Err(InvocationError::InvalidArgument),
                 };
 
@@ -160,7 +155,7 @@ impl KernelObject for FileDescription {
 
                 self.cursor.store(new_cursor as usize, Ordering::SeqCst);
                 Ok(new_cursor as usize)
-            },
+            }
             // Transparently pass through GetVmo, Stat, etc. directly to Ext2File
             _ => self.inner.invoke(invocation, rights).await,
         }

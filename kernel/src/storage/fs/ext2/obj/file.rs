@@ -55,7 +55,7 @@ impl KernelObject for Ext2File {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
                 let bytes_read = self.read_bytes_async(offset, buffer_ptr, len).await?;
                 Ok(bytes_read)
-            },
+            }
             Invocation::File(FileOp::Stat) => Ok(self.inode_data.read().size as usize),
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
@@ -63,18 +63,16 @@ impl KernelObject for Ext2File {
                 let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
 
                 Ok(handle_id.0 as usize)
-            },
+            }
             Invocation::File(FileOp::Write { offset, buffer_ptr, len }) => {
                 let bytes_written = self.write_bytes_async(offset, buffer_ptr, len).await?;
                 Ok(bytes_written)
-            },
-            Invocation::File(FileOp::Seek { .. }) => {
-                Err(InvocationError::UnsupportedOperation)
-            },
+            }
+            Invocation::File(FileOp::Seek { .. }) => Err(InvocationError::UnsupportedOperation),
             Invocation::File(FileOp::Truncate { size }) => {
                 self.truncate(size).await?;
                 Ok(0)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -158,8 +156,8 @@ impl Ext2File {
 
             bytes_copied += chunk_size;
         }
-        let inode_ref = self.inode_data.read();
-        self.fs.write_inode(self.inode_num, &*inode_ref).await.map_err(|_| InvocationError::InvalidPointer)?;
+        let inode = *self.inode_data.read();
+        self.fs.write_inode(self.inode_num, &inode).await.map_err(|_| InvocationError::InvalidPointer)?;
 
         let self_arc = {
             let active = self.fs.active_files.lock();
@@ -172,102 +170,76 @@ impl Ext2File {
         Ok(bytes_copied)
     }
 
-
     async fn truncate(&self, new_size: usize) -> Result<(), InvocationError> {
         if new_size > u32::MAX as usize {
             return Err(InvocationError::InvalidArgument);
         }
-    
+
         let _guard = self.write_lock.lock().await;
-    
+
         let old_size = self.inode_data.read().size as usize;
         if new_size == old_size {
             return Ok(());
         }
-    
+
         let block_size = self.fs.block_size as usize;
-    
+
         if new_size < old_size {
             // Zero bytes after the new EOF in the final retained block.
             if new_size % block_size != 0 {
                 let block_index = new_size / block_size;
                 let block_offset = new_size % block_size;
-    
-                let block_id = {
-                    let inode = self.inode_data.read();
-    
-                    self.fs
-                        .resolve_file_block(&*inode, block_index)
-                        .await
-                        .map_err(|_| InvocationError::UnsupportedOperation)?
-                };
-    
+
+                let inode = *self.inode_data.read();
+                let block_id = self.fs.resolve_file_block(&inode, block_index).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+
                 if block_id != 0 {
                     let page = ALLOCATOR.alloc(BlockSize::Normal);
                     if page == 0 {
                         return Err(InvocationError::OutOfMemory);
                     }
-    
+
                     if self.fs.read_block(block_id, page as u64).await.is_err() {
                         ALLOCATOR.free(page, BlockSize::Normal);
                         return Err(InvocationError::UnsupportedOperation);
                     }
-    
+
                     unsafe {
-                        core::ptr::write_bytes(
-                            (page + *HHDMOFFSET + block_offset) as *mut u8,
-                            0,
-                            block_size - block_offset,
-                        );
+                        core::ptr::write_bytes((page + *HHDMOFFSET + block_offset) as *mut u8, 0, block_size - block_offset);
                     }
-    
-                    if self
-                        .fs
-                        .cache
-                        .write_block(block_id as usize, page as u64)
-                        .await
-                        .is_err()
-                    {
+
+                    if self.fs.cache.write_block(block_id as usize, page as u64).await.is_err() {
                         ALLOCATOR.free(page, BlockSize::Normal);
                         return Err(InvocationError::UnsupportedOperation);
                     }
-    
+
                     ALLOCATOR.free(page, BlockSize::Normal);
                 }
             }
-    
+
             let old_blocks = old_size.div_ceil(block_size);
             let new_blocks = new_size.div_ceil(block_size);
-    
-            let mut inode = self.inode_data.write();
-    
+
+            let mut inode = *self.inode_data.read();
+
             for block_index in new_blocks..old_blocks {
-                self.fs
-                    .clear_file_block(&mut inode, block_index)
-                    .await
-                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+                self.fs.clear_file_block(&mut inode, block_index).await.map_err(|_| InvocationError::UnsupportedOperation)?;
             }
-    
+
             inode.size = new_size as u32;
-    
-            self.fs
-                .write_inode(self.inode_num, &*inode)
-                .await
-                .map_err(|_| InvocationError::UnsupportedOperation)?;
+
+            self.fs.write_inode(self.inode_num, &inode).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+            *self.inode_data.write() = inode;
         } else {
-            let mut inode = self.inode_data.write();
+            let mut inode = *self.inode_data.read();
             inode.size = new_size as u32;
-    
-            self.fs
-                .write_inode(self.inode_num, &*inode)
-                .await
-                .map_err(|_| InvocationError::UnsupportedOperation)?;
+
+            self.fs.write_inode(self.inode_num, &inode).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+            *self.inode_data.write() = inode;
         }
-    
-        self.file_vmo
-            .resize_object(new_size)
-            .map_err(|_| InvocationError::OutOfMemory)?;
-    
+
+        self.file_vmo.resize_object(new_size).map_err(|_| InvocationError::OutOfMemory)?;
+
         Ok(())
     }
 }
@@ -292,10 +264,10 @@ impl VfsNode for Ext2File {
 
         let mut block_ids = [0u32; 4];
         {
-            let inode_guard = self.inode_data.read();
+            let inode = *self.inode_data.read();
             for i in 0..blocks_per_page {
                 let file_block_idx = start_file_block + i;
-                block_ids[i] = self.fs.resolve_file_block(&*inode_guard, file_block_idx).await.map_err(|_| ())?;
+                block_ids[i] = self.fs.resolve_file_block(&inode, file_block_idx).await.map_err(|_| ())?;
             }
         }
 
@@ -341,17 +313,13 @@ impl VfsNode for Ext2File {
             let file_block_idx = start_file_block + i;
             let src_block_phys = src_phys + (i * block_size);
 
-            let mut disk_block_id = {
-                let inode_ref = self.inode_data.read();
-                self.fs.resolve_file_block(&*inode_ref, file_block_idx).await.unwrap_or(0)
-            };
+            let inode = *self.inode_data.read();
+            let mut disk_block_id = self.fs.resolve_file_block(&inode, file_block_idx).await.unwrap_or(0);
 
             if disk_block_id == 0 {
-                let mut inode = self.inode_data.write();
-
-                disk_block_id = self.fs
-                    .allocate_file_block(&mut inode, file_block_idx)
-                    .await?;
+                let mut inode = *self.inode_data.read();
+                disk_block_id = self.fs.allocate_file_block(&mut inode, file_block_idx).await?;
+                *self.inode_data.write() = inode;
             }
 
             // write direct from vmo frame to part (bypass cache)
@@ -362,8 +330,8 @@ impl VfsNode for Ext2File {
         }
 
         // save metadata
-        let inode_ref = self.inode_data.read();
-        self.fs.write_inode(self.inode_num, &*inode_ref).await.map_err(|_| ())?;
+        let inode = *self.inode_data.read();
+        self.fs.write_inode(self.inode_num, &inode).await.map_err(|_| ())?;
 
         Ok(len)
     }

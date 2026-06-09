@@ -2,15 +2,16 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cmp::min;
-use core::future::poll_fn;
+use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{
-    AtomicBool, AtomicUsize, Ordering
+    AtomicBool,
+    AtomicUsize,
+    Ordering,
 };
 use core::task::{
     Context,
     Poll,
-    Waker,
 };
 
 use async_trait::async_trait;
@@ -30,13 +31,21 @@ use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
 };
-use crate::core::asynchronous::async_sleep::{AsyncSleep, sleep_async};
+use crate::core::asynchronous::async_sleep::{
+    AsyncSleep,
+    sleep_async,
+};
+use crate::core::asynchronous::waiter::{
+    AsyncWaiter,
+    WaiterList,
+    wake_all,
+};
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::{
-    Mutex,
-    TicketLock,
-};
+use crate::core::sync::Mutex;
+
+#[path = "socket_tests.rs"]
+mod tests;
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -78,11 +87,15 @@ impl RingBuffer {
 }
 
 #[derive(Debug)]
+pub struct SocketBusInner {
+    pub buffer: RingBuffer,
+    pub waiters: WaiterList,
+}
+
+#[derive(Debug)]
 pub struct SocketBus {
-    pub buffer: Mutex<RingBuffer>,
+    pub inner: Mutex<SocketBusInner>,
     pub is_closed: AtomicBool,
-    pub read_waker: TicketLock<Option<Waker>>,
-    pub write_waker: TicketLock<Option<Waker>>,
     pub read_min: AtomicUsize,
     pub read_timeout_ds: AtomicUsize,
 }
@@ -90,14 +103,229 @@ pub struct SocketBus {
 impl SocketBus {
     pub fn new() -> Self {
         Self {
-            buffer: Mutex::new(RingBuffer::new()),
+            inner: Mutex::new(SocketBusInner { buffer: RingBuffer::new(), waiters: WaiterList::new() }),
             is_closed: AtomicBool::new(false),
-            read_waker: TicketLock::new(None),
-            write_waker: TicketLock::new(None),
             read_min: AtomicUsize::new(1),
             read_timeout_ds: AtomicUsize::new(0),
         }
     }
+
+    pub fn notify_state_changed(&self) {
+        let wakers = {
+            let mut inner = self.inner.lock();
+            inner.waiters.take_wakers()
+        };
+
+        wake_all(wakers);
+    }
+}
+
+struct SocketReadFuture<'a> {
+    endpoint: &'a SocketEndpoint,
+    buffer_ptr: usize,
+    len: usize,
+    requested_min: usize,
+    timeout_ms: usize,
+    timer: Option<Pin<Box<AsyncSleep>>>,
+    last_available: usize,
+    waiter: Arc<AsyncWaiter>,
+}
+
+impl<'a> SocketReadFuture<'a> {
+    fn new(endpoint: &'a SocketEndpoint, buffer_ptr: usize, len: usize, requested_min: usize, timeout_ds: usize) -> Self {
+        let timeout_ms = timeout_ds.saturating_mul(100);
+        let timer = if requested_min == 0 && timeout_ms > 0 { Some(Box::pin(sleep_async(timeout_ms))) } else { None };
+        Self { endpoint, buffer_ptr, len, requested_min, timeout_ms, timer, last_available: 0, waiter: AsyncWaiter::new() }
+    }
+}
+
+impl Drop for SocketReadFuture<'_> {
+    fn drop(&mut self) { self.waiter.deactivate(); }
+}
+
+impl Future for SocketReadFuture<'_> {
+    type Output = Result<usize, InvocationError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        let mut inner = this.endpoint.read_bus.inner.lock();
+        let available = inner.buffer.len();
+
+        if this.endpoint.is_nb.load(Ordering::Acquire) && available == 0 {
+            return Poll::Ready(Err(InvocationError::WouldBlock));
+        }
+
+        if this.endpoint.read_bus.is_closed.load(Ordering::Acquire) && available == 0 {
+            return Poll::Ready(Ok(0));
+        }
+
+        let enough_data = if this.requested_min == 0 { available > 0 } else { available >= this.requested_min };
+        let immediate_empty_read = this.requested_min == 0 && this.timeout_ms == 0;
+
+        if enough_data || immediate_empty_read {
+            let count = core::cmp::min(this.len, available);
+            let mut temp = Vec::new();
+
+            if temp.try_reserve_exact(count).is_err() {
+                return Poll::Ready(Err(InvocationError::OutOfMemory));
+            }
+            temp.resize(count, 0);
+
+            inner.buffer.pop_slice(&mut temp);
+            drop(inner);
+
+            if !safe_copy_to(this.buffer_ptr as *mut u8, temp.as_ptr(), count) {
+                return Poll::Ready(Err(InvocationError::InvalidPointer));
+            }
+
+            this.endpoint.read_bus.notify_state_changed();
+            return Poll::Ready(Ok(count));
+        }
+
+        inner.waiters.register(&this.waiter, cx.waker());
+
+        if this.requested_min > 0 && this.timeout_ms > 0 && available > 0 && available != this.last_available {
+            this.timer = Some(Box::pin(sleep_async(this.timeout_ms)));
+            this.last_available = available;
+        }
+        drop(inner);
+
+        if let Some(timer) = this.timer.as_mut() {
+            if timer.as_mut().poll(cx).is_ready() {
+                this.waiter.deactivate();
+                let mut inner = this.endpoint.read_bus.inner.lock();
+                let count = min(this.len, inner.buffer.len());
+                let mut temp = Vec::new();
+                if temp.try_reserve_exact(count).is_err() {
+                    return Poll::Ready(Err(InvocationError::OutOfMemory));
+                }
+                temp.resize(count, 0);
+                inner.buffer.pop_slice(&mut temp);
+                drop(inner);
+
+                if !safe_copy_to(this.buffer_ptr as *mut u8, temp.as_ptr(), count) {
+                    return Poll::Ready(Err(InvocationError::InvalidPointer));
+                }
+                this.endpoint.read_bus.notify_state_changed();
+                return Poll::Ready(Ok(count));
+            }
+        }
+
+        Poll::Pending
+    }
+}
+
+impl<'a> SocketWriteFuture<'a> {
+    fn new(endpoint: &'a SocketEndpoint, buffer_ptr: usize, len: usize) -> Self {
+        Self { endpoint, buffer_ptr, len, waiter: AsyncWaiter::new() }
+    }
+}
+
+impl Drop for SocketWriteFuture<'_> {
+    fn drop(&mut self) { self.waiter.deactivate(); }
+}
+
+impl Future for SocketWriteFuture<'_> {
+    type Output = Result<usize, InvocationError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        if this.endpoint.write_bus.is_closed.load(Ordering::Acquire) {
+            return Poll::Ready(Err(InvocationError::UnsupportedOperation));
+        }
+
+        let mut inner = this.endpoint.write_bus.inner.lock();
+        let count = min(this.len, inner.buffer.available_space());
+
+        if count == 0 {
+            if this.endpoint.is_nb.load(Ordering::Acquire) {
+                return Poll::Ready(Err(InvocationError::WouldBlock));
+            }
+
+            inner.waiters.register(&this.waiter, cx.waker());
+            return Poll::Pending;
+        }
+
+        let mut temp = Vec::new();
+        if temp.try_reserve_exact(count).is_err() {
+            return Poll::Ready(Err(InvocationError::OutOfMemory));
+        }
+        temp.resize(count, 0);
+
+        if !safe_copy_from(temp.as_mut_ptr(), this.buffer_ptr as *const u8, count) {
+            return Poll::Ready(Err(InvocationError::InvalidPointer));
+        }
+
+        let written = inner.buffer.push_slice(&temp);
+        drop(inner);
+
+        this.endpoint.write_bus.notify_state_changed();
+
+        Poll::Ready(Ok(written))
+    }
+}
+
+struct SocketWriteFuture<'a> {
+    endpoint: &'a SocketEndpoint,
+    buffer_ptr: usize,
+    len: usize,
+    waiter: Arc<AsyncWaiter>,
+}
+
+pub(crate) fn matching_signals(current: Signal, requested: Signal) -> Signal {
+    let mut matched = Signal(0);
+    for signal in [Signal::READABLE, Signal::WRITABLE, Signal::PEER_CLOSED] {
+        if current.contains(signal) && requested.contains(signal) {
+            matched = matched | signal;
+        }
+    }
+    matched
+}
+
+struct SocketWaitFuture<'a> {
+    endpoint: &'a SocketEndpoint,
+    requested: Signal,
+    waiter: Arc<AsyncWaiter>,
+}
+
+impl SocketWaitFuture<'_> {
+    fn poll_with_registration_hook(
+        &mut self, cx: &mut Context<'_>, after_registration: impl FnOnce(),
+    ) -> Poll<Result<usize, InvocationError>> {
+        let matched = matching_signals(self.endpoint.current_signals(), self.requested);
+        if matched != Signal(0) {
+            return Poll::Ready(Ok(0));
+        }
+
+        if self.requested.contains(Signal::READABLE) || self.requested.contains(Signal::PEER_CLOSED) {
+            self.endpoint.read_bus.inner.lock().waiters.register(&self.waiter, cx.waker());
+        }
+        if self.requested.contains(Signal::WRITABLE) {
+            self.endpoint.write_bus.inner.lock().waiters.register(&self.waiter, cx.waker());
+        }
+
+        after_registration();
+
+        let matched = matching_signals(self.endpoint.current_signals(), self.requested);
+        if matched != Signal(0) {
+            self.waiter.deactivate();
+            Poll::Ready(Ok(0))
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl Drop for SocketWaitFuture<'_> {
+    fn drop(&mut self) { self.waiter.deactivate(); }
+}
+
+impl Future for SocketWaitFuture<'_> {
+    type Output = Result<usize, InvocationError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> { self.get_mut().poll_with_registration_hook(cx, || {}) }
 }
 
 #[derive(Debug)]
@@ -117,34 +345,45 @@ impl KernelObject for SocketEndpoint {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                self.read_with_policy(buffer_ptr, len).await
+                if len == 0 {
+                    return Ok(0);
+                }
+                let requested_min = min(self.read_bus.read_min.load(Ordering::Acquire), len);
+                let timeout_ds = self.read_bus.read_timeout_ds.load(Ordering::Acquire);
+                SocketReadFuture::new(self, buffer_ptr, len, requested_min, timeout_ds).await
             }
             Invocation::File(FileOp::Write { buffer_ptr, len, .. }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
-                poll_fn(|cx| self.write_async(buffer_ptr as *mut u8, len, cx)).await
+                if len == 0 {
+                    return Ok(0);
+                }
+                SocketWriteFuture::new(self, buffer_ptr, len).await
             }
             Invocation::Socket(SocketOp::SetNB { nb }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
-                self.is_nb.store(nb, Ordering::SeqCst);
+                self.is_nb.store(nb, Ordering::Release);
+                self.read_bus.notify_state_changed();
+                self.write_bus.notify_state_changed();
                 Ok(0)
             }
             Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
-                self.write_bus.read_min.store(min, Ordering::SeqCst);
-                self.write_bus.read_timeout_ds.store(timeout_ds, Ordering::SeqCst);
+                self.write_bus.read_min.store(min, Ordering::Release);
+                self.write_bus.read_timeout_ds.store(timeout_ds, Ordering::Release);
+                self.write_bus.notify_state_changed();
                 Ok(0)
             }
             Invocation::Wait(WaitOp::One(signal)) => {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                poll_fn(|cx| self.wait_for_signals_async(signal, cx)).await
+                SocketWaitFuture { endpoint: self, requested: signal, waiter: AsyncWaiter::new() }.await
             }
             Invocation::Wait(WaitOp::Many { items_ptr: _, count: _ }) => {
                 // invoke through ProcessControlBlock::invoke, not here manually
@@ -157,18 +396,8 @@ impl KernelObject for SocketEndpoint {
 
 impl Drop for SocketEndpoint {
     fn drop(&mut self) {
-        // mark the write bus as closed
-        self.write_bus.is_closed.store(true, Ordering::SeqCst);
-
-        // wake up any reading task waiting on the write bus
-        if let Some(waker) = self.write_bus.read_waker.lock().take() {
-            waker.wake();
-        }
-
-        // ditto for writing tasks
-        if let Some(waker) = self.write_bus.write_waker.lock().take() {
-            waker.wake();
-        }
+        self.write_bus.is_closed.store(true, Ordering::Release);
+        self.write_bus.notify_state_changed();
     }
 }
 
@@ -184,217 +413,24 @@ impl SocketEndpoint {
         (ep1, ep2)
     }
 
-    async fn read_with_policy(
-        &self,
-        buffer_ptr: usize,
-        len: usize,
-    ) -> Result<usize, InvocationError> {
-        if len == 0 {
-            return Ok(0);
-        }
-    
-        let min_bytes = self.read_bus.read_min.load(Ordering::SeqCst);
-        let timeout_ds = self.read_bus.read_timeout_ds.load(Ordering::SeqCst);
-    
-        // reads currently use a 512-byte temporary buffer.
-        let requested_min = min(min_bytes, len);
-        let timeout_ms = timeout_ds.saturating_mul(100);
-    
-        let mut timer: Option<Pin<Box<AsyncSleep>>> =
-            if requested_min == 0 && timeout_ms > 0 {
-                // MIN=0, TIME>0: timer starts immediately.
-                Some(Box::pin(sleep_async(timeout_ms)))
-            } else {
-                None
-            };
-    
-        let mut last_available = 0usize;
-    
-        poll_fn(|cx| {
-            let mut bus = self.read_bus.buffer.lock();
-            let available = bus.len();
-    
-            if self.is_nb.load(Ordering::SeqCst) {
-                if available == 0 {
-                    return Poll::Ready(Err(InvocationError::WouldBlock));
-                }
-    
-                return Poll::Ready(self.copy_from_read_bus(
-                    &mut bus,
-                    buffer_ptr,
-                    len,
-                ));
+    pub(crate) fn current_signals(&self) -> Signal {
+        let mut signals = Signal(0);
+        {
+            let inner = self.read_bus.inner.lock();
+            if !inner.buffer.is_empty() || self.read_bus.is_closed.load(Ordering::Acquire) {
+                signals = signals | Signal::READABLE;
             }
-    
-            if self.read_bus.is_closed.load(Ordering::SeqCst) && available == 0 {
-                return Poll::Ready(Ok(0));
+        }
+        {
+            let inner = self.write_bus.inner.lock();
+            if !inner.buffer.is_full() && !self.write_bus.is_closed.load(Ordering::Acquire) {
+                signals = signals | Signal::WRITABLE;
             }
-    
-            let enough_data = if requested_min == 0 {
-                available > 0
-            } else {
-                available >= requested_min
-            };
-    
-            if enough_data {
-                return Poll::Ready(self.copy_from_read_bus(
-                    &mut bus,
-                    buffer_ptr,
-                    len,
-                ));
-            }
-    
-            if timeout_ms == 0 {
-                // MIN=0, TIME=0: return immediately, including zero bytes.
-                if requested_min == 0 {
-                    return Poll::Ready(self.copy_from_read_bus(
-                        &mut bus,
-                        buffer_ptr,
-                        len,
-                    ));
-                }
-    
-                // MIN>0, TIME=0: wait indefinitely for MIN bytes.
-                *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
-                return Poll::Pending;
-            }
-    
-            if requested_min > 0 && available > 0 && available != last_available {
-                // MIN>0, TIME>0: inter-byte timer starts after the first
-                // byte and restarts whenever additional bytes arrive.
-                timer = Some(Box::pin(sleep_async(timeout_ms)));
-                last_available = available;
-            }
-    
-            if let Some(active_timer) = timer.as_mut() {
-                if active_timer.as_mut().poll(cx).is_ready() {
-                    return Poll::Ready(self.copy_from_read_bus(
-                        &mut bus,
-                        buffer_ptr,
-                        len,
-                    ));
-                }
-            }
-    
-            *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
-            Poll::Pending
-        })
-        .await
-    }
-
-    fn copy_from_read_bus(
-        &self,
-        bus: &mut RingBuffer,
-        buffer_ptr: usize,
-        len: usize,
-    ) -> Result<usize, InvocationError> {
-        let count = min(len, bus.len());
-    
-        let mut temp = Vec::new();
-        temp.try_reserve_exact(count)
-            .map_err(|_| InvocationError::OutOfMemory)?;
-        temp.resize(count, 0);
-    
-        bus.pop_slice(&mut temp);
-    
-        if !safe_copy_to(buffer_ptr as *mut u8, temp.as_ptr(), count) {
-            return Err(InvocationError::InvalidPointer);
         }
-    
-        if let Some(waker) = self.read_bus.write_waker.lock().take() {
-            waker.wake();
+        if self.read_bus.is_closed.load(Ordering::Acquire) {
+            signals = signals | Signal::PEER_CLOSED;
         }
-    
-        Ok(count)
-    }
-
-    fn write_async(
-        &self,
-        buffer_ptr: *const u8,
-        len: usize,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<usize, InvocationError>> {
-        if len == 0 {
-            return Poll::Ready(Ok(0));
-        }
-    
-        if self.write_bus.is_closed.load(Ordering::SeqCst) {
-            return Poll::Ready(Err(InvocationError::UnsupportedOperation));
-        }
-    
-        let mut bus = self.write_bus.buffer.lock();
-        let count = min(len, bus.available_space());
-    
-        if count == 0 {
-            if self.is_nb.load(Ordering::SeqCst) {
-                return Poll::Ready(Err(InvocationError::WouldBlock));
-            }
-    
-            *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
-            return Poll::Pending;
-        }
-    
-        let mut temp = Vec::new();
-        if temp.try_reserve_exact(count).is_err() {
-            return Poll::Ready(Err(InvocationError::OutOfMemory));
-        }
-        temp.resize(count, 0);
-    
-        if !safe_copy_from(temp.as_mut_ptr(), buffer_ptr, count) {
-            return Poll::Ready(Err(InvocationError::InvalidPointer));
-        }
-    
-        let written = bus.push_slice(&temp);
-    
-        if let Some(waker) = self.write_bus.read_waker.lock().take() {
-            waker.wake();
-        }
-    
-        Poll::Ready(Ok(written))
-    }
-
-    fn wait_for_signals_async(&self, signal: Signal, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
-        let mut should_block = false;
-        let mut is_write = false;
-
-        if signal.contains(Signal::READABLE) {
-            let bus = self.read_bus.buffer.lock();
-            if bus.is_empty() && !self.read_bus.is_closed.load(Ordering::SeqCst) {
-                should_block = true;
-                is_write = false;
-            }
-            drop(bus);
-        }
-
-        if signal.contains(Signal::WRITABLE) {
-            let bus = self.write_bus.buffer.lock();
-            if bus.is_full() && !self.write_bus.is_closed.load(Ordering::SeqCst) {
-                should_block = true;
-                is_write = true;
-            }
-            drop(bus);
-        }
-
-        if signal.contains(Signal::PEER_CLOSED) {
-            let bus = self.read_bus.buffer.lock();
-            if !self.read_bus.is_closed.load(Ordering::SeqCst) {
-                should_block = true;
-                is_write = false;
-            }
-            drop(bus);
-        }
-
-        if !should_block {
-            return Poll::Ready(Ok(0));
-        }
-
-        if is_write {
-            *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
-        } else {
-            *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
-        }
-
-        Poll::Pending
+        signals
     }
 }
 
@@ -434,3 +470,5 @@ pub fn init_ipc_pipeline() -> (HandleID, HandleID) {
     let h2 = handles.insert(ep2, AccessRights::all());
     (h1, h2)
 }
+
+pub(crate) fn run_diagnostic_tests() { tests::run(); }

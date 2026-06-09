@@ -2,14 +2,17 @@ pub mod env;
 pub mod parser;
 use alloc::alloc::{
     Layout,
-    alloc, dealloc,
+    alloc,
+    dealloc,
 };
-
 use alloc::string::String;
-use alloc::vec;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
-use core::ptr::{copy_nonoverlapping, write_bytes};
+use core::ptr::{
+    copy_nonoverlapping,
+    write_bytes,
+};
 use core::slice::from_raw_parts;
 use core::{
     cmp,
@@ -87,7 +90,7 @@ pub struct ElfLoadResult {
     pub interpreter_entry: Option<usize>,
 }
 
-async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError>{
+async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError> {
     // SWITCH TO KERNEL PROCESS TEMPORARILY
     // read only first 4k to parse headers
 
@@ -96,7 +99,7 @@ async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, E
         let thread_addr = current_thread as usize;
         let old_proc = unsafe { (*current_thread).process.clone() };
 
-        // print the process' handle table before switching out: 
+        // print the process' handle table before switching out:
         // klogln!("table: {:?}", old_proc.proc_handles.read().entries);
 
         unsafe {
@@ -130,7 +133,7 @@ async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, E
         LoaderError::FileReadError
     })?;
 
-    let mut header_vec = vec![0u8; header_read_size]; 
+    let mut header_vec = vec![0u8; header_read_size];
     unsafe {
         copy_nonoverlapping(buf_addr as *const u8, header_vec.as_mut_ptr(), header_read_size);
         dealloc(buf_addr as *mut u8, file_layout);
@@ -141,11 +144,7 @@ async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, E
 }
 
 async fn map_elf_segments(
-    file_obj: &Arc<dyn KernelObject>,
-    header: &Elf64_Ehdr,
-    file_bytes: &[u8],
-    proc: &Process,
-    load_base: usize,
+    file_obj: &Arc<dyn KernelObject>, header: &Elf64_Ehdr, file_bytes: &[u8], proc: &Process, load_base: usize,
 ) -> Result<usize, LoaderError> {
     let ph_iter = header.prog_headers(file_bytes).ok_or(LoaderError::InvalidBuffer)?;
 
@@ -224,13 +223,12 @@ async fn map_elf_segments(
                     }
                     progress += NORMAL_PAGE_SIZE;
                 }
-                
+
                 // zero out any trailing bytes in the shared data/bss page
                 let total_copied_bytes = offset_in_page + filesz;
                 if total_copied_bytes % NORMAL_PAGE_SIZE != 0 {
                     let last_page_offset = total_copied_bytes & !(NORMAL_PAGE_SIZE - 1);
-                    let last_page_pfn = anon_vmo.request_page(last_page_offset)
-                        .map_err(|_| LoaderError::FileReadError)?;
+                    let last_page_pfn = anon_vmo.request_page(last_page_offset).map_err(|_| LoaderError::FileReadError)?;
 
                     let zero_start_offset = total_copied_bytes % NORMAL_PAGE_SIZE;
                     let zero_len = NORMAL_PAGE_SIZE - zero_start_offset;
@@ -242,7 +240,6 @@ async fn map_elf_segments(
                 }
 
                 (anon_vmo as Arc<dyn PagedBackingStore>, 0)
-
             } else {
                 (file_vmo.clone(), aligned_offset)
             };
@@ -266,15 +263,13 @@ async fn map_elf_segments(
 }
 
 pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadResult, LoaderError> {
-    let file_obj = get_current_process()
-        .ok_or(LoaderError::FileReadError)?
-        .proc_handles
-        .read()
-        .resolve(file_handle, AccessRights::READ)
-        .map_err(|e| {
-            klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
-            LoaderError::FileReadError
-        })?;
+    let file_obj =
+        get_current_process().ok_or(LoaderError::FileReadError)?.proc_handles.read().resolve(file_handle, AccessRights::READ).map_err(
+            |e| {
+                klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
+                LoaderError::FileReadError
+            },
+        )?;
 
     let (file_bytes, header) = read_elf_header(&file_obj).await?;
 
@@ -315,8 +310,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadRe
 
         let interp_obj = {
             let proc = get_current_process().ok_or(LoaderError::FileReadError)?;
-            let obj = proc.proc_handles.read().resolve(interp_handle, AccessRights::READ)
-                .map_err(|_| LoaderError::FileReadError)?;
+            let obj = proc.proc_handles.read().resolve(interp_handle, AccessRights::READ).map_err(|_| LoaderError::FileReadError)?;
             let _ = proc.proc_handles.write().close(interp_handle);
             obj
         };

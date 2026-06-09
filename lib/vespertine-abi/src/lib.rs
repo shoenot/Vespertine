@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
+pub mod app;
 mod bitwise;
 pub mod op;
 pub mod protocol;
 pub mod tag;
-pub mod app;
 
 pub const AT_VESPERTINE_INITPKG: usize = 0x6fff_0001;
 

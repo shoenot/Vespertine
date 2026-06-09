@@ -53,7 +53,6 @@ pub struct LockGuard<'a, R: RawLock, T> {
     interrupts_state: bool,
 }
 
-unsafe impl<R: RawLock, T> Send for LockGuard<'_, R, T> where T: Send {}
 unsafe impl<R: RawLock, T> Sync for LockGuard<'_, R, T> where T: Sync {}
 
 impl<'a, L: RawLock, T> Deref for LockGuard<'_, L, T> {

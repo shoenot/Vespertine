@@ -2,12 +2,12 @@ use core::{ptr::null_mut, sync::atomic::AtomicUsize};
 
 use crate::{
     get_init_pkg,
-    syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_write, sys_wait},
+    syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_wait, sys_write},
 };
 use vespertine_abi::{
     HandleID, Invocation, MemManOp, MemPoolOp, ProcOp, Signal, VmoOp,
-    protocol::{MemoryRequest, ResourceResponse, BrokerRequest, BrokerResponse},
-    tag::{TAG_SYS_RES_MAN, TAG_SYS_MEMMAN},
+    protocol::{BrokerRequest, BrokerResponse, MemoryRequest, ResourceResponse},
+    tag::{TAG_SYS_MEMMAN, TAG_SYS_RES_MAN},
 };
 use vespertine_common::slab::PageProvider;
 
@@ -26,17 +26,24 @@ pub fn get_memory_manager() -> Result<HandleID, SysError> {
 
     // 2. Try to use the Resource Broker first
     if let Ok(broker) = sys_lookup(srv_dir, "ResourceBroker") {
-        let conn_res = sys_invoke(broker, &Invocation::Broker(vespertine_abi::BrokerOp::Connect { socket_to_give: HandleID(0) }));
+        let conn_res = sys_invoke(
+            broker,
+            &Invocation::Broker(vespertine_abi::BrokerOp::Connect {
+                socket_to_give: HandleID(0),
+            }),
+        );
         let _ = sys_close(broker);
 
         if let Ok(conn_val) = conn_res {
             let conn_sock = HandleID(conn_val);
 
             // Query for the Memory Manager
-            let req = BrokerRequest { tag: TAG_SYS_MEMMAN };
+            let req = BrokerRequest {
+                tag: TAG_SYS_MEMMAN,
+            };
             let req_ptr = &req as *const _ as *const u8;
             let req_size = core::mem::size_of::<BrokerRequest>();
-            
+
             if sys_write(conn_sock, req_ptr, req_size, 0).is_ok() {
                 let mut resp = BrokerResponse { handle: 0 };
                 let resp_ptr = &mut resp as *mut _ as *mut u8;

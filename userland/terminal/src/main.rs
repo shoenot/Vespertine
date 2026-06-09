@@ -3,15 +3,17 @@
 
 mod term;
 
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
 use vespertine_abi::tag::{TAG_APP_TERM, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{
     AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
-use vespertine_rt::syscall::{sys_invoke, sys_read, sys_set_read_policy, sys_sleep, sys_write_bytes};
+use vespertine_rt::syscall::{
+    sys_invoke, sys_read, sys_set_read_policy, sys_sleep, sys_write_bytes,
+};
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::fs::walk_path;
 use vespertine_std::log::SystemLog;
@@ -100,7 +102,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             let _ = sys_sleep(500, clock);
             let _ = sys_write_bytes(blink_write.handle(), &dummy);
         }
-    }).map_err(|_| Error {
+    })
+    .map_err(|_| Error {
         kind: ErrorKind::InvalidArgument,
         message: "Failed to spawn blink thread".into(),
     })?;
@@ -125,7 +128,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             handle: ctrl_term.handle(),
             signal: Signal::READABLE,
             pending: Signal(0),
-        }
+        },
     ];
 
     let mut vte_parser = vte::Parser::new();
@@ -153,7 +156,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         // kbd input - fwd to app, also echo locally
         if wait_items[0].pending.contains(Signal::READABLE) {
             grid.cursor_blink_on = true; // make it solid while typing
-            
+
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
                     let mut raw_trans_buffer = Vec::new();
@@ -166,9 +169,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                         let mut should_echo = false;
 
-                        // c_iflag transformations 
+                        // c_iflag transformations
                         if check_flag(iflag, ISTRIP) {
-                            processed_byte &= 0x7f; 
+                            processed_byte &= 0x7f;
                         }
 
                         if check_flag(iflag, IUCLC) && processed_byte.is_ascii_uppercase() {
@@ -177,26 +180,23 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                         if processed_byte == b'\r' {
                             if check_flag(iflag, IGNCR) {
-                                continue;                       // ignore carriage return 
+                                continue; // ignore carriage return 
                             }
                             if check_flag(iflag, ICRNL) {
-                                processed_byte = b'\n'          // \r -> \n
+                                processed_byte = b'\n' // \r -> \n
                             }
                         } else if processed_byte == b'\n' {
                             if check_flag(iflag, INLCR) {
-                                processed_byte = b'\r'          // \n -> \r
+                                processed_byte = b'\r' // \n -> \r
                             }
                         }
 
-                        
-                        // TODO: ISIG handling 
+                        // TODO: ISIG handling
                         if check_flag(lflag, ISIG) {
-                            if processed_byte == grid.termios.c_cc[VINTR as usize] {
-
-                            }
+                            if processed_byte == grid.termios.c_cc[VINTR as usize] {}
                         }
 
-                        // ECHO / ECHONL handling 
+                        // ECHO / ECHONL handling
                         if check_flag(lflag, ECHO) {
                             should_echo = true;
                         } else if check_flag(lflag, ECHONL) && processed_byte == b'\n' {
@@ -204,9 +204,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         }
 
                         if should_echo && !matches!(processed_byte, b'\x08' | b'\x7f') {
-                            if processed_byte == b'\n' && 
-                               check_flag(oflag, OPOST) &&
-                               check_flag(oflag, ONLCR) {
+                            if processed_byte == b'\n'
+                                && check_flag(oflag, OPOST)
+                                && check_flag(oflag, ONLCR)
+                            {
                                 vte_parser.advance(&mut grid, &[b'\r', b'\n']);
                             } else {
                                 vte_parser.advance(&mut grid, &[processed_byte]);
@@ -223,7 +224,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                 b'\x08' | b'\x7f' => {
                                     if let Some(_popped) = grid.can_buffer.pop() {
                                         if check_flag(lflag, ECHOE) {
-                                            vte_parser.advance(&mut grid, &[b'\x08', b' ', b'\x08']);
+                                            vte_parser
+                                                .advance(&mut grid, &[b'\x08', b' ', b'\x08']);
                                         }
                                     }
                                 }
@@ -237,7 +239,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                 }
                             }
                         }
-                        if !check_flag(grid.termios.c_lflag, ICANON) && !raw_trans_buffer.is_empty() {
+                        if !check_flag(grid.termios.c_lflag, ICANON) && !raw_trans_buffer.is_empty()
+                        {
                             let _ = sys_write_bytes(term_stdin.handle(), &raw_trans_buffer);
                         }
                     }
@@ -265,11 +268,11 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                 if check_flag(oflag, OCRNL) {
                                     processed_byte = b'\n';
                                 } else if check_flag(oflag, ONOCR) && grid.cursor_x == 0 {
-                                    continue
+                                    continue;
                                 }
                             } else if processed_byte == b'\n' && check_flag(oflag, ONLCR) {
                                 vte_parser.advance(&mut grid, &[b'\r', b'\n']);
-                                continue
+                                continue;
                             }
 
                             if processed_byte == b'\n' && check_flag(oflag, ONLRET) {
@@ -282,51 +285,42 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         // raw mode
                         vte_parser.advance(&mut grid, &app_buf[..n]);
                     }
-                },
+                }
                 Ok(0) => {
                     break;
-                },
+                }
                 _ => {}
             }
         }
 
         if wait_items[3].pending.contains(Signal::READABLE) {
             match ctrl_term.recv_packet::<TermCommand>() {
-                Ok((header, cmd)) => {
-                    match cmd {
-                        TermCommand::SetTermios(t) => {
-                            let canonical = check_flag(t.c_lflag, ICANON);
+                Ok((header, cmd)) => match cmd {
+                    TermCommand::SetTermios(t) => {
+                        let canonical = check_flag(t.c_lflag, ICANON);
 
-                            let min = if canonical {
-                                1
-                            } else {
-                                t.c_cc[VMIN] as usize
-                            };
+                        let min = if canonical { 1 } else { t.c_cc[VMIN] as usize };
 
-                            let timeout_ds = if canonical {
-                                0
-                            } else {
-                                t.c_cc[VTIME] as usize
-                            };
+                        let timeout_ds = if canonical { 0 } else { t.c_cc[VTIME] as usize };
 
-                            grid.apply_termios(t);
-                            let _ = sys_set_read_policy(term_stdin.handle(), min, timeout_ds);
-                        },
-                        TermCommand::GetTermios => {
-                            let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);
-                        },
-                        TermCommand::GetWindowSize => {
-                            let wsize = WinSize {
-                                ws_row: height_chars as u16,
-                                ws_col: width_chars as u16,
-                                ws_xpixel: width_cols as u16,
-                                ws_ypixel: height_rows as u16,
-                            };
-                            let _ = ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
-                        }
+                        grid.apply_termios(t);
+                        let _ = sys_set_read_policy(term_stdin.handle(), min, timeout_ds);
+                    }
+                    TermCommand::GetTermios => {
+                        let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);
+                    }
+                    TermCommand::GetWindowSize => {
+                        let wsize = WinSize {
+                            ws_row: height_chars as u16,
+                            ws_col: width_chars as u16,
+                            ws_xpixel: width_cols as u16,
+                            ws_ypixel: height_rows as u16,
+                        };
+                        let _ =
+                            ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
                     }
                 },
-                Err(_) => {},
+                Err(_) => {}
             }
         }
 

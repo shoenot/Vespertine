@@ -4,10 +4,7 @@
 use chrono::DateTime;
 use chrono_tz::Tz;
 use vespertine_abi::ProcessInitPackage;
-use vespertine_rt::{
-    println,
-    syscall::sys_close,
-};
+use vespertine_rt::{println, syscall::sys_close};
 use vespertine_std::{Error, ErrorKind, clock::Clock, env};
 
 extern crate alloc;

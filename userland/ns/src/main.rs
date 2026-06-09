@@ -8,6 +8,7 @@ use vespertine_rt::print;
 use vespertine_rt::println;
 use vespertine_rt::syscall::sys_close;
 use vespertine_rt::syscall::sys_sleep;
+use vespertine_rt::thread as rt_thread;
 use vespertine_std::Error;
 use vespertine_std::ErrorKind;
 use vespertine_std::Read;
@@ -16,7 +17,6 @@ use vespertine_std::env;
 use vespertine_std::fs::Dir;
 use vespertine_std::fs::File;
 use vespertine_std::fs::walk_path;
-use vespertine_rt::thread as rt_thread;
 extern crate alloc;
 
 #[unsafe(no_mangle)]
@@ -55,7 +55,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             };
             let mut dir_iter = dir.list()?;
             while let Some(entry) = dir_iter.next() {
-                if entry != "lost+found" { 
+                if entry != "lost+found" {
                     println!("{}", entry);
                 }
             }
@@ -124,7 +124,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             let file = File::open(path.as_str())?;
             file.write_all(trimmed_content.as_bytes())?;
             println!("File written successfully");
-        },
+        }
         _ => {
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,

@@ -141,7 +141,6 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                 }
             }
 
-
             if ctrl_held {
                 c = match c {
                     '@' | ' ' => '\x00',
@@ -159,11 +158,7 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
 
             if alt_held {
                 let escape = [0x1b];
-                let write_op = Invocation::File(FileOp::Write {
-                    offset: 0,
-                    buffer_ptr: escape.as_ptr() as usize,
-                    len: escape.len(),
-                });
+                let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: escape.as_ptr() as usize, len: escape.len() });
                 let _ = handle_sys_invoke(chan_handle, write_op);
             }
 

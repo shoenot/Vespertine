@@ -1,12 +1,18 @@
 use vespertine_abi::{
-    AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, ProcStatus, tag::TAG_SYS_PROCMAN
+    AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, ProcStatus, tag::TAG_SYS_PROCMAN,
 };
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use vespertine_rt::syscall::{sys_close, sys_invoke};
 
-use crate::{Error, ErrorKind::{self, NotFound}, env, fs::Dir, socket::Socket};
+use crate::{
+    Error,
+    ErrorKind::{self, NotFound},
+    env,
+    fs::Dir,
+    socket::Socket,
+};
 
 #[allow(dead_code)]
 pub struct Process {
@@ -47,7 +53,7 @@ pub struct Exec {
 }
 
 // --------------------------------------------------------//
-// Handle table convention: 
+// Handle table convention:
 // Handle(0) = process root namespace
 // Handle(1) = self handle
 // Handle(2) = source
@@ -96,11 +102,20 @@ impl Exec {
 
     pub fn grant(mut self, tag: usize, rights: AccessRights) -> Result<Self, Error> {
         let handle = env::find_tag(tag)
-            .ok_or(Error { kind: ErrorKind::NotFound, message: "Must own handle to grant it".into() })?.id;
+            .ok_or(Error {
+                kind: ErrorKind::NotFound,
+                message: "Must own handle to grant it".into(),
+            })?
+            .id;
         self.grant_new(handle, tag, rights)
     }
 
-    pub fn grant_new(mut self, id: HandleID, tag: usize, rights: AccessRights) -> Result<Self, Error> {
+    pub fn grant_new(
+        mut self,
+        id: HandleID,
+        tag: usize,
+        rights: AccessRights,
+    ) -> Result<Self, Error> {
         let grant = HandleGrant { id, tag, rights };
         self.extra_handles.push(grant);
         Ok(self)

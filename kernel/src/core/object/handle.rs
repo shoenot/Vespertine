@@ -66,7 +66,5 @@ impl HandleTable {
         Ok(self.insert(obj_clone, requested_rights))
     }
 
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
+    pub fn clear(&mut self) { self.entries.clear(); }
 }

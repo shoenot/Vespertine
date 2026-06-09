@@ -11,7 +11,7 @@ pub use error::*;
 pub use io::*;
 mod exec;
 pub use exec::*;
-pub mod fb;
 pub mod clock;
+pub mod fb;
 pub mod log;
 pub mod term;

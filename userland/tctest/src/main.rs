@@ -23,7 +23,7 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     set_raw_mode().expect("Error setting raw mode");
     let mut buf = [0u8; 1];
-    loop { 
+    loop {
         match sys_read(env::source(), buf.as_mut_ptr(), 1, 0) {
             Ok(n) if n > 0 => {
                 let c = buf[0];
@@ -39,7 +39,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     print!("??? (0x{c:02x})  ");
                 }
             }
-            Ok(_) => {}, // No data
+            Ok(_) => {} // No data
             Err(e) => return Err(e.into()),
         }
     }

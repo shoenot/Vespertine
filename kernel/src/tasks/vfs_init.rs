@@ -15,7 +15,11 @@ use crate::core::object::models::mount_dir::MountDirectory;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
-    ROOT_DIRECTORY, kernel_close, kernel_register_obj, kernel_walk, mount_kernel_dir
+    ROOT_DIRECTORY,
+    kernel_close,
+    kernel_register_obj,
+    kernel_walk,
+    mount_kernel_dir,
 };
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::get_current_process;
@@ -31,10 +35,7 @@ pub async fn init_vfs() {
     let root = mount_ext2_rootfs(blockdev.clone()).await;
 
     let root_obj = ROOT_DIRECTORY.get().expect("[FATAL] ROOT_DIRECTORY uninitialized");
-    let mount_dir = root_obj
-        .as_any()
-        .downcast_ref::<MountDirectory>()
-        .expect("[FATAL] ROOT_DIRECTORY is not a MountDirectory");
+    let mount_dir = root_obj.as_any().downcast_ref::<MountDirectory>().expect("[FATAL] ROOT_DIRECTORY is not a MountDirectory");
 
     mount_dir.set_underlying(root);
     klogln!("[SUCCESS] Ext2 root directory mounted at /");

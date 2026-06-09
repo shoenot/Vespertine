@@ -8,6 +8,7 @@ mod launch;
 use alloc::str;
 use alloc::string::String;
 use alloc::vec::Vec;
+use launch::launch;
 use vespertine_abi::AccessRights;
 use vespertine_abi::FileOp;
 use vespertine_abi::HandleGrant;
@@ -35,7 +36,6 @@ use vespertine_std::Read;
 use vespertine_std::env;
 use vespertine_std::fs::walk_path;
 use vespertine_std::socket::Socket;
-use launch::launch;
 use vespertine_std::term::unset_raw_mode;
 
 #[unsafe(no_mangle)]
@@ -113,7 +113,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     .spawn_piped_sink()?;
 
                 print_stream(&rx)?;
-            },
+            }
             "hello" => {
                 let (proc, rx) = Exec::new(cmd.into())
                     .args(&args_vec)
@@ -122,7 +122,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     .spawn_piped_sink()?;
 
                 print_stream(&rx)?;
-            },
+            }
             "kilo" => {
                 let res = Exec::new("kilo".into())
                     .source(env::source())
@@ -141,7 +141,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     }
                     Err(e) => println!("{:?}", e),
                 }
-            },
+            }
             "test" => {
                 let res = Exec::new("tctest".into())
                     .source(env::source())
@@ -162,7 +162,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 }
 
                 let _ = unset_raw_mode();
-            },
+            }
             "ctest" => {
                 let res = Exec::new("tctestc".into())
                     .source(env::source())
@@ -183,7 +183,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 }
 
                 let _ = unset_raw_mode();
-            },
+            }
             "cat" => {
                 let res = Exec::new("cat".into())
                     .source(env::source())
@@ -204,7 +204,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 }
 
                 let _ = unset_raw_mode();
-            },
+            }
             "trunc" => {
                 let (proc, rx) = Exec::new("trunc".into())
                     .args(&args_vec)
@@ -213,7 +213,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     .spawn_piped_sink()?;
 
                 print_stream(&rx)?;
-            },
+            }
             other => {
                 println!("unknown command: {}", other)
             }

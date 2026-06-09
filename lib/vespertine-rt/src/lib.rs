@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 pub mod memory;
+pub mod mutex;
 pub mod sink;
 pub mod source;
 pub mod syscall;
-pub mod thread; 
-pub mod mutex;
+pub mod thread;
 
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -18,7 +18,9 @@ use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcessInitPackage, VmoOp}
 use vespertine_common::slab::SlabAllocator;
 
 use crate::{
-    memory::{UserPageProvider, create_private_pool, get_memory_manager}, mutex::Mutex, syscall::{sys_close, sys_invoke}
+    memory::{UserPageProvider, create_private_pool, get_memory_manager},
+    mutex::Mutex,
+    syscall::{sys_close, sys_invoke},
 };
 
 pub const ARENA_SIZE: usize = 1024 * 64; // pre allocate 64kb per init heap

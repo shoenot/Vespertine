@@ -1,15 +1,19 @@
 use alloc::boxed::Box;
 
 use async_trait::async_trait;
-use vespertine_abi::AccessRights;
-use vespertine_abi::Invocation;
 use vespertine_abi::op::ClockOp;
+use vespertine_abi::{
+    AccessRights,
+    Invocation,
+};
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
-use crate::core::time::get_realtime;
-use crate::core::time::sleep;
+use crate::core::time::{
+    get_realtime,
+    sleep,
+};
 
 #[derive(Debug)]
 pub struct Clock {}
@@ -18,9 +22,7 @@ pub struct Clock {}
 impl KernelObject for Clock {
     fn type_name(&self) -> &'static str { "Clock" }
 
-    async fn invoke(
-        &self, invocation: Invocation, _calling_rights: AccessRights,
-    ) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Clock(ClockOp::GetTimestamp { s_ptr, ns_ptr }) => {
                 let (s, ns) = get_realtime();
@@ -30,11 +32,11 @@ impl KernelObject for Clock {
                 safe_copy_to(s_ptr as *mut u8, s_src, len);
                 safe_copy_to(ns_ptr as *mut u8, ns_src, len);
                 Ok(0)
-            },
+            }
             Invocation::Clock(ClockOp::Sleep { ns }) => {
                 sleep(ns);
                 Ok(0)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

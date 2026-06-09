@@ -1,9 +1,17 @@
-use async_trait::async_trait;
-use vespertine_abi::{AccessRights, FileOp, Invocation};
-
-use crate::{arch::x86_64::task::syscall::safe_copy_from, core::object::{invoke::InvocationError, obj::KernelObject}, drivers::logger::LOGGER, klogln};
-
 use alloc::boxed::Box;
+
+use async_trait::async_trait;
+use vespertine_abi::{
+    AccessRights,
+    FileOp,
+    Invocation,
+};
+
+use crate::arch::x86_64::task::syscall::safe_copy_from;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::obj::KernelObject;
+use crate::drivers::logger::LOGGER;
+use crate::klogln;
 
 #[derive(Debug)]
 pub struct Log;
@@ -31,7 +39,7 @@ impl KernelObject for Log {
                     klogln!("{}", s);
                 }
                 Ok(len)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

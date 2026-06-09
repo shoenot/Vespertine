@@ -4,13 +4,21 @@
 use core::slice;
 
 use vespertine_abi::{
-    AccessRights, BrokerOp, HandleGrant, HandleID, Invocation, ProcOp, ProcessInitPackage, Signal, protocol::{MemoryRequest, ResourceResponse}, tag::*
+    AccessRights, BrokerOp, HandleGrant, HandleID, Invocation, ProcOp, ProcessInitPackage, Signal,
+    protocol::{MemoryRequest, ResourceResponse},
+    tag::*,
 };
 use vespertine_rt::{
     println,
     syscall::{sys_close, sys_invoke, sys_sleep},
 };
-use vespertine_std::{Error, ErrorKind, Exec, Read, Write, env::{self, find_tag}, fs::walk_path, log::{self, SystemLog}, socket::Socket};
+use vespertine_std::{
+    Error, ErrorKind, Exec, Read, Write,
+    env::{self, find_tag},
+    fs::walk_path,
+    log::{self, SystemLog},
+    socket::Socket,
+};
 
 use vespertine_rt::thread as rt_thread;
 
@@ -60,27 +68,28 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     // broker accept thread
     let _ = rt_thread::spawn(move || {
-        loop {  
+        loop {
             let res = sys_invoke(broker_handle, &Invocation::Broker(BrokerOp::Accept));
-                match res {
-                    Ok(packed) => {
-                        let client_socket_handle = HandleID(packed & 0xFFFFFFFF);
-                        let client_process_handle = HandleID(packed >> 32);
+            match res {
+                Ok(packed) => {
+                    let client_socket_handle = HandleID(packed & 0xFFFFFFFF);
+                    let client_process_handle = HandleID(packed >> 32);
 
-                        // spawn a handler thread for this client
-                        let _ = rt_thread::spawn(move || {
-                            let _ = handle_client(client_socket_handle, client_process_handle);
-                        });
-                    },
-                    Err(_) => {
-                        let clock = walk_path("/System/Services/Clock", env::root()).unwrap_or(HandleID(0));
-                        if clock != HandleID(0) {
-                            let _ = sys_sleep(100, clock);
-                        }
-                    },
+                    // spawn a handler thread for this client
+                    let _ = rt_thread::spawn(move || {
+                        let _ = handle_client(client_socket_handle, client_process_handle);
+                    });
+                }
+                Err(_) => {
+                    let clock =
+                        walk_path("/System/Services/Clock", env::root()).unwrap_or(HandleID(0));
+                    if clock != HandleID(0) {
+                        let _ = sys_sleep(100, clock);
+                    }
                 }
             }
-      });
+        }
+    });
 
     println!("[INFO] Hesper entering event loop...");
     loop {
@@ -129,10 +138,18 @@ fn handle_client(sock_handle: HandleID, proc_handle: HandleID) -> Result<(), Err
     let proc = Socket::from_handle(proc_handle);
 
     // cache the capabilities to grant
-    let pm = env::find_tag(TAG_SYS_PROCMAN).map(|g| g.id).unwrap_or(HandleID(0));
-    let sf = env::find_tag(TAG_SYS_SOCKFAC).map(|g| g.id).unwrap_or(HandleID(0));
-    let mm = env::find_tag(TAG_SYS_MEMMAN).map(|g| g.id).unwrap_or(HandleID(0));
-    let clk = env::find_tag(TAG_SYS_CLOCK).map(|g| g.id).unwrap_or(HandleID(0));
+    let pm = env::find_tag(TAG_SYS_PROCMAN)
+        .map(|g| g.id)
+        .unwrap_or(HandleID(0));
+    let sf = env::find_tag(TAG_SYS_SOCKFAC)
+        .map(|g| g.id)
+        .unwrap_or(HandleID(0));
+    let mm = env::find_tag(TAG_SYS_MEMMAN)
+        .map(|g| g.id)
+        .unwrap_or(HandleID(0));
+    let clk = env::find_tag(TAG_SYS_CLOCK)
+        .map(|g| g.id)
+        .unwrap_or(HandleID(0));
 
     loop {
         let mut req = BrokerRequest { tag: 0 };
@@ -154,13 +171,13 @@ fn handle_client(sock_handle: HandleID, proc_handle: HandleID) -> Result<(), Err
 
                 if source_cap != HandleID(0) {
                     let insert_op = Invocation::Proc(ProcOp::InsertHandle {
-                            source_handle: source_cap,
-                            rights,
+                        source_handle: source_cap,
+                        rights,
                     });
                     match sys_invoke(proc.handle(), &insert_op) {
                         Ok(new_child_handle) => {
                             resp.handle = new_child_handle;
-                        },
+                        }
                         Err(_) => {
                             resp.handle = 0;
                         }
@@ -171,13 +188,13 @@ fn handle_client(sock_handle: HandleID, proc_handle: HandleID) -> Result<(), Err
                 let resp_size = size_of::<BrokerResponse>();
                 let response_slice = unsafe { slice::from_raw_parts(resp_ptr, resp_size) };
                 let _ = sock.write(response_slice)?;
-            },
+            }
             Ok(0) => {
                 break; // connection closed
-            },
+            }
             Err(e) if e.kind == ErrorKind::WouldBlock => {
                 continue;
-            },
+            }
             _ => break,
         }
     }

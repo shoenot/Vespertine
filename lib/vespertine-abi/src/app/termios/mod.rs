@@ -4,14 +4,14 @@ pub use bits::*;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Termios {
-    pub c_iflag:    u32,
-    pub c_oflag:    u32,
-    pub c_cflag:    u32,
-    pub c_lflag:    u32,
-    pub c_line:     u8,
-    pub c_cc:       [u8; 32],
-    pub c_ispeed:   u32,
-    pub c_ospeed:   u32,
+    pub c_iflag: u32,
+    pub c_oflag: u32,
+    pub c_cflag: u32,
+    pub c_lflag: u32,
+    pub c_line: u8,
+    pub c_cc: [u8; 32],
+    pub c_ispeed: u32,
+    pub c_ospeed: u32,
 }
 
 pub fn check_flag(field: u32, flag: u32) -> bool {

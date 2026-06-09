@@ -1,7 +1,8 @@
 use core::arch::asm;
 
 use vespertine_abi::{
-    ClockOp, DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp, tag::TAG_SYS_CLOCK
+    ClockOp, DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp,
+    WaitOp, tag::TAG_SYS_CLOCK,
 };
 
 #[derive(Debug)]
@@ -137,7 +138,7 @@ pub fn sys_futex_wait(addr: usize, expected: u32) {
         asm!(
             "mov rax, 4",
             "syscall",
-            in("rdi") addr, 
+            in("rdi") addr,
             in("rsi") expected,
             out("rax") _, out("rcx") _, out("r11") _,
             options(nomem, nostack),
@@ -150,7 +151,7 @@ pub fn sys_futex_wake(addr: usize, count: usize) {
         asm!(
             "mov rax, 5",
             "syscall",
-            in("rdi") addr, 
+            in("rdi") addr,
             in("rsi") count,
             out("rax") _, out("rcx") _, out("r11") _,
             options(nomem, nostack),
@@ -181,8 +182,11 @@ pub fn sys_wait(handle: HandleID, signal: Signal) -> Result<usize, SysError> {
     sys_invoke(handle, &Invocation::Wait(WaitOp::One(signal)))
 }
 
-
-pub fn sys_set_read_policy(handle: HandleID, min: usize, timeout_ds: usize) -> Result<usize, SysError> {
+pub fn sys_set_read_policy(
+    handle: HandleID,
+    min: usize,
+    timeout_ds: usize,
+) -> Result<usize, SysError> {
     let op = Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds });
     sys_invoke(handle, &op)
 }
@@ -255,26 +259,21 @@ pub fn sys_write(
     sys_invoke(handle, &Invocation::File(op))
 }
 
-    pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError> {
-        let mut written = 0;
-    
-        while written < data.len() {
-            let count = sys_write(
-                handle,
-                data[written..].as_ptr(),
-                data.len() - written,
-                0,
-            )?;
-    
-            if count == 0 {
-                break;
-            }
-    
-            written += count;
+pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError> {
+    let mut written = 0;
+
+    while written < data.len() {
+        let count = sys_write(handle, data[written..].as_ptr(), data.len() - written, 0)?;
+
+        if count == 0 {
+            break;
         }
-    
-        Ok(written)
+
+        written += count;
     }
+
+    Ok(written)
+}
 
 //----------------------------------------------------------//
 //----------------------- VMO HELPERS ----------------------//

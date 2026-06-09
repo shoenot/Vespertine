@@ -1,4 +1,7 @@
-use core::{cmp, ptr::{read_volatile, write_volatile}};
+use core::{
+    cmp,
+    ptr::{read_volatile, write_volatile},
+};
 
 use alloc::{format, vec::Vec};
 use vespertine_abi::HandleID;
@@ -26,7 +29,7 @@ pub struct TerminalGrid {
     pub cursor_y: usize,
     pub cursor_visible: bool,
     pub cursor_blink_on: bool,
-    
+
     pub termios: Termios,
     pub can_buffer: Vec<u8>,
 
@@ -101,16 +104,16 @@ impl Perform for TerminalGrid {
                         _ => {}
                     }
                 }
-            },
+            }
             'J' => {
                 self.clear_screen();
-            },
+            }
             'N' => {
                 if self.cursor_x > 0 {
                     self.newline();
                     self.cursor_x = 0;
                 }
-            },
+            }
             'n' => {
                 for param in params.iter() {
                     match param {
@@ -122,76 +125,89 @@ impl Perform for TerminalGrid {
                         _ => {}
                     }
                 }
-            },
-            'H' | 'f' => {  // set cursor position (cup)
+            }
+            'H' | 'f' => {
+                // set cursor position (cup)
                 let mut row = 1;
                 let mut col = 1;
 
                 let mut iter = params.iter();
                 if let Some(r_param) = iter.next() {
-                    if r_param[0] > 0 { row = r_param[0] as usize; }
+                    if r_param[0] > 0 {
+                        row = r_param[0] as usize;
+                    }
                 }
                 if let Some(c_param) = iter.next() {
-                    if c_param[0] > 0 { col = c_param[0] as usize; }
+                    if c_param[0] > 0 {
+                        col = c_param[0] as usize;
+                    }
                 }
 
                 self.cursor_y = cmp::min(row - 1, self.height_chars - 1);
                 self.cursor_x = cmp::min(col - 1, self.width_chars - 1);
-            },
-            'A' => { // cursor up (cuu)
+            }
+            'A' => {
+                // cursor up (cuu)
                 let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
                 self.cursor_y = self.cursor_y.saturating_sub(n);
-            },
-            'B' => { // cursor down (cud)
+            }
+            'B' => {
+                // cursor down (cud)
                 let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
                 self.cursor_y = core::cmp::min(self.cursor_y + n, self.height_chars - 1);
-            },
-            'C' => { // cursor forward/right (cuf)
+            }
+            'C' => {
+                // cursor forward/right (cuf)
                 let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
                 self.cursor_x = core::cmp::min(self.cursor_x + n, self.width_chars - 1);
-            },
-            'D' => { // cursor backward/left (cub)
+            }
+            'D' => {
+                // cursor backward/left (cub)
                 let n = params.iter().next().map(|p| p[0] as usize).unwrap_or(1);
                 self.cursor_x = self.cursor_x.saturating_sub(n);
-            },
-            'K' => { // erase in line (el)
+            }
+            'K' => {
+                // erase in line (el)
                 let mode = params.iter().next().map(|p| p[0]).unwrap_or(0);
                 match mode {
-                    0 => { // cursor to end of line
+                    0 => {
+                        // cursor to end of line
                         for col in self.cursor_x..self.width_chars {
                             self.clear_cell(col, self.cursor_y);
                         }
-                    },
-                    1 => { // start of line to cursor
+                    }
+                    1 => {
+                        // start of line to cursor
                         for col in 0..=self.cursor_x {
                             self.clear_cell(col, self.cursor_y);
                         }
-                    },
-                    2 => { // clear entire line
+                    }
+                    2 => {
+                        // clear entire line
                         for col in 0..self.width_chars {
                             self.clear_cell(col, self.cursor_y);
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
-            },
+            }
             'h' => {
                 for param in params.iter() {
                     match param {
                         [25] => self.cursor_visible = true, // show cursor
-                        _ => {},
+                        _ => {}
                     }
                 }
-            },
+            }
             'l' => {
                 for param in params.iter() {
                     match param {
                         [25] => self.cursor_visible = false, // hide cursor
-                        _ => {},
+                        _ => {}
                     }
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -242,49 +258,49 @@ impl TerminalGrid {
         }
     }
 
-        fn scroll(&mut self) {
-            let row_cells = self.width_chars;
-            let cells_len = self.cells.len();
-            self.cells.copy_within(row_cells..cells_len, 0);
+    fn scroll(&mut self) {
+        let row_cells = self.width_chars;
+        let cells_len = self.cells.len();
+        self.cells.copy_within(row_cells..cells_len, 0);
 
-            let last_row_start = (self.height_chars - 1) * self.width_chars;
-            for i in last_row_start..self.cells.len() {
-                self.cells[i] = Cell {
-                    char: ' ',
-                    fg: self.current_fg,
-                    bg: self.current_bg,
-                };
-            }
+        let last_row_start = (self.height_chars - 1) * self.width_chars;
+        for i in last_row_start..self.cells.len() {
+            self.cells[i] = Cell {
+                char: ' ',
+                fg: self.current_fg,
+                bg: self.current_bg,
+            };
+        }
 
-            let info = self.fb.info();
-            let screen_words = info.pitch / 4;
+        let info = self.fb.info();
+        let screen_words = info.pitch / 4;
 
-            let dst_start = PADDING_Y * screen_words;
-            let src_start = (PADDING_Y + 16) * screen_words;
-            let num_lines = (self.height_chars - 1) * 16;
+        let dst_start = PADDING_Y * screen_words;
+        let src_start = (PADDING_Y + 16) * screen_words;
+        let num_lines = (self.height_chars - 1) * 16;
 
-            unsafe {
-                let ptr = self.fb.pixel_ptr;
-                for y in 0..num_lines {
-                    let dest_row = ptr.add(dst_start + y * screen_words);
-                    let src_row = ptr.add(src_start + y * screen_words);
-                    for x in 0..screen_words {
-                        write_volatile(dest_row.add(x), read_volatile(src_row.add(x)));
-                    }
-                }
-            }
-
-            // fill bottom 16 scanlines with bg color
-            unsafe {
-                let ptr = self.fb.pixel_ptr;
-                let last_row_y_start = PADDING_Y + (self.height_chars - 1) * 16;
-                let start_word = last_row_y_start * screen_words;
-                let total_words = self.fb.size_in_bytes / 4;
-                for i in start_word..total_words {
-                    write_volatile(ptr.add(i), self.current_bg);
+        unsafe {
+            let ptr = self.fb.pixel_ptr;
+            for y in 0..num_lines {
+                let dest_row = ptr.add(dst_start + y * screen_words);
+                let src_row = ptr.add(src_start + y * screen_words);
+                for x in 0..screen_words {
+                    write_volatile(dest_row.add(x), read_volatile(src_row.add(x)));
                 }
             }
         }
+
+        // fill bottom 16 scanlines with bg color
+        unsafe {
+            let ptr = self.fb.pixel_ptr;
+            let last_row_y_start = PADDING_Y + (self.height_chars - 1) * 16;
+            let start_word = last_row_y_start * screen_words;
+            let total_words = self.fb.size_in_bytes / 4;
+            for i in start_word..total_words {
+                write_volatile(ptr.add(i), self.current_bg);
+            }
+        }
+    }
 
     pub fn clear_screen(&mut self) {
         let _w = self.width_chars;

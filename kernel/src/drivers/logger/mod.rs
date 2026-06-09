@@ -221,7 +221,6 @@ impl KernelObject for ScreenWriter {
     }
 }
 
-
 #[macro_export]
 macro_rules! klog {
     ($($arg:tt)*) => ($crate::drivers::logger::_klog(format_args!($($arg)*)));

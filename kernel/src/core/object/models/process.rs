@@ -3,7 +3,8 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::future::poll_fn;
+use core::future::Future;
+use core::pin::Pin;
 use core::ptr::addr_of;
 use core::sync::atomic::{
     AtomicBool,
@@ -32,9 +33,13 @@ use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
 };
+use crate::core::asynchronous::waiter::AsyncWaiter;
 use crate::core::object::handle::HandleTable;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::socket::SocketEndpoint;
+use crate::core::object::models::socket::{
+    SocketEndpoint,
+    matching_signals,
+};
 use crate::core::object::models::thread::Thread;
 use crate::core::object::obj::KernelObject;
 use crate::core::object::vfs::proc_cpy_handle;
@@ -65,6 +70,90 @@ pub struct ProcessControlBlock {
     pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
 }
 
+struct WaitManyFuture<'a> {
+    process: &'a ProcessControlBlock,
+    items_ptr: usize,
+    count: usize,
+    waiter: Arc<AsyncWaiter>,
+}
+
+impl Drop for WaitManyFuture<'_> {
+    fn drop(&mut self) { self.waiter.deactivate(); }
+}
+
+impl WaitManyFuture<'_> {
+    fn load_items_and_endpoints(&self) -> Result<(Vec<WaitItem>, Vec<Arc<SocketEndpoint>>), InvocationError> {
+        let mut items = vec![WaitItem { handle: HandleID(0), signal: Signal(0), pending: Signal(0) }; self.count];
+        if !safe_copy_from(items.as_mut_ptr() as *mut u8, self.items_ptr as *const u8, self.count * size_of::<WaitItem>()) {
+            return Err(InvocationError::InvalidPointer);
+        }
+
+        let mut endpoints = Vec::with_capacity(self.count);
+        let table = self.process.proc_handles.read();
+        for item in &items {
+            let entry = table.resolve_entry(item.handle, AccessRights::READ)?;
+            if entry.object.type_name() != "Socket" {
+                return Err(InvocationError::UnsupportedOperation);
+            }
+            let endpoint = unsafe {
+                let raw_fat = Arc::into_raw(entry.object.clone());
+                let raw_thin = raw_fat as *const () as *const SocketEndpoint;
+                Arc::from_raw(raw_thin)
+            };
+            endpoints.push(endpoint);
+        }
+        Ok((items, endpoints))
+    }
+
+    fn refresh_and_copy(&self, items: &mut [WaitItem], endpoints: &[Arc<SocketEndpoint>]) -> Result<bool, InvocationError> {
+        let mut any_ready = false;
+        for (item, endpoint) in items.iter_mut().zip(endpoints) {
+            item.pending = matching_signals(endpoint.current_signals(), item.signal);
+            any_ready |= item.pending != Signal(0);
+        }
+        if any_ready && !safe_copy_to(self.items_ptr as *mut u8, items.as_ptr() as *const u8, self.count * size_of::<WaitItem>()) {
+            return Err(InvocationError::InvalidPointer);
+        }
+        Ok(any_ready)
+    }
+}
+
+impl Future for WaitManyFuture<'_> {
+    type Output = Result<usize, InvocationError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        let (mut items, endpoints) = match this.load_items_and_endpoints() {
+            Ok(value) => value,
+            Err(error) => return Poll::Ready(Err(error)),
+        };
+
+        match this.refresh_and_copy(&mut items, &endpoints) {
+            Ok(true) => return Poll::Ready(Ok(0)),
+            Ok(false) => {}
+            Err(error) => return Poll::Ready(Err(error)),
+        }
+
+        for (item, endpoint) in items.iter().zip(&endpoints) {
+            if item.signal.contains(Signal::READABLE) || item.signal.contains(Signal::PEER_CLOSED) {
+                endpoint.read_bus.inner.lock().waiters.register(&this.waiter, cx.waker());
+            }
+            if item.signal.contains(Signal::WRITABLE) {
+                endpoint.write_bus.inner.lock().waiters.register(&this.waiter, cx.waker());
+            }
+        }
+
+        match this.refresh_and_copy(&mut items, &endpoints) {
+            Ok(true) => {
+                this.waiter.deactivate();
+                Poll::Ready(Ok(0))
+            }
+            Ok(false) => Poll::Pending,
+            Err(error) => Poll::Ready(Err(error)),
+        }
+    }
+}
+
 impl ProcessControlBlock {
     pub fn new(init_table: HandleTable) -> Process {
         let vmm = VirtMemManager::new(&ALLOCATOR);
@@ -90,66 +179,6 @@ impl ProcessControlBlock {
         let src_ptr = addr_of!(proc_status) as *const u8;
         safe_copy_to(ptr as *mut u8, src_ptr, size_of::<ProcStatus>());
         Ok(0)
-    }
-
-    fn wait_many_async(&self, items_ptr: *mut WaitItem, count: usize, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
-        let mut items = vec![WaitItem { handle: HandleID(0), signal: Signal(0), pending: Signal(0) }; count];
-
-        if !safe_copy_from(items.as_mut_ptr() as *mut u8, items_ptr as *const u8, count * size_of::<WaitItem>()) {
-            return Poll::Ready(Err(InvocationError::InvalidPointer));
-        }
-
-        let mut endpoints: Vec<Arc<SocketEndpoint>> = Vec::with_capacity(count);
-
-        {
-            let table = self.proc_handles.read();
-            for item in &items {
-                let entry = table.resolve_entry(item.handle, AccessRights::READ)?;
-                if entry.object.type_name() != "Socket" {
-                    return Poll::Ready(Err(InvocationError::UnsupportedOperation));
-                }
-                let ep = unsafe {
-                    let raw_fat = Arc::into_raw(entry.object.clone());
-                    let raw_thin = raw_fat as *const () as *const SocketEndpoint;
-                    Arc::from_raw(raw_thin)
-                };
-                endpoints.push(ep);
-            }
-        }
-
-        // poll each endpoint for satisfied signals
-        let mut any_ready = false;
-        for (i, ep) in endpoints.iter().enumerate() {
-            items[i].pending = Signal(0);
-            let sig = items[i].signal;
-
-            if sig.contains(Signal::READABLE) {
-                let bus = ep.read_bus.buffer.lock();
-                if !bus.is_empty() || ep.read_bus.is_closed.load(Ordering::SeqCst) {
-                    items[i].pending = items[i].pending | Signal::READABLE;
-                    any_ready = true;
-                }
-            }
-
-            if sig.contains(Signal::PEER_CLOSED) {
-                if ep.read_bus.is_closed.load(Ordering::SeqCst) {
-                    items[i].pending = items[i].pending | Signal::PEER_CLOSED;
-                    any_ready = true;
-                }
-            }
-        }
-
-        if any_ready {
-            safe_copy_to(items_ptr as *mut u8, items.as_ptr() as *const u8, count * size_of::<WaitItem>());
-            return Poll::Ready(Ok(0));
-        }
-
-        // if none ready, register waker across all socket buses
-        for ep in &endpoints {
-            *ep.read_bus.read_waker.lock() = Some(cx.waker().clone());
-        }
-
-        Poll::Pending
     }
 }
 
@@ -180,7 +209,7 @@ impl KernelObject for ProcessControlBlock {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
-                poll_fn(move |cx| self.wait_many_async(items_ptr as *mut WaitItem, count, cx)).await
+                WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
             }
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
                 let current_thread = get_core_data().scheduler.get_current_thread();

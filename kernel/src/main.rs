@@ -72,10 +72,12 @@ pub fn init_kernel_process() {
         if let Some(p) = Arc::get_mut(&mut proc) {
             p.pml4_addr = get_cr3() as usize & 0x000F_FFFF_FFFF_F000;
         }
-        let root = ROOT_DIRECTORY.get_or_init(|| {
-            let root_mem = Arc::new(Directory::new());
-            Arc::new(MountDirectory::new(root_mem))
-        }).clone();
+        let root = ROOT_DIRECTORY
+            .get_or_init(|| {
+                let root_mem = Arc::new(Directory::new());
+                Arc::new(MountDirectory::new(root_mem))
+            })
+            .clone();
         proc.proc_handles.write().insert_at(HandleID(0), root, AccessRights::all());
         proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::all());
         proc

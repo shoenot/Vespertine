@@ -305,12 +305,7 @@ pub struct FileVmo {
 }
 
 impl FileVmo {
-    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> {
-        Arc::new(Self {
-            anonymous_vmo: Vmo::new(size),
-            node,
-        })
-    }
+    pub fn new(size: usize, node: Weak<dyn VfsNode>) -> Arc<Self> { Arc::new(Self { anonymous_vmo: Vmo::new(size), node }) }
 
     pub async fn flush_to_disk(&self) -> Result<(), ()> {
         let node = self.node.upgrade().ok_or(())?;
@@ -339,7 +334,6 @@ impl FileVmo {
 
         Ok(())
     }
-
 }
 
 impl PagedBackingStore for FileVmo {
@@ -454,11 +448,7 @@ impl PagedBackingStore for FileVmo {
 
     fn clear_dirty(&self, offset: usize) { self.anonymous_vmo.clear_dirty(offset); }
 
-    fn get_node(&self) -> Option<Arc<dyn VfsNode>> {
-        self.node.upgrade()
-    }
+    fn get_node(&self) -> Option<Arc<dyn VfsNode>> { self.node.upgrade() }
 
-    fn peek_page(&self, offset: usize) -> Option<usize> { 
-        self.anonymous_vmo.peek_page(offset) 
-    }
+    fn peek_page(&self, offset: usize) -> Option<usize> { self.anonymous_vmo.peek_page(offset) }
 }

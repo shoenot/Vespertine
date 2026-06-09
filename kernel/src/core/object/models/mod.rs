@@ -1,7 +1,9 @@
+pub mod brokerport;
 pub mod clock;
 pub mod directory;
 pub mod file;
 pub mod framebuffer;
+pub mod log;
 pub mod memman;
 pub mod mempool;
 pub mod mount_dir;
@@ -10,5 +12,3 @@ pub mod procman;
 pub mod socket;
 pub mod thread;
 pub mod vmo;
-pub mod brokerport;
-pub mod log;

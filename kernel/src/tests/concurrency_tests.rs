@@ -119,5 +119,7 @@ pub fn run_concurrency_tests() {
     crate::klogln!("[TEST] wake after block");
     test_wake_immediately_after_blocking_makes_thread_ready();
     crate::core::asynchronous::run_diagnostic_tests();
+    crate::core::object::models::socket::run_diagnostic_tests();
+    crate::drivers::virtio::blk::run_diagnostic_tests();
     crate::klogln!("[TEST] concurrency invariants passed");
 }

@@ -13,6 +13,7 @@ use core::task::{
 };
 
 use super::async_mutex::AsyncMutex;
+use super::async_sleep::run_diagnostic_tests as run_async_sleep_tests;
 use super::{
     RUN_QUEUE,
     Task,
@@ -216,4 +217,6 @@ pub(super) fn run() {
     test_async_mutex_contenders_acquire();
     crate::klogln!("[TEST] async mutex cancelled waiter");
     test_dropped_async_mutex_waiter_is_skipped();
+    crate::klogln!("[TEST] async sleep timers");
+    run_async_sleep_tests();
 }

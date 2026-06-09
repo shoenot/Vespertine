@@ -1,15 +1,40 @@
 use alloc::collections::BTreeMap;
 use alloc::slice;
-use alloc::sync::{Arc, Weak};
+use alloc::sync::{
+    Arc,
+    Weak,
+};
 use alloc::vec::Vec;
-use core::{ptr, str};
+use core::{
+    ptr,
+    str,
+};
 
 use crate::core::asynchronous::async_mutex::AsyncMutex;
-use crate::core::sync::{Mutex, TicketLock};
-use crate::memory::{ALLOCATOR, BlockSize, HHDMOFFSET, calculate_order};
-use crate::storage::blockdev::{AsyncBlockDevice, BlockCache};
-use crate::storage::fs::ext2::obj::{Ext2Directory, Ext2File};
-use crate::storage::fs::ext2::structs::{DiskDirHeader, DiskGroupDesc, DiskInode, DiskSuperblock};
+use crate::core::sync::{
+    Mutex,
+    TicketLock,
+};
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    HHDMOFFSET,
+    calculate_order,
+};
+use crate::storage::blockdev::{
+    AsyncBlockDevice,
+    BlockCache,
+};
+use crate::storage::fs::ext2::obj::{
+    Ext2Directory,
+    Ext2File,
+};
+use crate::storage::fs::ext2::structs::{
+    DiskDirHeader,
+    DiskGroupDesc,
+    DiskInode,
+    DiskSuperblock,
+};
 
 pub mod init;
 pub mod obj;
@@ -56,11 +81,7 @@ impl Ext2FileSystem {
         let cache = BlockCache::new(partition.clone(), block_size as usize, 512);
         let sectors_per_block = block_size / 512;
 
-        let inode_size = if sb.rev_level >= 1 {
-            sb.inode_size
-        } else {
-            128
-        } as u32;
+        let inode_size = if sb.rev_level >= 1 { sb.inode_size } else { 128 } as u32;
 
         let total_blocks = sb.blocks_count;
         let num_groups = (total_blocks + sb.blocks_per_group - 1) / sb.blocks_per_group;
@@ -82,8 +103,7 @@ impl Ext2FileSystem {
         };
         let bgdt_buf_virt = bgdt_buf_phys + *HHDMOFFSET;
 
-        let bgdt_future =
-            partition.read_sectors(bgdt_start_sector, bgdt_sectors, bgdt_buf_phys as u64)?;
+        let bgdt_future = partition.read_sectors(bgdt_start_sector, bgdt_sectors, bgdt_buf_phys as u64)?;
         bgdt_future.await?;
 
         let mut bgdt_vec = Vec::with_capacity(num_groups as usize);
@@ -151,18 +171,13 @@ impl Ext2FileSystem {
         };
         let page_virt = page_phys + *HHDMOFFSET;
 
-        if self
-            .read_block(target_logical_block, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.read_block(target_logical_block, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
 
         let inode = unsafe {
-            let src_ptr =
-                (page_virt as *const u8).add(block_internal_offset as usize) as *const DiskInode;
+            let src_ptr = (page_virt as *const u8).add(block_internal_offset as usize) as *const DiskInode;
             ptr::read(src_ptr)
         };
 
@@ -201,10 +216,7 @@ impl Ext2FileSystem {
                         break;
                     }
 
-                    if inode_id != 0
-                        && name_len > 0
-                        && offset + 8 + name_len <= self.block_size as usize
-                    {
+                    if inode_id != 0 && name_len > 0 && offset + 8 + name_len <= self.block_size as usize {
                         let name_ptr = (entry_ptr as *const u8).add(8);
                         let name_slice = slice::from_raw_parts(name_ptr, name_len);
 
@@ -223,11 +235,7 @@ impl Ext2FileSystem {
         Ok(None)
     }
 
-    pub async fn resolve_file_block(
-        &self,
-        inode: &DiskInode,
-        file_block_idx: usize,
-    ) -> Result<u32, ()> {
+    pub async fn resolve_file_block(&self, inode: &DiskInode, file_block_idx: usize) -> Result<u32, ()> {
         let pointers_per_block = (self.block_size / 4) as usize;
 
         // tier 1: direct blocks (indices 0 to 11)
@@ -250,8 +258,7 @@ impl Ext2FileSystem {
             if page_phys == 0 {
                 return Err(());
             }
-            self.read_block(single_indirect_id, page_phys as u64)
-                .await?;
+            self.read_block(single_indirect_id, page_phys as u64).await?;
 
             let physical_block_id = unsafe {
                 let table_ptr = (page_phys + *HHDMOFFSET) as *const u32;
@@ -282,10 +289,8 @@ impl Ext2FileSystem {
             let level2_idx = remaining_idx % pointers_per_block;
 
             // load level 1 pointer map block
-            self.read_block(double_indirect_id, page_phys as u64)
-                .await?;
-            let single_indirect_id =
-                unsafe { ptr::read((page_virt as *const u32).add(level1_idx)) };
+            self.read_block(double_indirect_id, page_phys as u64).await?;
+            let single_indirect_id = unsafe { ptr::read((page_virt as *const u32).add(level1_idx)) };
 
             if single_indirect_id == 0 {
                 ALLOCATOR.free(page_phys, BlockSize::Normal);
@@ -293,8 +298,7 @@ impl Ext2FileSystem {
             }
 
             // load level 2 ultimate target block location pointer
-            self.read_block(single_indirect_id, page_phys as u64)
-                .await?;
+            self.read_block(single_indirect_id, page_phys as u64).await?;
             let physical_block_id = unsafe { ptr::read((page_virt as *const u32).add(level2_idx)) };
 
             ALLOCATOR.free(page_phys, BlockSize::Normal);
@@ -322,30 +326,24 @@ impl Ext2FileSystem {
             let level3_idx = (remaining_idx % blocks_per_double) % pointers_per_block;
 
             // read the triple indirect block
-            self.read_block(triple_indirect_id, page_phys as u64)
-                .await?;
-            let double_indirect_id =
-                unsafe { core::ptr::read((page_virt as *const u32).add(level1_idx)) };
+            self.read_block(triple_indirect_id, page_phys as u64).await?;
+            let double_indirect_id = unsafe { core::ptr::read((page_virt as *const u32).add(level1_idx)) };
             if double_indirect_id == 0 {
                 ALLOCATOR.free(page_phys, BlockSize::Normal);
                 return Ok(0);
             }
 
             // read the doubly indirect block
-            self.read_block(double_indirect_id, page_phys as u64)
-                .await?;
-            let single_indirect_id =
-                unsafe { core::ptr::read((page_virt as *const u32).add(level2_idx)) };
+            self.read_block(double_indirect_id, page_phys as u64).await?;
+            let single_indirect_id = unsafe { core::ptr::read((page_virt as *const u32).add(level2_idx)) };
             if single_indirect_id == 0 {
                 ALLOCATOR.free(page_phys, BlockSize::Normal);
                 return Ok(0);
             }
 
             // read the singly indirect block
-            self.read_block(single_indirect_id, page_phys as u64)
-                .await?;
-            let physical_block_id =
-                unsafe { core::ptr::read((page_virt as *const u32).add(level3_idx)) };
+            self.read_block(single_indirect_id, page_phys as u64).await?;
+            let physical_block_id = unsafe { core::ptr::read((page_virt as *const u32).add(level3_idx)) };
 
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Ok(physical_block_id);
@@ -400,43 +398,35 @@ impl Ext2FileSystem {
         Ok(value)
     }
 
-    async fn write_pointer(
-        &self,
-        table_block: u32,
-        index: usize,
-        value: u32,
-    ) -> Result<bool, ()> {
+    async fn write_pointer(&self, table_block: u32, index: usize, value: u32) -> Result<bool, ()> {
         let pointers = (self.block_size / 4) as usize;
-    
+
         if table_block == 0 || index >= pointers {
             return Err(());
         }
-    
+
         let page = ALLOCATOR.alloc(BlockSize::Normal);
         if page == 0 {
             return Err(());
         }
-    
+
         if self.read_block(table_block, page as u64).await.is_err() {
             ALLOCATOR.free(page, BlockSize::Normal);
             return Err(());
         }
-    
+
         // Keep raw pointers scoped before the await.
         let empty = {
             let table = (page + *HHDMOFFSET) as *mut u32;
-    
+
             unsafe {
                 ptr::write(table.add(index), value);
                 (0..pointers).all(|i| ptr::read(table.add(i)) == 0)
             }
         };
-    
-        let result = self
-            .cache
-            .write_block(table_block as usize, page as u64)
-            .await;
-    
+
+        let result = self.cache.write_block(table_block as usize, page as u64).await;
+
         ALLOCATOR.free(page, BlockSize::Normal);
         result.map(|_| empty)
     }
@@ -458,14 +448,7 @@ impl Ext2FileSystem {
         }
         remaining -= double;
         if remaining < triple {
-            return Ok((
-                3,
-                [
-                    remaining / double,
-                    (remaining % double) / pointers,
-                    remaining % pointers,
-                ],
-            ));
+            return Ok((3, [remaining / double, (remaining % double) / pointers, remaining % pointers]));
         }
         Err(())
     }
@@ -492,11 +475,7 @@ impl Ext2FileSystem {
         }
     }
 
-    pub async fn allocate_file_block(
-        &self,
-        inode: &mut DiskInode,
-        file_block_idx: usize,
-    ) -> Result<u32, ()> {
+    pub async fn allocate_file_block(&self, inode: &mut DiskInode, file_block_idx: usize) -> Result<u32, ()> {
         let (depth, indices) = self.indirect_path(file_block_idx)?;
         if depth == 0 {
             let existing = unsafe { inode.data.blocks.direct[file_block_idx] };
@@ -521,11 +500,7 @@ impl Ext2FileSystem {
             let mut child = self.read_pointer(table, indices[level]).await?;
             if child == 0 {
                 child = self.allocate_zeroed_block().await?;
-                if self
-                    .write_pointer(table, indices[level], child)
-                    .await
-                    .is_err()
-                {
+                if self.write_pointer(table, indices[level], child).await.is_err() {
                     self.free_block(child).await?;
                     return Err(());
                 }
@@ -547,11 +522,7 @@ impl Ext2FileSystem {
         Ok(data)
     }
 
-    pub async fn clear_file_block(
-        &self,
-        inode: &mut DiskInode,
-        file_block_idx: usize,
-    ) -> Result<(), ()> {
+    pub async fn clear_file_block(&self, inode: &mut DiskInode, file_block_idx: usize) -> Result<(), ()> {
         let (depth, indices) = self.indirect_path(file_block_idx)?;
         if depth == 0 {
             let data = unsafe { inode.data.blocks.direct[file_block_idx] };
@@ -578,15 +549,11 @@ impl Ext2FileSystem {
             tables[level + 1] = child;
         }
         let leaf_level = depth - 1;
-        let data = self
-            .read_pointer(tables[leaf_level], indices[leaf_level])
-            .await?;
+        let data = self.read_pointer(tables[leaf_level], indices[leaf_level]).await?;
         if data == 0 {
             return Ok(());
         }
-        let mut empty = self
-            .write_pointer(tables[leaf_level], indices[leaf_level], 0)
-            .await?;
+        let mut empty = self.write_pointer(tables[leaf_level], indices[leaf_level], 0).await?;
         self.free_block(data).await?;
         self.remove_inode_block(inode);
         let mut level = leaf_level;
@@ -628,18 +595,14 @@ impl Ext2FileSystem {
         };
         let page_virt = page_phys + *HHDMOFFSET;
 
-        self.read_block(target_logical_block, page_phys as u64)
-            .await?;
+        self.read_block(target_logical_block, page_phys as u64).await?;
 
         unsafe {
-            let dest_ptr =
-                (page_virt as *mut u8).add(block_internal_offset as usize) as *mut DiskInode;
+            let dest_ptr = (page_virt as *mut u8).add(block_internal_offset as usize) as *mut DiskInode;
             ptr::write(dest_ptr, *inode);
         }
 
-        self.cache
-            .write_block(target_logical_block as usize, page_phys as u64)
-            .await?;
+        self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
         ALLOCATOR.free(page_phys, BlockSize::Normal);
         Ok(())
     }
@@ -683,13 +646,10 @@ impl Ext2FileSystem {
 
                 if let Some(bit_idx) = allocated_block_idx {
                     // write bitmap block back
-                    self.cache
-                        .write_block(bg.block_bitmap as usize, page_phys as u64)
-                        .await?;
+                    self.cache.write_block(bg.block_bitmap as usize, page_phys as u64).await?;
 
                     let first_data_block = if self.block_size == 1024 { 1 } else { 0 };
-                    let block_id =
-                        group as u32 * self.blocks_per_group + bit_idx as u32 + first_data_block;
+                    let block_id = group as u32 * self.blocks_per_group + bit_idx as u32 + first_data_block;
 
                     bg.free_blocks_count -= 1;
                     self.bgdt.lock()[group] = bg;
@@ -697,20 +657,15 @@ impl Ext2FileSystem {
                     // write modified gd back to cache
                     let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
                     let descriptor_offset = group * size_of::<DiskGroupDesc>();
-                    let target_logical_block =
-                        bgdt_start_block + (descriptor_offset as u32 / self.block_size);
+                    let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
                     let block_internal_offset = descriptor_offset % self.block_size as usize;
 
-                    self.read_block(target_logical_block, page_phys as u64)
-                        .await?;
+                    self.read_block(target_logical_block, page_phys as u64).await?;
                     unsafe {
-                        let dest_ptr =
-                            (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+                        let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
                         ptr::write(dest_ptr, bg);
                     }
-                    self.cache
-                        .write_block(target_logical_block as usize, page_phys as u64)
-                        .await?;
+                    self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
 
                     // update sb count
                     let sb_block = if self.block_size == 1024 { 1 } else { 0 };
@@ -718,15 +673,12 @@ impl Ext2FileSystem {
 
                     self.read_block(sb_block, page_phys as u64).await?;
                     unsafe {
-                        let sb_ptr =
-                            (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+                        let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
                         if (*sb_ptr).free_blocks_count > 0 {
                             (*sb_ptr).free_blocks_count -= 1;
                         }
                     }
-                    self.cache
-                        .write_block(sb_block as usize, page_phys as u64)
-                        .await?;
+                    self.cache.write_block(sb_block as usize, page_phys as u64).await?;
 
                     ALLOCATOR.free(page_phys, BlockSize::Normal);
                     return Ok(block_id);
@@ -774,9 +726,7 @@ impl Ext2FileSystem {
                 }
 
                 if let Some(bit_idx) = allocated_inode_idx {
-                    self.cache
-                        .write_block(bg.inode_bitmap as usize, page_phys as u64)
-                        .await?;
+                    self.cache.write_block(bg.inode_bitmap as usize, page_phys as u64).await?;
 
                     let inode_num = group as u32 * self.inodes_per_group + bit_idx as u32 + 1;
 
@@ -788,35 +738,27 @@ impl Ext2FileSystem {
 
                     let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
                     let descriptor_offset = group * size_of::<DiskGroupDesc>();
-                    let target_logical_block =
-                        bgdt_start_block + (descriptor_offset as u32 / self.block_size);
+                    let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
                     let block_internal_offset = descriptor_offset % self.block_size as usize;
 
-                    self.read_block(target_logical_block, page_phys as u64)
-                        .await?;
+                    self.read_block(target_logical_block, page_phys as u64).await?;
                     unsafe {
-                        let dest_ptr =
-                            (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
+                        let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
                         ptr::write(dest_ptr, bg);
                     }
-                    self.cache
-                        .write_block(target_logical_block as usize, page_phys as u64)
-                        .await?;
+                    self.cache.write_block(target_logical_block as usize, page_phys as u64).await?;
 
                     let sb_block = if self.block_size == 1024 { 1 } else { 0 };
                     let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
 
                     self.read_block(sb_block, page_phys as u64).await?;
                     unsafe {
-                        let sb_ptr =
-                            (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
+                        let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
                         if (*sb_ptr).free_inodes_count > 0 {
                             (*sb_ptr).free_inodes_count -= 1;
                         }
                     }
-                    self.cache
-                        .write_block(sb_block as usize, page_phys as u64)
-                        .await?;
+                    self.cache.write_block(sb_block as usize, page_phys as u64).await?;
 
                     ALLOCATOR.free(page_phys, BlockSize::Normal);
                     return Ok(inode_num);
@@ -853,11 +795,7 @@ impl Ext2FileSystem {
             bgdt[group]
         };
 
-        if self
-            .read_block(bg.inode_bitmap, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.read_block(bg.inode_bitmap, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -876,12 +814,7 @@ impl Ext2FileSystem {
             *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
         }
 
-        if self
-            .cache
-            .write_block(bg.inode_bitmap as usize, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.cache.write_block(bg.inode_bitmap as usize, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -897,11 +830,7 @@ impl Ext2FileSystem {
         let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
         let block_internal_offset = descriptor_offset % self.block_size as usize;
 
-        if self
-            .read_block(target_logical_block, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.read_block(target_logical_block, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -909,12 +838,7 @@ impl Ext2FileSystem {
             let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
             ptr::write(dest_ptr, bg);
         }
-        if self
-            .cache
-            .write_block(target_logical_block as usize, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.cache.write_block(target_logical_block as usize, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -930,12 +854,7 @@ impl Ext2FileSystem {
             let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
             (*sb_ptr).free_inodes_count += 1;
         }
-        if self
-            .cache
-            .write_block(sb_block as usize, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.cache.write_block(sb_block as usize, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -976,11 +895,7 @@ impl Ext2FileSystem {
             bgdt[group]
         };
 
-        if self
-            .read_block(bg.block_bitmap, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.read_block(bg.block_bitmap, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -999,12 +914,7 @@ impl Ext2FileSystem {
             *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
         }
 
-        if self
-            .cache
-            .write_block(bg.block_bitmap as usize, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.cache.write_block(bg.block_bitmap as usize, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -1017,11 +927,7 @@ impl Ext2FileSystem {
         let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
         let block_internal_offset = descriptor_offset % self.block_size as usize;
 
-        if self
-            .read_block(target_logical_block, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.read_block(target_logical_block, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -1029,12 +935,7 @@ impl Ext2FileSystem {
             let dest_ptr = (page_virt as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
             ptr::write(dest_ptr, bg);
         }
-        if self
-            .cache
-            .write_block(target_logical_block as usize, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.cache.write_block(target_logical_block as usize, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }
@@ -1050,12 +951,7 @@ impl Ext2FileSystem {
             let sb_ptr = (page_virt as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
             (*sb_ptr).free_blocks_count += 1;
         }
-        if self
-            .cache
-            .write_block(sb_block as usize, page_phys as u64)
-            .await
-            .is_err()
-        {
+        if self.cache.write_block(sb_block as usize, page_phys as u64).await.is_err() {
             ALLOCATOR.free(page_phys, BlockSize::Normal);
             return Err(());
         }

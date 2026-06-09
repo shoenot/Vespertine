@@ -98,7 +98,7 @@ impl KernelObject for Ext2Directory {
                     if let Some(weak_file) = files.get(&child_inode_id) {
                         cached = weak_file.upgrade();
                     }
-                    
+
                     let base_file = if let Some(arc_file) = cached {
                         arc_file
                     } else {

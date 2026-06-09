@@ -1,6 +1,7 @@
 pub mod async_mutex;
 pub mod async_sleep;
 pub mod syscall_bridge;
+pub mod waiter;
 mod tests;
 use alloc::boxed::Box;
 use alloc::collections::vec_deque::VecDeque;

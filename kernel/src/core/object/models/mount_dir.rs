@@ -1,12 +1,34 @@
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::string::{
+    String,
+    ToString,
+};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::cmp;
 use core::ptr::copy_nonoverlapping;
-use alloc::boxed::Box;
 
-use alloc::{collections::btree_map::BTreeMap, string::{String, ToString}, sync::Arc, vec::Vec};
 use async_trait::async_trait;
-use vespertine_abi::{AccessRights, DirectoryOp, FileOp, Invocation, protocol::{AbiDirEntry, DirEntryType, PacketFlags, PacketHeader, VESPER_MAGIC}};
+use vespertine_abi::protocol::{
+    AbiDirEntry,
+    DirEntryType,
+    PacketFlags,
+    PacketHeader,
+    VESPER_MAGIC,
+};
+use vespertine_abi::{
+    AccessRights,
+    DirectoryOp,
+    FileOp,
+    Invocation,
+};
 
-use crate::core::{object::{invoke::InvocationError, models::directory::Filename, obj::KernelObject}, sync::RwLock, thread::get_current_process};
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::directory::Filename;
+use crate::core::object::obj::KernelObject;
+use crate::core::sync::RwLock;
+use crate::core::thread::get_current_process;
 
 #[derive(Debug)]
 pub struct MountDirectory {
@@ -16,26 +38,17 @@ pub struct MountDirectory {
 
 impl MountDirectory {
     pub fn new(underlying: Arc<dyn KernelObject>) -> Self {
-        Self { 
-            underlying: RwLock::new(underlying), 
-            overlays: RwLock::new(BTreeMap::new()),
-        }
+        Self { underlying: RwLock::new(underlying), overlays: RwLock::new(BTreeMap::new()) }
     }
 
-    pub fn set_underlying(&self, new_underlying: Arc<dyn KernelObject>) {
-        *self.underlying.write() = new_underlying;
-    }
+    pub fn set_underlying(&self, new_underlying: Arc<dyn KernelObject>) { *self.underlying.write() = new_underlying; }
 }
 
 #[async_trait]
 impl KernelObject for MountDirectory {
-    fn type_name(&self) -> &'static str {
-        "Directory"
-    }
+    fn type_name(&self) -> &'static str { "Directory" }
 
-    fn as_any(&self) -> &dyn core::any::Any {
-        self
-    }
+    fn as_any(&self) -> &dyn core::any::Any { self }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
@@ -45,19 +58,21 @@ impl KernelObject for MountDirectory {
                 if let Some(obj) = self.overlays.read().get(&filename) {
                     let rights = AccessRights(
                         calling_rights.0 &
-                            (AccessRights::MUTATE | AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE).0,
+                            (AccessRights::MUTATE |
+                                AccessRights::READ |
+                                AccessRights::WRITE |
+                                AccessRights::CREATE |
+                                AccessRights::EXECUTE)
+                                .0,
                     );
-                    let handle_id = get_current_process()
-                        .ok_or(InvocationError::InvalidHandle)?
-                        .proc_handles
-                        .write()
-                        .insert(obj.clone(), rights);
+                    let handle_id =
+                        get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj.clone(), rights);
                     return Ok(handle_id.0);
                 }
 
                 let underlying = self.underlying.read().clone();
                 underlying.invoke(invocation, calling_rights).await
-            },
+            }
 
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
@@ -73,7 +88,7 @@ impl KernelObject for MountDirectory {
 
                 self.overlays.write().insert(filename, obj_arc);
                 Ok(0)
-            },
+            }
 
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
@@ -88,7 +103,7 @@ impl KernelObject for MountDirectory {
                     let underlying = self.underlying.read().clone();
                     underlying.invoke(invocation, calling_rights).await
                 }
-            },
+            }
 
             Invocation::Directory(DirectoryOp::List { offset, sink }) => {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
@@ -149,12 +164,12 @@ impl KernelObject for MountDirectory {
                 let _ = underlying.invoke(Invocation::Directory(DirectoryOp::List { offset, sink }), calling_rights).await;
 
                 Ok(0)
-            },
+            }
 
             Invocation::Directory(DirectoryOp::CreateFile { .. }) | Invocation::Directory(DirectoryOp::CreateDir { .. }) => {
                 let underlying = self.underlying.read().clone();
                 underlying.invoke(invocation, calling_rights).await
-            },
+            }
 
             _ => Err(InvocationError::UnsupportedOperation),
         }

@@ -1,6 +1,10 @@
 use core::{mem::zeroed, slice};
 
-use vespertine_abi::{HandleID, Signal, protocol::{PacketFlags, PacketHeader, VESPER_MAGIC}, tag::TAG_SYS_SOCKFAC};
+use vespertine_abi::{
+    HandleID, Signal,
+    protocol::{PacketFlags, PacketHeader, VESPER_MAGIC},
+    tag::TAG_SYS_SOCKFAC,
+};
 use vespertine_rt::syscall::{
     sys_close, sys_create_socket, sys_read, sys_set_nb, sys_wait, sys_write,
 };
@@ -15,16 +19,21 @@ pub struct Socket(HandleID);
 impl Socket {
     pub fn new_pair() -> Result<(Socket, Socket), Error> {
         let sf = env::find_tag(TAG_SYS_SOCKFAC)
-            .ok_or(Error { 
-                kind: ErrorKind::NotFound, 
-                message: "Socket Factory not found".into() 
-            })?.id;
+            .ok_or(Error {
+                kind: ErrorKind::NotFound,
+                message: "Socket Factory not found".into(),
+            })?
+            .id;
         let (h1, h2) = sys_create_socket(sf).map_err(Error::from)?;
         Ok((Socket(h1), Socket(h2)))
-   }
+    }
 
-    pub fn from_handle(handle: HandleID) -> Self { Self(handle) }
-    pub fn handle(&self) -> HandleID { self.0 }
+    pub fn from_handle(handle: HandleID) -> Self {
+        Self(handle)
+    }
+    pub fn handle(&self) -> HandleID {
+        self.0
+    }
 
     pub fn set_nonblocking(&self, nb: bool) -> Result<(), Error> {
         sys_set_nb(self.0, nb).map_err(Error::from)?;
@@ -53,9 +62,8 @@ impl Socket {
         };
         self.write_all(header_bytes)?;
 
-        let payload_bytes = unsafe {
-            slice::from_raw_parts(payload as *const _ as *const u8, payload_size)
-        };
+        let payload_bytes =
+            unsafe { slice::from_raw_parts(payload as *const _ as *const u8, payload_size) };
         self.write_all(payload_bytes)?;
 
         Ok(())
@@ -65,9 +73,8 @@ impl Socket {
         let mut header = PacketHeader::default();
         let header_size = size_of::<PacketHeader>();
 
-        let header_bytes = unsafe {
-            slice::from_raw_parts_mut(&mut header as *mut _ as *mut u8, header_size)
-        };
+        let header_bytes =
+            unsafe { slice::from_raw_parts_mut(&mut header as *mut _ as *mut u8, header_size) };
 
         self.read_exact(header_bytes)?;
 
@@ -75,20 +82,19 @@ impl Socket {
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,
                 message: "Invalid packet magic number".into(),
-            })
+            });
         }
 
         if header.payload_len as usize != size_of::<T>() {
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,
                 message: "Packet payload size mismatch".into(),
-            })
+            });
         }
 
         let mut payload = unsafe { zeroed::<T>() };
-        let payload_bytes = unsafe {
-            slice::from_raw_parts_mut(&mut payload as *mut T as *mut u8, size_of::<T>())
-        };
+        let payload_bytes =
+            unsafe { slice::from_raw_parts_mut(&mut payload as *mut T as *mut u8, size_of::<T>()) };
         self.read_exact(payload_bytes)?;
 
         Ok((header, payload))

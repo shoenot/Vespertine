@@ -1,12 +1,20 @@
 use core::mem::forget;
 
-use vespertine_abi::{app::termios::*, protocol::{PacketType, VESPER_MAGIC}, tag::TAG_APP_TERM};
+use vespertine_abi::{
+    app::termios::*,
+    protocol::{PacketType, VESPER_MAGIC},
+    tag::TAG_APP_TERM,
+};
 
 use crate::{Error, ErrorKind, env::find_tag, socket::Socket};
 
 fn get_ctrl_sock() -> Result<Socket, Error> {
     let term = find_tag(TAG_APP_TERM)
-        .ok_or(Error { kind: ErrorKind::NotFound, message: "Terminal control socket not found".into() })?.id;
+        .ok_or(Error {
+            kind: ErrorKind::NotFound,
+            message: "Terminal control socket not found".into(),
+        })?
+        .id;
     Ok(Socket::from_handle(term))
 }
 

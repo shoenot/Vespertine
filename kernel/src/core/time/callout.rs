@@ -1,3 +1,8 @@
+use alloc::sync::Arc;
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
+};
 use core::task::Waker;
 
 use crate::arch::{
@@ -5,6 +10,7 @@ use crate::arch::{
     enable_interrupts,
     get_core_data,
 };
+use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
     wake_thread,
@@ -15,11 +21,56 @@ use crate::core::thread::{
 };
 use crate::core::time::get_time;
 
+pub struct TimerRegistration {
+    active: AtomicBool,
+    fired: AtomicBool,
+    waker: TicketLock<Option<Waker>>,
+}
+
+impl TimerRegistration {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            active: AtomicBool::new(true),
+            fired: AtomicBool::new(false),
+            waker: TicketLock::new(None),
+        })
+    }
+
+    pub fn register(&self, waker: &Waker) {
+        let mut stored = self.waker.lock();
+
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+
+        if stored.as_ref().is_none_or(|old| !old.will_wake(waker)) {
+            *stored = Some(waker.clone());
+        }
+    }
+
+    pub fn cancel(&self) {
+        let mut stored = self.waker.lock();
+        self.active.store(false, Ordering::Release);
+        stored.take();
+    }
+
+    pub fn is_fired(&self) -> bool { self.fired.load(Ordering::Acquire) }
+
+    fn fire(&self) -> Option<Waker> {
+        if !self.active.swap(false, Ordering::AcqRel) {
+            return None;
+        }
+
+        self.fired.store(true, Ordering::Release);
+        self.waker.lock().take()
+    }
+}
+
 pub enum CalloutPayload {
     /// used by sleep(), contains pointer to sleeping thread
     WakeThread(*mut ThreadControlBlock),
-    /// used by sleep_async(), contains the async task's waker
-    WakeWaker(Waker),
+    /// used by sleep_async(), contains the async timer registration
+    WakeTimer(Arc<TimerRegistration>),
 }
 
 pub struct Callout {
@@ -45,6 +96,17 @@ impl PartialOrd for Callout {
 
 unsafe impl Send for Callout {}
 
+pub fn dispatch_callout_payload(payload: CalloutPayload) {
+    match payload {
+        CalloutPayload::WakeThread(tcb_ptr) => wake_thread(tcb_ptr),
+        CalloutPayload::WakeTimer(registration) => {
+            if let Some(waker) = registration.fire() {
+                waker.wake();
+            }
+        }
+    }
+}
+
 pub extern "C" fn timer_daemon(_arg: usize) -> ! {
     loop {
         get_core_data().timer_daemon_awoken.store(false, core::sync::atomic::Ordering::Release);
@@ -60,12 +122,7 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
                     let expired = queue.pop().unwrap();
                     drop(queue);
 
-                    match expired.payload {
-                        CalloutPayload::WakeThread(tcb_ptr) => wake_thread(tcb_ptr),
-                        CalloutPayload::WakeWaker(waker) => {
-                            waker.wake();
-                        }
-                    }
+                    dispatch_callout_payload(expired.payload);
                     continue;
                 }
             }

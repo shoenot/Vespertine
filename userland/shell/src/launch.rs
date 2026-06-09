@@ -1,7 +1,10 @@
 use alloc::{string::String, vec::Vec};
 use vespertine_abi::{AccessRights, app::termios::Termios, tag::TAG_APP_TERM};
 use vespertine_rt::println;
-use vespertine_std::{Exec, env, term::{set_terminfo, unset_raw_mode}};
+use vespertine_std::{
+    Exec, env,
+    term::{set_terminfo, unset_raw_mode},
+};
 
 pub fn launch<'a>(name: String, args: Vec<String>, rights: AccessRights) {
     let res = Exec::new(name.clone())
@@ -22,4 +25,4 @@ pub fn launch<'a>(name: String, args: Vec<String>, rights: AccessRights) {
     }
 
     let _ = unset_raw_mode();
-} 
+}

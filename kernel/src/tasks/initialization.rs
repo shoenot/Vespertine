@@ -4,7 +4,11 @@ use core::sync::atomic::Ordering;
 
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
-    TAG_SYS_CLOCK, TAG_SYS_LOGGER, TAG_SYS_MEMMAN, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC
+    TAG_SYS_CLOCK,
+    TAG_SYS_LOGGER,
+    TAG_SYS_MEMMAN,
+    TAG_SYS_PROCMAN,
+    TAG_SYS_SOCKFAC,
 };
 use vespertine_abi::{
     AccessRights,

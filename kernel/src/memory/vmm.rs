@@ -6,6 +6,7 @@ use alloc::alloc::{
     dealloc,
 };
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::ptr::{
     self,
     drop_in_place,
@@ -25,7 +26,6 @@ use crate::memory::{
     PCAllocator,
 };
 use crate::storage::fs::VfsNode;
-use alloc::vec::Vec;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
@@ -114,12 +114,7 @@ impl VirtMemManager {
         let mut pager = Pager::new(allocator);
         pager.init_process_pager().expect("Failed to initialize process pager");
 
-        Self {
-            head: None,
-            pager: TicketLock::new(pager),
-            allocator,
-            backing_nodes: Vec::new(),
-        }
+        Self { head: None, pager: TicketLock::new(pager), allocator, backing_nodes: Vec::new() }
     }
 
     pub fn get_pml4_addr(&self) -> usize { self.pager.lock().get_l4_addr() as usize }
@@ -157,7 +152,7 @@ impl VirtMemManager {
                 while let Some(curr_ptr) = current_ptr {
                     let curr_node = &*curr_ptr;
                     base = (curr_node.start + curr_node.size + mask) & !mask;
-                    
+
                     // Clamp base to ensure low-memory segments do not pull the
                     // allocator search region below VM_BASE_ADDR
                     if base < VM_BASE_ADDR {
@@ -185,12 +180,12 @@ impl VirtMemManager {
                 if let Some(last_ptr) = prev_ptr {
                     let last_node = &*last_ptr;
                     base = (last_node.start + last_node.size + mask) & !mask;
-                    
+
                     // Clamp fallback allocation base to stay out of the low-memory zero page zone
                     if base < VM_BASE_ADDR {
                         base = VM_BASE_ADDR;
                     }
-                    
+
                     if VM_MAX_ALLOWED - base >= size {
                         gap_start = Some(base);
                     }
@@ -236,7 +231,7 @@ impl VirtMemManager {
         }
         // Calculate page misalignment shift
         let page_offset = start_addr & (NORMAL_PAGE_SIZE - 1);
-        
+
         // Align boundaries down, stretch size up to compensate
         if page_offset > 0 {
             start_addr -= page_offset;
@@ -274,70 +269,112 @@ impl VirtMemManager {
 
                         if start_addr == old_start && size == old_size {
                             let node_ptr = allocate_node();
-                            ptr::write(node_ptr, VmaNode {
-                                start: start_addr, size, flags,
-                                prev: (*prev).prev, next: (*prev).next,
-                                backing_vmo: Some(backing_vmo), vmo_offset
-                            });
+                            ptr::write(
+                                node_ptr,
+                                VmaNode {
+                                    start: start_addr,
+                                    size,
+                                    flags,
+                                    prev: (*prev).prev,
+                                    next: (*prev).next,
+                                    backing_vmo: Some(backing_vmo),
+                                    vmo_offset,
+                                },
+                            );
 
-                            if let Some(p) = (*prev).prev { (*p).next = Some(node_ptr); } else { self.head = Some(node_ptr); }
-                            if let Some(n) = (*prev).next { (*n).prev = Some(node_ptr); }
+                            if let Some(p) = (*prev).prev {
+                                (*p).next = Some(node_ptr);
+                            } else {
+                                self.head = Some(node_ptr);
+                            }
+                            if let Some(n) = (*prev).next {
+                                (*n).prev = Some(node_ptr);
+                            }
                             drop_in_place(prev);
                             dealloc(prev as *mut u8, Layout::new::<VmaNode>());
                             return Some(start_addr + page_offset);
-
                         } else if start_addr == old_start {
                             (*prev).start += size;
                             (*prev).size -= size;
                             (*prev).vmo_offset += size;
 
                             let node_ptr = allocate_node();
-                            ptr::write(node_ptr, VmaNode {
-                                start: start_addr, size, flags,
-                                prev: (*prev).prev, next: Some(prev),
-                                backing_vmo: Some(backing_vmo), vmo_offset
-                            });
+                            ptr::write(
+                                node_ptr,
+                                VmaNode {
+                                    start: start_addr,
+                                    size,
+                                    flags,
+                                    prev: (*prev).prev,
+                                    next: Some(prev),
+                                    backing_vmo: Some(backing_vmo),
+                                    vmo_offset,
+                                },
+                            );
 
-                            if let Some(p) = (*prev).prev { (*p).next = Some(node_ptr); } else { self.head = Some(node_ptr); }
+                            if let Some(p) = (*prev).prev {
+                                (*p).next = Some(node_ptr);
+                            } else {
+                                self.head = Some(node_ptr);
+                            }
                             (*prev).prev = Some(node_ptr);
                             return Some(start_addr + page_offset);
-
                         } else if start_addr + size == prev_end {
                             (*prev).size -= size;
 
                             let node_ptr = allocate_node();
-                            ptr::write(node_ptr, VmaNode {
-                                start: start_addr, size, flags,
-                                prev: Some(prev), next: (*prev).next,
-                                backing_vmo: Some(backing_vmo), vmo_offset
-                            });
+                            ptr::write(
+                                node_ptr,
+                                VmaNode {
+                                    start: start_addr,
+                                    size,
+                                    flags,
+                                    prev: Some(prev),
+                                    next: (*prev).next,
+                                    backing_vmo: Some(backing_vmo),
+                                    vmo_offset,
+                                },
+                            );
 
-                            if let Some(n) = (*prev).next { (*n).prev = Some(node_ptr); }
+                            if let Some(n) = (*prev).next {
+                                (*n).prev = Some(node_ptr);
+                            }
                             (*prev).next = Some(node_ptr);
                             return Some(start_addr + page_offset);
-
                         } else {
                             (*prev).size = start_addr - old_start;
                             let middle_node = allocate_node();
                             let right_node = allocate_node();
 
-                            ptr::write(right_node, VmaNode {
-                                start: start_addr + size,
-                                size: prev_end - (start_addr + size),
-                                flags: old_flags,
-                                prev: Some(middle_node),
-                                next: old_next,
-                                backing_vmo: old_vmo,
-                                vmo_offset: old_vmo_off + (start_addr + size - old_start),
-                            });
+                            ptr::write(
+                                right_node,
+                                VmaNode {
+                                    start: start_addr + size,
+                                    size: prev_end - (start_addr + size),
+                                    flags: old_flags,
+                                    prev: Some(middle_node),
+                                    next: old_next,
+                                    backing_vmo: old_vmo,
+                                    vmo_offset: old_vmo_off + (start_addr + size - old_start),
+                                },
+                            );
 
-                            ptr::write(middle_node, VmaNode {
-                                start: start_addr, size, flags,
-                                prev: Some(prev), next: Some(right_node),
-                                backing_vmo: Some(backing_vmo), vmo_offset,
-                            });
+                            ptr::write(
+                                middle_node,
+                                VmaNode {
+                                    start: start_addr,
+                                    size,
+                                    flags,
+                                    prev: Some(prev),
+                                    next: Some(right_node),
+                                    backing_vmo: Some(backing_vmo),
+                                    vmo_offset,
+                                },
+                            );
 
-                            if let Some(n) = old_next { (*n).prev = Some(right_node); }
+                            if let Some(n) = old_next {
+                                (*n).prev = Some(right_node);
+                            }
                             (*prev).next = Some(middle_node);
                             return Some(start_addr + page_offset);
                         }
@@ -359,8 +396,14 @@ impl VirtMemManager {
                 VmaNode { start: start_addr, size, flags, prev: prev_ptr, next: current_ptr, backing_vmo: Some(backing_vmo), vmo_offset },
             );
 
-            if let Some(prev) = prev_ptr { (*prev).next = Some(node_ptr); } else { self.head = Some(node_ptr); }
-            if let Some(next) = current_ptr { (*next).prev = Some(node_ptr); }
+            if let Some(prev) = prev_ptr {
+                (*prev).next = Some(node_ptr);
+            } else {
+                self.head = Some(node_ptr);
+            }
+            if let Some(next) = current_ptr {
+                (*next).prev = Some(node_ptr);
+            }
 
             // Always return the original requested unaligned entry pointer to the loader context
             Some(start_addr + page_offset)
@@ -439,12 +482,12 @@ impl VirtMemManager {
             if batch_count > 0 {
                 let batch_size_bytes = current_page - batch_start;
                 shootdown(batch_start, batch_size_bytes);
-                
+
                 if let Some(ref vmo) = target_vma.backing_vmo {
                     for i in 0..batch_count {
                         let phys_addr = phys_batch[i];
                         let vmo_offset = target_vma.vmo_offset + offset_batch[i];
-                        
+
                         // if the vmo doesn't own this exact physical page, it's a private CoW copy
                         if vmo.peek_page(vmo_offset) != Some(phys_addr) {
                             self.allocator.free(phys_addr, block_size);
@@ -510,58 +553,90 @@ impl VirtMemManager {
                 target_vma.vmo_offset += size;
 
                 let node_ptr = allocate_node();
-                ptr::write(node_ptr, VmaNode {
-                    start: start_addr, size, flags: new_flags,
-                    prev: target_vma.prev, next: Some(target_vma_ptr.unwrap()),
-                    backing_vmo: old_vmo, vmo_offset: old_vmo_off
-                });
+                ptr::write(
+                    node_ptr,
+                    VmaNode {
+                        start: start_addr,
+                        size,
+                        flags: new_flags,
+                        prev: target_vma.prev,
+                        next: Some(target_vma_ptr.unwrap()),
+                        backing_vmo: old_vmo,
+                        vmo_offset: old_vmo_off,
+                    },
+                );
 
-                if let Some(p) = target_vma.prev { (*p).next = Some(node_ptr); } else { self.head = Some(node_ptr); }
+                if let Some(p) = target_vma.prev {
+                    (*p).next = Some(node_ptr);
+                } else {
+                    self.head = Some(node_ptr);
+                }
                 target_vma.prev = Some(node_ptr);
             } else if start_addr + size == old_start + old_size {
                 target_vma.size -= size;
 
                 let node_ptr = allocate_node();
-                ptr::write(node_ptr, VmaNode {
-                    start: start_addr, size, flags: new_flags,
-                    prev: Some(target_vma_ptr.unwrap()), next: target_vma.next,
-                    backing_vmo: old_vmo, vmo_offset: old_vmo_off + (start_addr - old_start)
-                });
+                ptr::write(
+                    node_ptr,
+                    VmaNode {
+                        start: start_addr,
+                        size,
+                        flags: new_flags,
+                        prev: Some(target_vma_ptr.unwrap()),
+                        next: target_vma.next,
+                        backing_vmo: old_vmo,
+                        vmo_offset: old_vmo_off + (start_addr - old_start),
+                    },
+                );
 
-                if let Some(n) = target_vma.next { (*n).prev = Some(node_ptr); }
+                if let Some(n) = target_vma.next {
+                    (*n).prev = Some(node_ptr);
+                }
                 target_vma.next = Some(node_ptr);
             } else {
                 target_vma.size = start_addr - old_start;
                 let middle_node = allocate_node();
                 let right_node = allocate_node();
 
-                ptr::write(right_node, VmaNode {
-                    start: start_addr + size,
-                    size: old_start + old_size - (start_addr + size),
-                    flags: old_flags,
-                    prev: Some(middle_node),
-                    next: old_next,
-                    backing_vmo: old_vmo.clone(),
-                    vmo_offset: old_vmo_off + (start_addr + size - old_start),
-                });
+                ptr::write(
+                    right_node,
+                    VmaNode {
+                        start: start_addr + size,
+                        size: old_start + old_size - (start_addr + size),
+                        flags: old_flags,
+                        prev: Some(middle_node),
+                        next: old_next,
+                        backing_vmo: old_vmo.clone(),
+                        vmo_offset: old_vmo_off + (start_addr + size - old_start),
+                    },
+                );
 
-                ptr::write(middle_node, VmaNode {
-                    start: start_addr, size, flags: new_flags,
-                    prev: Some(target_vma_ptr.unwrap()), next: Some(right_node),
-                    backing_vmo: old_vmo, vmo_offset: old_vmo_off + (start_addr - old_start),
-                });
+                ptr::write(
+                    middle_node,
+                    VmaNode {
+                        start: start_addr,
+                        size,
+                        flags: new_flags,
+                        prev: Some(target_vma_ptr.unwrap()),
+                        next: Some(right_node),
+                        backing_vmo: old_vmo,
+                        vmo_offset: old_vmo_off + (start_addr - old_start),
+                    },
+                );
 
-                if let Some(n) = old_next { (*n).prev = Some(right_node); }
+                if let Some(n) = old_next {
+                    (*n).prev = Some(right_node);
+                }
                 target_vma.next = Some(middle_node);
             }
         }
 
         let mut current_page = start_addr;
 
-        // If we are making a file-backed VMA writable, we must unmap any existing 
+        // If we are making a file-backed VMA writable, we must unmap any existing
         // read-only entries to force a page fault and trigger Copy-on-Write.
-        let needs_cow_reset = (new_flags & VM_FLAG_WRITE) != 0 && 
-                              target_vma.backing_vmo.as_ref().map(|v| v.get_node().is_some()).unwrap_or(false);
+        let needs_cow_reset =
+            (new_flags & VM_FLAG_WRITE) != 0 && target_vma.backing_vmo.as_ref().map(|v| v.get_node().is_some()).unwrap_or(false);
 
         while current_page < (start_addr + size) {
             let virt = VirtAddress(current_page as u64);
@@ -620,16 +695,12 @@ impl VirtMemManager {
                 Err(_) => return Err(FaultError::MappingFailed),
             };
 
-            // If the VMA is writable and backed by a file (has a node), 
+            // If the VMA is writable and backed by a file (has a node),
             // we must provide a private copy to avoid contaminating the global cache.
             if vma_allows_write && obj.get_node().is_some() {
                 let private_page = self.allocator.alloc(block_size) as usize;
                 unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        (page + *HHDMOFFSET) as *const u8,
-                        (private_page + *HHDMOFFSET) as *mut u8,
-                        mask + 1
-                    );
+                    core::ptr::copy_nonoverlapping((page + *HHDMOFFSET) as *const u8, (private_page + *HHDMOFFSET) as *mut u8, mask + 1);
                 }
                 private_page
             } else {
@@ -641,11 +712,7 @@ impl VirtMemManager {
             if new_frame != 0 {
                 unsafe {
                     // mask + 1 correctly handles both NORMAL_PAGE_SIZE and HUGE_PAGE_SIZE
-                    core::ptr::write_bytes(
-                        (new_frame + *HHDMOFFSET) as *mut u8, 
-                        0, 
-                        mask + 1
-                    );
+                    core::ptr::write_bytes((new_frame + *HHDMOFFSET) as *mut u8, 0, mask + 1);
                 }
             }
             new_frame

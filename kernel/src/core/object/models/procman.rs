@@ -2,7 +2,6 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr::null;
-use crate::klogln;
 
 use async_trait::async_trait;
 use vespertine_abi::op::ProcManOp;
@@ -24,6 +23,7 @@ use crate::core::program::load_elf;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
+use crate::klogln;
 use crate::memory::vmm::{
     VM_FLAG_USER,
     VM_FLAG_WRITE,

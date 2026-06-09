@@ -11,16 +11,17 @@ use core::ptr::{
 use core::sync::atomic::{
     AtomicBool,
     AtomicPtr,
+    AtomicU8,
     Ordering,
     fence,
 };
 use core::task::{
     Context,
     Poll,
-    Waker,
 };
 
 use crate::arch::get_core_data;
+use crate::core::asynchronous::waiter::AsyncWaiter;
 use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::{
@@ -41,7 +42,10 @@ use crate::memory::{
     BlockSize,
     HHDMOFFSET,
 };
-use crate::storage::blockdev::AsyncBlockDevice;
+use crate::storage::blockdev::{
+    AsyncBlockDevice,
+    DmaBuffer,
+};
 use crate::util::bitwise::{
     set_bit,
     unset_bit,
@@ -102,7 +106,7 @@ pub struct Virtqueue {
     pub last_seen_used: u16,
     pub queue_notify_off: u16,
 
-    pub wakers: TicketLock<Vec<Option<Waker>>>,
+    pub requests: TicketLock<Vec<Option<Arc<BlockRequest>>>>,
 }
 
 impl Drop for Virtqueue {
@@ -128,6 +132,23 @@ pub struct VirtioBlockDevice {
     pub driver: VirtioBlockDriver,
     pub queues: Vec<VirtqueueState>,
     pub msi_handle: Option<MsiHandle>,
+}
+
+pub const RESULT_PENDING: u8 = 0;
+pub const RESULT_OK: u8 = 1;
+pub const RESULT_ERROR: u8 = 2;
+
+#[derive(Debug)]
+pub struct BlockRequest {
+    d0: u16,
+    d1: u16,
+    d2: u16,
+    page_phys: usize,
+    dma_buffer: Arc<DmaBuffer>,
+
+    completed: AtomicBool,
+    result: AtomicU8,
+    waiter: Arc<AsyncWaiter>,
 }
 
 fn calculate_order(bytes: usize) -> usize {
@@ -254,9 +275,9 @@ pub fn vq_setup(drv: &VirtioBlockDriver, q_idx: u16) -> Option<Virtqueue> {
         let notify_off_ptr = addr_of_mut!(cfg.queue_notify_off) as *mut u16;
         let queue_notify_off = read_volatile(notify_off_ptr);
 
-        let mut wakers = Vec::new();
-        wakers.resize(q_size as usize, None);
-        let wakers = TicketLock::new(wakers);
+        let mut requests = Vec::new();
+        requests.resize(q_size as usize, None);
+        let requests = TicketLock::new(requests);
 
         Some(Virtqueue {
             desc: desc_virt,
@@ -272,7 +293,7 @@ pub fn vq_setup(drv: &VirtioBlockDriver, q_idx: u16) -> Option<Virtqueue> {
             free_head: 0,
             last_seen_used: 0,
             queue_notify_off,
-            wakers,
+            requests,
         })
     }
 }
@@ -336,6 +357,86 @@ impl Virtqueue {
             self.free_head = idx;
         }
     }
+}
+
+impl BlockRequest {
+    fn new(d0: u16, d1: u16, d2: u16, page_phys: usize, dma_buffer: Arc<DmaBuffer>) -> Arc<Self> {
+        Arc::new(Self {
+            d0,
+            d1,
+            d2,
+            page_phys,
+            dma_buffer,
+            completed: AtomicBool::new(false),
+            result: AtomicU8::new(RESULT_PENDING),
+            waiter: AsyncWaiter::new(),
+        })
+    }
+}
+
+fn free_submission_resources(vq: &mut Virtqueue, page_phys: usize, descs: &[u16]) {
+    for &desc in descs {
+        vq.free_desc(desc);
+    }
+    crate::memory::ALLOCATOR.free(page_phys, BlockSize::Normal);
+}
+
+fn alloc_request_descs(vq: &mut Virtqueue, page_phys: usize) -> Result<(u16, u16, u16), ()> {
+    let d0 = match vq.alloc_desc() {
+        Ok(d) => d as u16,
+        Err(_) => {
+            crate::memory::ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+    };
+    let d1 = match vq.alloc_desc() {
+        Ok(d) => d as u16,
+        Err(_) => {
+            free_submission_resources(vq, page_phys, &[d0]);
+            return Err(());
+        }
+    };
+    let d2 = match vq.alloc_desc() {
+        Ok(d) => d as u16,
+        Err(_) => {
+            free_submission_resources(vq, page_phys, &[d0, d1]);
+            return Err(());
+        }
+    };
+
+    Ok((d0, d1, d2))
+}
+
+fn take_request(vq: &Virtqueue, desc_id: usize) -> Option<Arc<BlockRequest>> {
+    let mut requests = vq.requests.lock();
+    if desc_id < requests.len() { requests[desc_id].take() } else { None }
+}
+
+fn store_request(vq: &Virtqueue, request: &Arc<BlockRequest>) { vq.requests.lock()[request.d0 as usize] = Some(request.clone()); }
+
+fn publish_available(vq: &Virtqueue, idx: u16, doorbell_ptr: *mut u16, before_publish: impl FnOnce(&Virtqueue)) {
+    before_publish(vq);
+    fence(Ordering::Release);
+    unsafe {
+        write_volatile(vq.available.idx, idx.wrapping_add(1));
+        if !doorbell_ptr.is_null() {
+            fence(Ordering::SeqCst);
+            write_volatile(doorbell_ptr, 0);
+        }
+    }
+}
+
+fn complete_request(vq: &mut Virtqueue, request: &Arc<BlockRequest>, status: u8) {
+    let result = if status == 0 { RESULT_OK } else { RESULT_ERROR };
+    request.result.store(result, Ordering::Release);
+    request.completed.store(true, Ordering::Release);
+    request.waiter.wake();
+
+    vq.free_desc(request.d0);
+    vq.free_desc(request.d1);
+    vq.free_desc(request.d2);
+
+    crate::memory::ALLOCATOR.free(request.page_phys, BlockSize::Normal);
 }
 
 pub const VIRTIO_BLK_T_IN: u32 = 0; // READ
@@ -457,11 +558,17 @@ impl VirtioBlockDevice {
         let vq_state = &self.queues[vq_idx];
 
         unsafe {
-            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+            let page_phys = crate::memory::ALLOCATOR.alloc(BlockSize::Normal);
             if page_phys == 0 {
                 return Err(());
             };
             let page_virt = page_phys + *HHDMOFFSET;
+            let dma_len = sectors_count as usize * 512;
+            let dma_buffer = if is_write {
+                DmaBuffer::from_phys(buf_phys as usize, dma_len)?
+            } else {
+                DmaBuffer::new(dma_len)?
+            };
 
             write_bytes(page_virt as *mut u8, 0, 4096);
 
@@ -472,28 +579,9 @@ impl VirtioBlockDevice {
             let status_ptr = (page_virt + 512) as *mut u8;
             write_volatile(status_ptr, 0xFF);
 
-            let (d0, d1, d2, last_seen) = {
+            let request = {
                 let mut vq = vq_state.vq.lock();
-
-                let d0 = match vq.alloc_desc() {
-                    Ok(d) => d as u16,
-                    Err(_) => return Err(()),
-                };
-                let d1 = match vq.alloc_desc() {
-                    Ok(d) => d as u16,
-                    Err(_) => {
-                        vq.free_desc(d0);
-                        return Err(());
-                    }
-                };
-                let d2 = match vq.alloc_desc() {
-                    Ok(d) => d as u16,
-                    Err(_) => {
-                        vq.free_desc(d0);
-                        vq.free_desc(d1);
-                        return Err(());
-                    }
-                };
+                let (d0, d1, d2) = alloc_request_descs(&mut vq, page_phys)?;
 
                 // chain desc 0 - header
                 let desc0 = vq.desc.add(d0 as usize);
@@ -511,7 +599,12 @@ impl VirtioBlockDevice {
                 let desc1 = vq.desc.add(d1 as usize);
                 write_volatile(
                     desc1,
-                    VqDescriptor { addr: buf_phys as u64, len: sectors_count * 512, flags: if is_write { 1 } else { 3 }, next: d2 },
+                    VqDescriptor {
+                        addr: dma_buffer.phys() as u64,
+                        len: sectors_count * 512,
+                        flags: if is_write { 1 } else { 3 },
+                        next: d2,
+                    },
                 );
 
                 // chain desc 2 - status byte
@@ -523,9 +616,8 @@ impl VirtioBlockDevice {
                 let slot = (idx as usize) % (vq.queue_size as usize);
                 let ring_slot_ptr = vq.available.ring.add(slot);
                 write_volatile(ring_slot_ptr, d0);
-
-                fence(Ordering::Release);
-                write_volatile(avail_idx_ptr, idx.wrapping_add(1));
+                let request = BlockRequest::new(d0, d1, d2, page_phys, dma_buffer.clone());
+                store_request(&vq, &request);
 
                 // if the device supports virtio_ring_f_event_idx, update used_event so the device
                 // will generate an interrupt for the next completion. writing vq.last_seen_used
@@ -537,28 +629,26 @@ impl VirtioBlockDevice {
 
                 let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
                 let doorbell_ptr = (drv.notify_base as usize + doorbell_offset) as *mut u16;
-                fence(Ordering::SeqCst);
-                write_volatile(doorbell_ptr, 0);
+                publish_available(&vq, idx, doorbell_ptr, |_| {});
 
-                let last_seen = vq.last_seen_used;
-
-                (d0, d1, d2, last_seen)
+                request
             };
 
-            let vq_lock_ptr = addr_of!(vq_state.vq) as *const TicketLock<Virtqueue>;
-
-            Ok(BlockTransferFuture { d0, d1, d2, page_phys, last_seen_used: last_seen, vq: vq_lock_ptr })
+            Ok(BlockTransferFuture {
+                request,
+                completion: if is_write { None } else { Some(BlockCompletion::CopyToPhys { dst_phys: buf_phys as usize }) },
+            })
         }
     }
 }
 
+enum BlockCompletion {
+    CopyToPhys { dst_phys: usize },
+}
+
 pub struct BlockTransferFuture {
-    pub d0: u16,
-    pub d1: u16,
-    pub d2: u16,
-    pub page_phys: usize,
-    pub last_seen_used: u16,
-    pub vq: *const TicketLock<Virtqueue>,
+    request: Arc<BlockRequest>,
+    completion: Option<BlockCompletion>,
 }
 
 unsafe impl Send for BlockTransferFuture {}
@@ -566,48 +656,44 @@ unsafe impl Send for BlockTransferFuture {}
 impl Future for BlockTransferFuture {
     type Output = Result<(), ()>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        unsafe {
-            let status_ptr = (self.page_phys + 512 + *HHDMOFFSET) as *const u8;
-            let status = read_volatile(status_ptr);
-
-            if status != 0xFF {
-                // the transfer is complete
-                {
-                    let mut vq = (*self.vq).lock();
-                    vq.free_desc(self.d0);
-                    vq.free_desc(self.d1);
-                    vq.free_desc(self.d2);
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match poll_block_request(&self.request, cx, || {}) {
+            Poll::Ready(Ok(())) => {
+                if let Some(BlockCompletion::CopyToPhys { dst_phys }) = self.completion.take() {
+                    self.request.dma_buffer.copy_to_phys(dst_phys);
                 }
-
-                ALLOCATOR.free(self.page_phys, BlockSize::Normal);
-
-                if status == 0 { Poll::Ready(Ok(())) } else { Poll::Ready(Err(())) }
-            } else {
-                // register this tasks waker so it gets woken up when io completes
-                let waker = cx.waker().clone();
-                {
-                    let vq = (*self.vq).lock();
-                    vq.wakers.lock()[self.d0 as usize] = Some(waker);
-                }
-
-                // double check
-                let status = read_volatile(status_ptr);
-                if status != 0xFF {
-                    let mut vq = (*self.vq).lock();
-                    vq.wakers.lock()[self.d0 as usize] = None;
-
-                    vq.free_desc(self.d0);
-                    vq.free_desc(self.d1);
-                    vq.free_desc(self.d2);
-                    ALLOCATOR.free(self.page_phys, BlockSize::Normal);
-                    return if status == 0 { Poll::Ready(Ok(())) } else { Poll::Ready(Err(())) };
-                }
-
-                Poll::Pending
+                Poll::Ready(Ok(()))
             }
+            other => other,
         }
     }
+}
+
+fn poll_block_request(request: &Arc<BlockRequest>, cx: &mut Context<'_>, after_register: impl FnOnce()) -> Poll<Result<(), ()>> {
+    let result = request.result.load(Ordering::Acquire);
+    let completed = request.completed.load(Ordering::Acquire);
+    debug_assert!(!completed || result != RESULT_PENDING, "completed block request remained pending");
+
+    match result {
+        RESULT_OK => Poll::Ready(Ok(())),
+        RESULT_ERROR => Poll::Ready(Err(())),
+        RESULT_PENDING => {
+            request.waiter.register(cx.waker());
+            after_register();
+
+            match request.result.load(Ordering::Acquire) {
+                RESULT_OK => Poll::Ready(Ok(())),
+                RESULT_ERROR => Poll::Ready(Err(())),
+                RESULT_PENDING => Poll::Pending,
+                _ => panic!("invalid block request result"),
+            }
+        }
+        _ => panic!("invalid block request result"),
+    }
+}
+
+impl Drop for BlockTransferFuture {
+    fn drop(&mut self) { self.request.waiter.deactivate(); }
 }
 
 /// irq top half
@@ -650,14 +736,17 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     let elem_ptr = used_ring_ptr.add(slot);
                     let desc_id = read_volatile(addr_of!((*elem_ptr).id)) as usize;
 
-                    let waker_opt = {
+                    let request = {
                         let vq = (*vq_state).vq.lock();
-                        let mut wakers = vq.wakers.lock();
-                        if desc_id < wakers.len() { wakers[desc_id].take() } else { None }
+                        take_request(&vq, desc_id)
                     };
 
-                    if let Some(waker) = waker_opt {
-                        waker.wake();
+                    if let Some(request) = request {
+                        let status_ptr = (request.page_phys + 512 + *HHDMOFFSET) as *const u8;
+                        let status = read_volatile(status_ptr);
+
+                        let mut vq = (*vq_state).vq.lock();
+                        complete_request(&mut vq, &request, status);
                     }
 
                     last_seen = last_seen.wrapping_add(1);
@@ -701,3 +790,8 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
         }
     }
 }
+
+#[path = "blk_tests.rs"]
+mod tests;
+
+pub(crate) fn run_diagnostic_tests() { tests::run(); }

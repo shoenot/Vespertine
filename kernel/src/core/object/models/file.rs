@@ -2,7 +2,6 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::cmp::min;
 
-
 use async_trait::async_trait;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
@@ -54,7 +53,7 @@ impl KernelObject for FileObj {
                 }
 
                 Ok(bytes_read)
-            },
+            }
             Invocation::File(FileOp::Stat) => self.stat(),
             Invocation::File(FileOp::GetVmo) => {
                 let vmo = Vmo::new(self.size);
@@ -75,7 +74,7 @@ impl KernelObject for FileObj {
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
                 let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
                 Ok(handle_id.0 as usize)
-            },
+            }
             Invocation::File(FileOp::Seek { offset, whence }) => {
                 let mut cursor = self.offset.lock();
                 let new_pos = match whence {
@@ -91,7 +90,7 @@ impl KernelObject for FileObj {
 
                 *cursor = new_pos as usize;
                 Ok(*cursor)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -124,5 +123,3 @@ impl FileObj {
 
     fn stat(&self) -> Result<usize, InvocationError> { Ok(self.size) }
 }
-
-

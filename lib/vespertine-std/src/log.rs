@@ -7,8 +7,7 @@ pub struct SystemLog(HandleID);
 
 impl SystemLog {
     pub fn connect() -> Self {
-        let handle = find_tag(TAG_SYS_LOGGER)
-            .expect("Could not find logger").id;
+        let handle = find_tag(TAG_SYS_LOGGER).expect("Could not find logger").id;
         Self(handle)
     }
 }

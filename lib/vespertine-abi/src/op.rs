@@ -136,7 +136,7 @@ pub enum ProcOp {
         vaddr: usize,
         len: usize,
         prot: usize,
-    }
+    },
 }
 
 #[repr(C)]

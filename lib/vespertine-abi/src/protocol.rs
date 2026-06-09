@@ -14,7 +14,7 @@ pub struct PacketHeader {
 
 impl Default for PacketHeader {
     fn default() -> Self {
-        Self { 
+        Self {
             magic: VESPER_MAGIC,
             version: 1,
             packet_flags: PacketFlags(0),
@@ -90,4 +90,3 @@ pub struct BrokerRequest {
 pub struct BrokerResponse {
     pub handle: usize,
 }
-

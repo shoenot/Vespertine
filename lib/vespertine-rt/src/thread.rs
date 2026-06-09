@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use vespertine_abi::{Invocation, ProcOp, HandleID};
+use vespertine_abi::{HandleID, Invocation, ProcOp};
 
 use crate::{
     get_init_pkg,
@@ -26,15 +26,11 @@ extern "sysv64" fn thread_trampoline(arg: usize) -> ! {
     args.done.store(true, Ordering::Release);
 
     unsafe {
-        asm!(
-            "mov rax, 2",
-            "syscall",
-            options(noreturn),
-        );
+        asm!("mov rax, 2", "syscall", options(noreturn),);
     }
 }
 
-// Public side 
+// Public side
 
 /// Handle to spawned thread. supports polling for completion.
 pub struct JoinHandle {
@@ -48,9 +44,9 @@ impl JoinHandle {
     }
 }
 
-pub fn spawn<F>(f: F) -> Result<JoinHandle, SysError> 
-where 
-    F: FnOnce() + Send + 'static, 
+pub fn spawn<F>(f: F) -> Result<JoinHandle, SysError>
+where
+    F: FnOnce() + Send + 'static,
 {
     // allocate stack from main memory pool directly to avoid deadlocks
     let pool = unsafe { crate::MAIN_MEM_POOL };
@@ -60,7 +56,7 @@ where
     let stack_base = sys_mmap(pool, DEFAULT_STACK_SIZE, 0, VM_FLAGS_STACK)?;
     let stack_top = stack_base + DEFAULT_STACK_SIZE;
 
-    // box closure + done flag and leak it 
+    // box closure + done flag and leak it
     let done = Arc::new(AtomicBool::new(false));
     let args = Box::new(ThreadArgs {
         func: Box::new(f),
@@ -76,12 +72,12 @@ where
         }
         unsafe { (*pkg).self_handle }
     };
-    
-    let op = Invocation::Proc(ProcOp::SpawnThread { 
+
+    let op = Invocation::Proc(ProcOp::SpawnThread {
         entry: thread_trampoline as *const () as usize,
-        stack_top, 
+        stack_top,
         arg: arg_ptr,
-        priority: 1, 
+        priority: 1,
     });
 
     match sys_invoke(self_handle, &op) {
