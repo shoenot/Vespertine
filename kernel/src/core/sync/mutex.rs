@@ -63,9 +63,7 @@ impl<T> Mutex<T> {
             }
 
             let current_thread = sched.get_current_thread();
-            unsafe {
-                (*current_thread).state = ThreadState::Blocked;
-            }
+            unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("mutex waiter was not running");
             wq.push(current_thread);
 
             drop(wq);

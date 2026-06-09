@@ -11,6 +11,7 @@ use crate::arch::x86_64::interrupts::{
 };
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::ThreadState;
+use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::callout::{
     Callout,
@@ -135,12 +136,10 @@ pub fn update_hardware_timer() {
     }
 
     if !arm_hardware {
-        unsafe {
-            let td_tcb_ptr = (*core_data).timer_daemon_tcb;
-            if !td_tcb_ptr.is_null() && (*td_tcb_ptr).state == ThreadState::Blocked {
-                (*td_tcb_ptr).state = ThreadState::Ready;
-                core_data.scheduler.push(td_tcb_ptr);
-            }
+        let td_tcb_ptr = core_data.timer_daemon_tcb;
+        if !td_tcb_ptr.is_null() {
+            core_data.timer_daemon_awoken.store(true, Ordering::Release);
+            wake_thread(td_tcb_ptr);
         }
     }
 
@@ -163,7 +162,6 @@ pub fn sleep(ns: usize) {
     let current_thread = sched.get_current_thread();
 
     unsafe {
-        (*current_thread).state = ThreadState::Blocked;
         (*current_thread).wake_time = target_time;
     }
 
@@ -172,6 +170,7 @@ pub fn sleep(ns: usize) {
     {
         let mut queue = get_core_data().callout_queue.lock();
         queue.push(callout);
+        unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("sleeping thread was not running");
     }
 
     sched.schedule();

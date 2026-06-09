@@ -8,7 +8,7 @@ use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
 use crate::arch::x86_64::io;
 use crate::core::sync::TicketLock;
-use crate::core::thread::tcb::ThreadState;
+use crate::core::thread::dispatch::wake_thread;
 use crate::drivers::keyboard;
 use crate::klogln;
 use crate::memory::handle_page_fault;
@@ -77,14 +77,10 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
         core_data.apic_mode.arm_oneshot(100_000);
         return;
     }
-    unsafe {
-        let td_tcb_ptr = (*core_data).timer_daemon_tcb;
-        if !td_tcb_ptr.is_null() {
-            if (*td_tcb_ptr).state == ThreadState::Blocked {
-                (*td_tcb_ptr).state = ThreadState::Ready;
-                core_data.scheduler.push(td_tcb_ptr);
-            }
-        }
+    let td_tcb_ptr = core_data.timer_daemon_tcb;
+    if !td_tcb_ptr.is_null() {
+        core_data.timer_daemon_awoken.store(true, Ordering::Release);
+        wake_thread(td_tcb_ptr);
     }
 
     core_data.scheduler.schedule();

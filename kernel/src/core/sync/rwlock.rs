@@ -68,7 +68,7 @@ impl<T> RwLock<T> {
 
                 if (self.state.load(Ordering::Acquire) & WRITER_BIT) != 0 || self.writers_waiting.load(Ordering::Relaxed) != 0 {
                     let thread = get_core_data().scheduler.get_current_thread();
-                    unsafe { (*thread).state = ThreadState::Blocked };
+                    unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("rwlock reader was not running");
                     rq.push(thread);
                     drop(rq);
 
@@ -104,7 +104,7 @@ impl<T> RwLock<T> {
 
                 if self.state.load(Ordering::Acquire) != 0 {
                     let thread = get_core_data().scheduler.get_current_thread();
-                    unsafe { (*thread).state = ThreadState::Blocked };
+                    unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("rwlock writer was not running");
                     wq.push(thread);
                     drop(wq);
 

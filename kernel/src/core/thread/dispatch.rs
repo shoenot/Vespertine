@@ -1,7 +1,10 @@
 use alloc::alloc::alloc;
 use core::alloc::Layout;
 use core::ptr::write_volatile;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
+};
 
 use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
@@ -93,12 +96,19 @@ pub fn spawn_user_thread(
     tcb_ptr
 }
 
+pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
+    unsafe { (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_ok() }
+}
+
+pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) -> bool {
+    awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked, ThreadState::Running).is_ok()
+}
+
 pub fn wake_thread(thread: *mut ThreadControlBlock) {
     unsafe {
-        if (*thread).state != ThreadState::Blocked {
+        if !try_wake_thread(thread) {
             return;
-        };
-        (*thread).state = ThreadState::Ready;
+        }
 
         let this_core = get_core_data().logical_id;
         let target_core = (*thread).home_core;

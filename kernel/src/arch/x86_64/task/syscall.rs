@@ -6,15 +6,23 @@ use core::ptr::copy_nonoverlapping;
 
 use vespertine_abi::Invocation;
 
-use crate::arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled};
 use crate::arch::x86_64::task::context::SyscallFrame;
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    get_core_data,
+    interrupts_enabled,
+};
 use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_close;
 use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::{ThreadState, get_current_process};
 use crate::core::thread::wait::WaitQueue;
+use crate::core::thread::{
+    ThreadState,
+    get_current_process,
+};
 use crate::terminate_thread;
 
 pub enum SysError {
@@ -212,40 +220,49 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
             },
             2 => {
                 terminate_thread!();
-            }, 
+            }
             3 => {
                 get_core_data().scheduler.schedule();
                 Ok(0)
-            },
-            4 => { // futex wait (addr, expected)
+            }
+            4 => {
+                // futex wait (addr, expected)
                 let uaddr = (*frame).rdi;
                 let expected = (*frame).rsi as u32;
                 let proc = get_current_process().unwrap();
 
-                // check the value 
+                // check the value
                 let mut val = 0u32;
                 if safe_copy_from(&mut val as *mut _ as *mut u8, uaddr as *const u8, 4) {
                     if val == expected {
                         let int_state = interrupts_enabled();
                         disable_interrupts();
-                        
+
                         let sched = &mut get_core_data().scheduler;
                         let mut futexes = proc.futexes.write();
-                        let wq = futexes.entry(uaddr).or_insert_with(WaitQueue::new);
 
-                        let current = sched.get_current_thread();
-                        (*current).state = ThreadState::Blocked;
-                        wq.push(current);
-                        drop(futexes);
+                        let mut current_val = 0u32;
+                        if safe_copy_from(&mut current_val as *mut _ as *mut u8, uaddr as *const u8, 4) && current_val == expected {
+                            let wq = futexes.entry(uaddr).or_insert_with(WaitQueue::new);
+                            let current = sched.get_current_thread();
+                            (*current).transition(ThreadState::Running, ThreadState::Blocked).expect("futex waiter was not running");
+                            wq.push(current);
+                            drop(futexes);
 
-                        sched.schedule();
-                        if int_state { enable_interrupts(); }
+                            sched.schedule();
+                        } else {
+                            drop(futexes);
+                        }
+
+                        if int_state {
+                            enable_interrupts();
+                        }
                     }
                     Ok(0)
                 } else {
                     Err(InvocationError::InvalidPointer)
                 }
-            },
+            }
             5 => {
                 let uaddr = (*frame).rdi;
                 let count = (*frame).rsi;
@@ -255,12 +272,14 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 if let Some(wq) = futexes.get_mut(&uaddr) {
                     for _ in 0..count {
                         let thread = wq.pop();
-                        if thread.is_null() { break; }
+                        if thread.is_null() {
+                            break;
+                        }
                         wake_thread(thread);
                     }
                 }
                 Ok(0)
-            },
+            }
             _ => {
                 (*frame).rax = SysError::UnknownSyscall as usize;
                 return;

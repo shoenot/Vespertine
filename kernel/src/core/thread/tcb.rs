@@ -1,5 +1,9 @@
 use alloc::sync::Arc;
 use core::ptr::null_mut;
+use core::sync::atomic::{
+    AtomicU8,
+    Ordering,
+};
 
 use super::priority::ThreadPriority;
 use crate::KERNEL_PROCESS;
@@ -10,19 +14,32 @@ use crate::core::object::models::process::{
 };
 use crate::core::thread::schedule::get_new_tid;
 
-#[derive(Debug, PartialEq)]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadState {
-    Ready,
-    Running,
-    Blocked,
-    Terminated,
+    Ready = 0,
+    Running = 1,
+    Blocked = 2,
+    Terminated = 3,
+}
+
+impl ThreadState {
+    pub fn from_raw(raw: u8) -> ThreadState {
+        match raw {
+            0 => ThreadState::Ready,
+            1 => ThreadState::Running,
+            2 => ThreadState::Blocked,
+            3 => ThreadState::Terminated,
+            _ => panic!("invalid thread state"),
+        }
+    }
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub struct ThreadControlBlock {
     pub thread_id: usize,
-    pub state: ThreadState,
+    pub state: AtomicU8,
     pub priority: ThreadPriority,
     pub wake_time: usize,
     pub total_runtime: usize,
@@ -48,7 +65,7 @@ impl ThreadControlBlock {
     ) {
         unsafe {
             core::ptr::write(&mut self.thread_id, get_new_tid());
-            core::ptr::write(&mut self.state, ThreadState::Ready);
+            core::ptr::write(&mut self.state, AtomicU8::new(ThreadState::Ready as u8));
             core::ptr::write(&mut self.priority, priority);
             core::ptr::write(&mut self.wake_time, 0);
             core::ptr::write(&mut self.total_runtime, 0);
@@ -62,6 +79,14 @@ impl ThreadControlBlock {
             core::ptr::write(&mut self.process, proc);
             core::ptr::write(&mut self.next, null_mut());
         }
+    }
+
+    pub fn state(&self) -> ThreadState { ThreadState::from_raw(self.state.load(Ordering::Acquire)) }
+
+    pub fn set_state(&self, state: ThreadState) { self.state.store(state as u8, Ordering::Release); }
+
+    pub fn transition(&self, old: ThreadState, new: ThreadState) -> Result<(), ThreadState> {
+        self.state.compare_exchange(old as u8, new as u8, Ordering::AcqRel, Ordering::Acquire).map(|_| ()).map_err(ThreadState::from_raw)
     }
 }
 

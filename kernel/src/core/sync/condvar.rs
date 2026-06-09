@@ -27,7 +27,7 @@ impl CondVar {
             disable_interrupts();
             let mut queue = self.wait_queue.lock();
             let current_thread = get_core_data().scheduler.get_current_thread();
-            (*current_thread).state = ThreadState::Blocked;
+            (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("condvar waiter was not running");
             queue.push(current_thread);
 
             let mutex = guard.mutex;

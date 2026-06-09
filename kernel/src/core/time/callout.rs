@@ -5,6 +5,10 @@ use crate::arch::{
     enable_interrupts,
     get_core_data,
 };
+use crate::core::thread::dispatch::{
+    cancel_block_if_awoken,
+    wake_thread,
+};
 use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
@@ -43,6 +47,7 @@ unsafe impl Send for Callout {}
 
 pub extern "C" fn timer_daemon(_arg: usize) -> ! {
     loop {
+        get_core_data().timer_daemon_awoken.store(false, core::sync::atomic::Ordering::Release);
         disable_interrupts();
 
         loop {
@@ -56,12 +61,7 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
                     drop(queue);
 
                     match expired.payload {
-                        CalloutPayload::WakeThread(tcb_ptr) => unsafe {
-                            if (*tcb_ptr).state == ThreadState::Blocked {
-                                (*tcb_ptr).state = ThreadState::Ready;
-                                get_core_data().scheduler.push(tcb_ptr);
-                            }
-                        },
+                        CalloutPayload::WakeThread(tcb_ptr) => wake_thread(tcb_ptr),
                         CalloutPayload::WakeWaker(waker) => {
                             waker.wake();
                         }
@@ -73,8 +73,12 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
             break;
         }
 
-        unsafe {
-            (*get_core_data().scheduler.current_thread).state = ThreadState::Blocked;
+        let thread = unsafe { &*get_core_data().scheduler.current_thread };
+        thread.transition(ThreadState::Running, ThreadState::Blocked).expect("timer daemon was not running");
+
+        if cancel_block_if_awoken(thread, &get_core_data().timer_daemon_awoken) {
+            enable_interrupts();
+            continue;
         }
 
         get_core_data().scheduler.schedule();

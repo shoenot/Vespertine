@@ -106,7 +106,7 @@ impl SchedulerState {
 
         unsafe {
             (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM, KERNEL_PROCESS.clone());
-            (*tcb_ptr).state = ThreadState::Running;
+            (*tcb_ptr).set_state(ThreadState::Running);
         }
 
         self.current_thread = tcb_ptr;
@@ -119,17 +119,25 @@ impl SchedulerState {
             if item.is_null() {
                 break;
             }
-            unsafe { (*item).state = ThreadState::Ready };
             self.push(item);
         }
 
-        let mut next_thread = self.pop();
+        let mut next_thread = loop {
+            let candidate = self.pop();
+            if candidate.is_null() {
+                break null_mut();
+            }
+            if unsafe { (*candidate).transition(ThreadState::Ready, ThreadState::Running) }.is_ok() {
+                break candidate;
+            }
+        };
         let prev_thread = self.current_thread;
         if next_thread.is_null() {
-            if !prev_thread.is_null() && unsafe { (*prev_thread).state == ThreadState::Running } {
+            if !prev_thread.is_null() && unsafe { (*prev_thread).state() == ThreadState::Running } {
                 next_thread = prev_thread;
             } else {
                 next_thread = self.idle_thread;
+                unsafe { (*next_thread).transition(ThreadState::Ready, ThreadState::Running) }.expect("idle thread was not ready");
             }
         }
 
@@ -143,11 +151,10 @@ impl SchedulerState {
             }
         }
 
-        if !prev_thread.is_null() {
+        if !prev_thread.is_null() && prev_thread != next_thread {
             unsafe {
-                if (*prev_thread).state == ThreadState::Running {
-                    (*prev_thread).state = ThreadState::Ready;
-                    if prev_thread != self.idle_thread && prev_thread != next_thread {
+                if (*prev_thread).state() == ThreadState::Running {
+                    if (*prev_thread).transition(ThreadState::Running, ThreadState::Ready).is_ok() && prev_thread != self.idle_thread {
                         self.push(prev_thread);
                     }
                 }
@@ -155,9 +162,6 @@ impl SchedulerState {
         }
 
         self.current_thread = next_thread;
-        unsafe {
-            (*next_thread).state = ThreadState::Running;
-        }
 
         let next_stack_top = unsafe { (*next_thread).stack_base + (*next_thread).stack_size };
         let core_data = get_core_data();
@@ -281,16 +285,13 @@ impl SchedulerState {
     pub fn get_current_thread(&self) -> *mut ThreadControlBlock { self.current_thread }
 
     pub fn unblock(&mut self, thread: *mut ThreadControlBlock) {
-        unsafe {
-            (*thread).state = ThreadState::Ready;
+        if unsafe { (*thread).transition(ThreadState::Blocked, ThreadState::Ready) }.is_ok() {
+            self.push(thread);
         }
-        self.push(thread);
     }
 
     pub fn block(&mut self, thread: *mut ThreadControlBlock) {
-        unsafe {
-            (*thread).state = ThreadState::Blocked;
-        }
+        unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("blocked thread was not running");
         self.schedule();
     }
 
@@ -304,7 +305,7 @@ impl SchedulerState {
             }
 
             disable_interrupts();
-            (*self.current_thread).state = ThreadState::Terminated;
+            (*self.current_thread).set_state(ThreadState::Terminated);
             {
                 GRAVEYARD.lock().push(self.current_thread);
             }

@@ -35,7 +35,7 @@ impl KernelObject for Thread {
                     return Err(InvocationError::AccessDenied);
                 };
                 unsafe {
-                    (*self.tcb).state = ThreadState::Terminated;
+                    (*self.tcb).set_state(ThreadState::Terminated);
                     GRAVEYARD.lock().push(self.tcb);
                     let home_core = (*self.tcb).home_core;
                     let this_core = get_core_data().logical_id;

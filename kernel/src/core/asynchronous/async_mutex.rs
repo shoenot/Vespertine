@@ -1,8 +1,13 @@
 use alloc::collections::vec_deque::VecDeque;
+use alloc::sync::Arc;
 use core::cell::UnsafeCell;
 use core::ops::{
     Deref,
     DerefMut,
+};
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
 };
 use core::task::{
     Poll,
@@ -19,8 +24,18 @@ pub struct AsyncMutex<T> {
 #[derive(Debug)]
 struct AsyncMutexInner<T> {
     locked: bool,
-    waiters: VecDeque<Waker>,
+    waiters: VecDeque<Arc<Waiter>>,
     data: UnsafeCell<T>,
+}
+
+#[derive(Debug)]
+struct Waiter {
+    active: AtomicBool,
+    waker: TicketLock<Option<Waker>>,
+}
+
+impl Waiter {
+    fn new() -> Self { Self { active: AtomicBool::new(true), waker: TicketLock::new(None) } }
 }
 
 unsafe impl<T: Send> Send for AsyncMutex<T> {}
@@ -38,7 +53,7 @@ impl<T> AsyncMutex<T> {
         Self { inner: TicketLock::new(AsyncMutexInner { locked: false, waiters: VecDeque::new(), data: UnsafeCell::new(value) }) }
     }
 
-    pub fn lock(&self) -> AsyncMutexLockFuture<'_, T> { AsyncMutexLockFuture { mutex: self } }
+    pub fn lock(&self) -> AsyncMutexLockFuture<'_, T> { AsyncMutexLockFuture { mutex: self, waiter: Arc::new(Waiter::new()) } }
 
     pub fn try_lock(&self) -> Option<AsyncMutexGuard<'_, T>> {
         let mut inner = self.inner.lock();
@@ -51,17 +66,32 @@ impl<T> AsyncMutex<T> {
     }
 
     pub(crate) fn unlock(&self) {
-        let mut inner = self.inner.lock();
-        if let Some(waker) = inner.waiters.pop_front() {
-            waker.wake();
-        } else {
+        let waiter = {
+            let mut inner = self.inner.lock();
             inner.locked = false;
+            loop {
+                match inner.waiters.pop_front() {
+                    Some(waiter) if waiter.active.load(Ordering::Acquire) => break Some(waiter),
+                    Some(_) => continue,
+                    None => break None,
+                }
+            }
+        };
+
+        if let Some(waiter) = waiter {
+            if waiter.active.swap(false, Ordering::AcqRel) {
+                let waker = waiter.waker.lock().take();
+                if let Some(waker) = waker {
+                    waker.wake();
+                }
+            }
         }
     }
 }
 
 pub struct AsyncMutexLockFuture<'a, T> {
     mutex: &'a AsyncMutex<T>,
+    waiter: Arc<Waiter>,
 }
 
 impl<'a, T> Future for AsyncMutexLockFuture<'a, T> {
@@ -71,15 +101,21 @@ impl<'a, T> Future for AsyncMutexLockFuture<'a, T> {
         let mut inner = self.mutex.inner.lock();
         if !inner.locked {
             inner.locked = true;
+            self.waiter.active.store(false, Ordering::Release);
             Poll::Ready(AsyncMutexGuard { mutex: self.mutex })
         } else {
-            let waker = cx.waker().clone();
-            if !inner.waiters.iter().any(|w| w.will_wake(&waker)) {
-                inner.waiters.push_back(waker);
+            self.waiter.active.store(true, Ordering::Release);
+            *self.waiter.waker.lock() = Some(cx.waker().clone());
+            if !inner.waiters.iter().any(|waiter| Arc::ptr_eq(waiter, &self.waiter)) {
+                inner.waiters.push_back(self.waiter.clone());
             }
             Poll::Pending
         }
     }
+}
+
+impl<T> Drop for AsyncMutexLockFuture<'_, T> {
+    fn drop(&mut self) { self.waiter.active.store(false, Ordering::Release); }
 }
 
 impl<'a, T> Deref for AsyncMutexGuard<'a, T> {

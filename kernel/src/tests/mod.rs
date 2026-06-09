@@ -1,5 +1,6 @@
 use crate::klogln;
 
+pub mod concurrency_tests;
 pub mod memory_tests;
 pub mod object_tests;
 pub mod smp_tests;
@@ -11,6 +12,7 @@ pub fn run_pre_vfs_tests() {
         return;
     }
     klogln!("========== RUNNING SYSTEM DIAGNOSITC UNIT TESTS (PHASE 1) ==========");
+    concurrency_tests::run_concurrency_tests();
     memory_tests::run_pmm_tests();
     klogln!("================= ALL DIAGNOSTIC UNIT TESTS PASSED =================");
 }

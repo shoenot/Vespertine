@@ -23,7 +23,10 @@ use core::task::{
 use crate::arch::get_core_data;
 use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
 use crate::core::sync::TicketLock;
-use crate::core::thread::dispatch::wake_thread;
+use crate::core::thread::dispatch::{
+    cancel_block_if_awoken,
+    wake_thread,
+};
 use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
@@ -614,7 +617,7 @@ pub extern "C" fn virtio_blk_irq_handler(arg: usize) {
         // wake worker thread if set
         let tcb = (*vq_state).worker_tcb.load(Ordering::Acquire);
         if !tcb.is_null() {
-            (*vq_state).awoken.store(true, Ordering::SeqCst);
+            (*vq_state).awoken.store(true, Ordering::Release);
             wake_thread(tcb);
             return;
         }
@@ -678,13 +681,16 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     read_volatile(vq.used.idx) != last_seen
                 };
 
-                if !recheck && !(*vq_state).awoken.load(Ordering::SeqCst) {
+                if !recheck {
                     let current_thread = get_core_data().scheduler.get_current_thread();
-                    (*current_thread).state = ThreadState::Blocked;
-                    get_core_data().scheduler.schedule();
+                    (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("virtio worker was not running");
+
+                    if !cancel_block_if_awoken(&*current_thread, &(*vq_state).awoken) {
+                        get_core_data().scheduler.schedule();
+                    }
                 }
 
-                (*vq_state).awoken.store(false, Ordering::SeqCst);
+                (*vq_state).awoken.store(false, Ordering::Release);
 
                 if int_state {
                     crate::arch::enable_interrupts();

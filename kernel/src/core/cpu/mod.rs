@@ -2,6 +2,7 @@ use alloc::collections::binary_heap::BinaryHeap;
 use alloc::vec::Vec;
 use core::ptr::null_mut;
 use core::sync::atomic::{
+    AtomicBool,
     AtomicPtr,
     Ordering,
 };
@@ -32,6 +33,7 @@ pub struct KernelCoreData {
     pub work_queue: WorkQueue,
     pub callout_queue: TicketLock<BinaryHeap<Callout>>,
     pub timer_daemon_tcb: *mut ThreadControlBlock,
+    pub timer_daemon_awoken: AtomicBool,
     pub magazine: Magazine,
 }
 
@@ -44,6 +46,7 @@ impl KernelCoreData {
             work_queue: WorkQueue::new(),
             callout_queue: TicketLock::new(BinaryHeap::new()),
             timer_daemon_tcb: null_mut(),
+            timer_daemon_awoken: AtomicBool::new(false),
             magazine: Magazine::init(),
         }
     }
