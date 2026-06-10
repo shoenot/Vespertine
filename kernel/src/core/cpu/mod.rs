@@ -4,6 +4,7 @@ use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
     AtomicPtr,
+    AtomicUsize,
     Ordering,
 };
 
@@ -27,6 +28,8 @@ use crate::core::time::callout::Callout;
 use crate::klogln;
 use crate::memory::magazine::Magazine;
 
+pub const NO_STEAL_REQUEST: usize = usize::MAX;
+
 #[repr(C)]
 pub struct KernelCoreData {
     pub scheduler: SchedulerState,
@@ -35,6 +38,7 @@ pub struct KernelCoreData {
     pub timer_daemon_tcb: *mut ThreadControlBlock,
     pub timer_daemon_awoken: AtomicBool,
     pub magazine: Magazine,
+    pub steal_requester: AtomicUsize,
 }
 
 impl KernelCoreData {
@@ -48,6 +52,7 @@ impl KernelCoreData {
             timer_daemon_tcb: null_mut(),
             timer_daemon_awoken: AtomicBool::new(false),
             magazine: Magazine::init(),
+            steal_requester: AtomicUsize::new(NO_STEAL_REQUEST),
         }
     }
 }

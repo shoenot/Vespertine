@@ -8,6 +8,7 @@ use crate::core::sync::{
     Mutex,
     Semaphore,
 };
+use crate::core::thread::schedule::ScheduleReason;
 use crate::time::sleep;
 use crate::{
     get_core_data,
@@ -32,7 +33,7 @@ pub extern "C" fn contention_mutex_thread(_arg: usize) -> ! {
     for _ in 0..100_000 {
         let mut guard = MUTEX_RACE.lock();
         *guard += 1;
-        get_core_data().scheduler.schedule();
+        get_core_data().scheduler.schedule(ScheduleReason::Yield);
         drop(guard);
     }
     THREADS_FINISHED.fetch_add(1, Ordering::Relaxed);
@@ -81,7 +82,7 @@ pub extern "C" fn producer_thread(_arg: usize) -> ! {
         }
 
         if tail % 4 == 0 {
-            get_core_data().scheduler.schedule();
+            get_core_data().scheduler.schedule(ScheduleReason::Yield);
         }
 
         ITEMS_READY.signal();

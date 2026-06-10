@@ -28,6 +28,7 @@ use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
     wake_thread,
 };
+use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
@@ -77,7 +78,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
                 }
 
                 let sched = &mut get_core_data().scheduler;
-                sched.schedule();
+                sched.schedule(ScheduleReason::Blocked);
                 if int_state {
                     enable_interrupts();
                 }
@@ -111,7 +112,7 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
                 }
 
                 let sched = &mut get_core_data().scheduler;
-                sched.schedule();
+                sched.schedule(ScheduleReason::Blocked);
 
                 if int_state {
                     enable_interrupts();

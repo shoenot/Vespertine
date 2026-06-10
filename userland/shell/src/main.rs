@@ -8,7 +8,6 @@ mod launch;
 use alloc::str;
 use alloc::string::String;
 use alloc::vec::Vec;
-use launch::launch;
 use vespertine_abi::AccessRights;
 use vespertine_abi::FileOp;
 use vespertine_abi::HandleGrant;
@@ -37,6 +36,8 @@ use vespertine_std::env;
 use vespertine_std::fs::walk_path;
 use vespertine_std::socket::Socket;
 use vespertine_std::term::unset_raw_mode;
+
+use crate::launch::launch_command;
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
@@ -95,135 +96,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         match cmd {
             "" => {}
             "echo" => cmd_echo(args_vec),
-            "ns" => {
-                let res = Exec::new("ns".into())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(TAG_SYS_PROCMAN, AccessRights::all())?
-                    .grant(TAG_SYS_SOCKFAC, AccessRights::all())?
-                    .spawn();
-
-                match res {
-                    Ok(p) => {
-                        if let Err(e) = p.wait() {
-                            println!("[ERROR] kilo wait error: {:?}", e);
-                        }
-                    }
-                    Err(e) => println!("{:?}", e),
-                }
-            }
-            "dt" => {
-                let (proc, rx) = Exec::new(cmd.into())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(TAG_SYS_CLOCK, AccessRights::all())?
-                    .spawn_piped_sink()?;
-
-                print_stream(&rx)?;
-            }
-            "hello" => {
-                let (proc, rx) = Exec::new(cmd.into())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .inherit_capabilities()
-                    .spawn_piped_sink()?;
-
-                print_stream(&rx)?;
-            }
-            "kilo" => {
-                let res = Exec::new("kilo".into())
-                    .source(env::source())
-                    .sink(env::sink())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(TAG_APP_TERM, AccessRights::all())?
-                    .inherit_capabilities()
-                    .spawn();
-
-                match res {
-                    Ok(p) => {
-                        if let Err(e) = p.wait() {
-                            println!("[ERROR] kilo wait error: {:?}", e);
-                        }
-                    }
-                    Err(e) => println!("{:?}", e),
-                }
-            }
-            "test" => {
-                let res = Exec::new("tctest".into())
-                    .source(env::source())
-                    .sink(env::sink())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(TAG_APP_TERM, AccessRights::all())?
-                    .inherit_capabilities()
-                    .spawn();
-
-                match res {
-                    Ok(p) => {
-                        if let Err(e) = p.wait() {
-                            println!("[ERROR] tctest error: {:?}", e);
-                        }
-                    }
-                    Err(e) => println!("{:?}", e),
-                }
-
-                let _ = unset_raw_mode();
-            }
-            "ctest" => {
-                let res = Exec::new("tctestc".into())
-                    .source(env::source())
-                    .sink(env::sink())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(TAG_APP_TERM, AccessRights::all())?
-                    .inherit_capabilities()
-                    .spawn();
-
-                match res {
-                    Ok(p) => {
-                        if let Err(e) = p.wait() {
-                            println!("[ERROR] tctest error: {:?}", e);
-                        }
-                    }
-                    Err(e) => println!("{:?}", e),
-                }
-
-                let _ = unset_raw_mode();
-            }
-            "cat" => {
-                let res = Exec::new("cat".into())
-                    .source(env::source())
-                    .sink(env::sink())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .grant(TAG_APP_TERM, AccessRights::all())?
-                    .inherit_capabilities()
-                    .spawn();
-
-                match res {
-                    Ok(p) => {
-                        if let Err(e) = p.wait() {
-                            println!("[ERROR] cat error: {:?}", e);
-                        }
-                    }
-                    Err(e) => println!("{:?}", e),
-                }
-
-                let _ = unset_raw_mode();
-            }
-            "trunc" => {
-                let (proc, rx) = Exec::new("trunc".into())
-                    .args(&args_vec)
-                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
-                    .inherit_capabilities()
-                    .spawn_piped_sink()?;
-
-                print_stream(&rx)?;
-            }
-            other => {
-                println!("unknown command: {}", other)
-            }
+            other => launch_command(other, &args_vec),
         }
     }
 }

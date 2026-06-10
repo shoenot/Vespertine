@@ -1,7 +1,9 @@
 use alloc::sync::Arc;
 use core::ptr::null_mut;
 use core::sync::atomic::{
+    AtomicBool,
     AtomicU8,
+    AtomicUsize,
     Ordering,
 };
 
@@ -40,16 +42,25 @@ impl ThreadState {
 pub struct ThreadControlBlock {
     pub thread_id: usize,
     pub state: AtomicU8,
-    pub priority: ThreadPriority,
+
+    pub base_priority: ThreadPriority,
+    pub effective_priority: ThreadPriority,
+
     pub wake_time: usize,
+    pub ready_since: usize,
     pub total_runtime: usize,
+    pub last_started: usize,
     pub quantum_expiry: usize,
+
     pub stack_ptr: usize,
     pub stack_base: usize,
     pub stack_size: usize,
     pub extended_context: *mut u8,
     pub fs_base: usize,
-    pub home_core: usize,
+
+    pub assigned_core: AtomicUsize,
+    pub migration_disabled: AtomicBool,
+
     pub process: Arc<ProcessControlBlock>,
     pub next: *mut ThreadControlBlock,
 }
@@ -60,22 +71,31 @@ impl PartialEq for ThreadControlBlock {
 
 impl ThreadControlBlock {
     pub fn init(
-        &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority,
-        proc: Process,
+        &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, assigned_core: usize,
+        priority: ThreadPriority, proc: Process,
     ) {
         unsafe {
             core::ptr::write(&mut self.thread_id, get_new_tid());
             core::ptr::write(&mut self.state, AtomicU8::new(ThreadState::Ready as u8));
-            core::ptr::write(&mut self.priority, priority);
+
+            core::ptr::write(&mut self.base_priority, priority);
+            core::ptr::write(&mut self.effective_priority, priority);
+
             core::ptr::write(&mut self.wake_time, 0);
+            core::ptr::write(&mut self.ready_since, 0);
             core::ptr::write(&mut self.total_runtime, 0);
+            core::ptr::write(&mut self.last_started, 0);
             core::ptr::write(&mut self.quantum_expiry, 0);
+
             core::ptr::write(&mut self.stack_ptr, stack_ptr);
             core::ptr::write(&mut self.stack_base, stack_base);
             core::ptr::write(&mut self.stack_size, stack_size);
             core::ptr::write(&mut self.extended_context, fpu_ptr);
             core::ptr::write(&mut self.fs_base, 0);
-            core::ptr::write(&mut self.home_core, home_core);
+
+            core::ptr::write(&mut self.assigned_core, AtomicUsize::new(assigned_core));
+            core::ptr::write(&mut self.migration_disabled, AtomicBool::new(false));
+
             core::ptr::write(&mut self.process, proc);
             core::ptr::write(&mut self.next, null_mut());
         }
@@ -87,6 +107,17 @@ impl ThreadControlBlock {
 
     pub fn transition(&self, old: ThreadState, new: ThreadState) -> Result<(), ThreadState> {
         self.state.compare_exchange(old as u8, new as u8, Ordering::AcqRel, Ordering::Acquire).map(|_| ()).map_err(ThreadState::from_raw)
+    }
+
+    pub fn assigned_core(&self) -> usize { self.assigned_core.load(Ordering::Acquire) }
+
+    pub fn set_assigned_core(&self, core: usize) { self.assigned_core.store(core, Ordering::Release); }
+
+    pub fn is_migratable(&self) -> bool { !self.migration_disabled.load(Ordering::Acquire) }
+
+    pub fn pin_to_core(&self, core: usize) {
+        self.assigned_core.store(core, Ordering::Release);
+        self.migration_disabled.store(true, Ordering::Release);
     }
 }
 

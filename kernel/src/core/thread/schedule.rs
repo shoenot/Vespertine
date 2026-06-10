@@ -12,8 +12,14 @@ use core::sync::atomic::{
 };
 
 use crate::arch::get_core_data;
+use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
+use crate::core::cpu::{
+    NO_STEAL_REQUEST,
+    NUM_CORES,
+    get_core_data_for,
+};
 use crate::core::sync::TicketLock;
 use crate::core::thread::idle::*;
 use crate::core::thread::priority::ThreadPriority;
@@ -44,6 +50,38 @@ pub const DEFAULT_QUANTUM: usize = 10_000_000;
 
 pub static GRAVEYARD: TicketLock<TCBQueue> =
     TicketLock::new(TCBQueue { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() });
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ScheduleReason {
+    /// Running thread consumed its complete quantum
+    QuantumExpired,
+    /// Running thread voluntarily yielded
+    Yield,
+    /// Running thread transitioned to blocked
+    Blocked,
+    /// Running thread transitioned to terminated
+    Terminated,
+    /// Timer event interrupt before quantum expired
+    TimerEvent,
+    /// Another CPU requested that this CPU reconsider scheduling
+    RescheduleIpi,
+}
+
+pub(crate) fn account_running_thread(thread: &mut ThreadControlBlock, reason: ScheduleReason, now: usize) {
+    if thread.last_started != 0 {
+        thread.total_runtime = thread.total_runtime.saturating_add(now.saturating_sub(thread.last_started));
+    }
+
+    if reason == ScheduleReason::QuantumExpired {
+        thread.effective_priority = thread.effective_priority.decay_toward(thread.base_priority);
+    }
+}
+
+pub(crate) fn should_refresh_quantum(
+    next_thread: *mut ThreadControlBlock, prev_thread: *mut ThreadControlBlock, reason: ScheduleReason, quantum_expiry: usize, now: usize,
+) -> bool {
+    next_thread != prev_thread || reason == ScheduleReason::QuantumExpired || quantum_expiry <= now
+}
 
 pub struct TCBQueue {
     pub queue_length: AtomicUsize,
@@ -112,8 +150,20 @@ impl SchedulerState {
         self.current_thread = tcb_ptr;
     }
 
-    pub fn schedule(&mut self) {
+    pub fn schedule(&mut self, reason: ScheduleReason) {
         disable_interrupts();
+
+        self.process_steal_request();
+
+        let now = get_time();
+        let prev_thread = self.current_thread;
+
+        if !prev_thread.is_null() {
+            unsafe {
+                account_running_thread(&mut *prev_thread, reason, now);
+            }
+        }
+
         loop {
             let item = { self.mailbox.lock().pop() };
             if item.is_null() {
@@ -131,23 +181,17 @@ impl SchedulerState {
                 break candidate;
             }
         };
-        let prev_thread = self.current_thread;
+
         if next_thread.is_null() {
             if !prev_thread.is_null() && unsafe { (*prev_thread).state() == ThreadState::Running } {
                 next_thread = prev_thread;
+                if prev_thread == self.idle_thread {
+                    self.request_stolen_work();
+                }
             } else {
+                self.request_stolen_work();
                 next_thread = self.idle_thread;
                 unsafe { (*next_thread).transition(ThreadState::Ready, ThreadState::Running) }.expect("idle thread was not ready");
-            }
-        }
-
-        // arm the timer for the next quantum if its not the idle thread.
-        // idle only responds to interrupts.
-        unsafe {
-            if (*next_thread).priority != ThreadPriority::IDLE {
-                (*next_thread).quantum_expiry = get_time() + ns_to_ticks(DEFAULT_QUANTUM);
-            } else {
-                (*next_thread).quantum_expiry = usize::MAX;
             }
         }
 
@@ -161,12 +205,22 @@ impl SchedulerState {
             }
         }
 
+        unsafe {
+            let next = &mut *next_thread;
+            next.last_started = now;
+
+            if next.effective_priority == ThreadPriority::IDLE {
+                next.quantum_expiry = usize::MAX;
+            } else if should_refresh_quantum(next_thread, prev_thread, reason, next.quantum_expiry, now) {
+                next.quantum_expiry = now + ns_to_ticks(DEFAULT_QUANTUM);
+            }
+        }
+
         self.current_thread = next_thread;
 
         let next_stack_top = unsafe { (*next_thread).stack_base + (*next_thread).stack_size };
         let core_data = get_core_data();
         core_data.core_gdt.tss.rsp[0] = next_stack_top as u64;
-
         core_data.kernel_rsp = next_stack_top;
 
         update_hardware_timer();
@@ -238,9 +292,16 @@ impl SchedulerState {
         if item.is_null() {
             return;
         }
-        let priority = unsafe { (*item).priority.as_usize() };
+
+        let now = get_time();
+        let priority = unsafe {
+            (*item).ready_since = now;
+            (*item).effective_priority.as_usize()
+        };
+
         unsafe {
             (*item).next = null_mut();
+
             if self.ready_queue_tails[priority].is_null() {
                 self.ready_queue_heads[priority] = item;
                 self.ready_queue_tails[priority] = item;
@@ -248,8 +309,10 @@ impl SchedulerState {
                 (*self.ready_queue_tails[priority]).next = item;
                 self.ready_queue_tails[priority] = item;
             }
+
             self.queue_length.fetch_add(1, Ordering::Relaxed);
         }
+
         self.active_priorities |= 1 << priority;
     }
 
@@ -292,7 +355,7 @@ impl SchedulerState {
 
     pub fn block(&mut self, thread: *mut ThreadControlBlock) {
         unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("blocked thread was not running");
-        self.schedule();
+        self.schedule(ScheduleReason::Blocked);
     }
 
     pub fn terminate(&mut self) {
@@ -309,7 +372,102 @@ impl SchedulerState {
             {
                 GRAVEYARD.lock().push(self.current_thread);
             }
-            self.schedule();
+            self.schedule(ScheduleReason::Terminated);
+        }
+    }
+
+    pub(crate) fn pop_lowest_priority_migratable(&mut self) -> *mut ThreadControlBlock {
+        for priority in (0..32).rev() {
+            let mut previous: *mut ThreadControlBlock = null_mut();
+            let mut current = self.ready_queue_heads[priority];
+
+            while !current.is_null() {
+                unsafe {
+                    let next = (*current).next;
+
+                    if (*current).is_migratable() {
+                        if previous.is_null() {
+                            self.ready_queue_heads[priority] = next;
+                        } else {
+                            (*previous).next = next;
+                        }
+
+                        if self.ready_queue_tails[priority] == current {
+                            self.ready_queue_tails[priority] = previous;
+                        }
+
+                        if self.ready_queue_heads[priority].is_null() {
+                            self.active_priorities &= !(1 << priority);
+                        }
+
+                        (*current).next = null_mut();
+                        self.queue_length.fetch_sub(1, Ordering::Relaxed);
+                        return current;
+                    }
+
+                    previous = current;
+                    current = next;
+                }
+            }
+        }
+
+        null_mut()
+    }
+
+    fn process_steal_request(&mut self) {
+        let requester = get_core_data().steal_requester.swap(NO_STEAL_REQUEST, Ordering::AcqRel);
+
+        if requester == NO_STEAL_REQUEST || requester == self.core_logical_id {
+            return;
+        }
+
+        if self.queue_length.load(Ordering::Acquire) < 2 {
+            return;
+        }
+
+        let donated = self.pop_lowest_priority_migratable();
+        if donated.is_null() {
+            return;
+        }
+
+        unsafe {
+            (*donated).set_assigned_core(requester);
+        }
+
+        let target = get_core_data_for(requester);
+        target.scheduler.mailbox.lock().push(donated);
+
+        get_core_data().apic_mode.send_ipi(target.lapic_id as u32, 40);
+    }
+
+    fn request_stolen_work(&self) {
+        let this_core = self.core_logical_id;
+        let mut victim = None;
+        let mut victim_load = 1;
+        let Some(&num_cores) = NUM_CORES.get() else {
+            return;
+        };
+
+        for logical_id in 0..num_cores {
+            if logical_id == this_core {
+                continue;
+            }
+
+            let candidate = get_core_data_for(logical_id);
+            let load = candidate.scheduler.queue_length.load(Ordering::Acquire);
+
+            if load > victim_load {
+                victim = Some(candidate);
+                victim_load = load;
+            }
+        }
+
+        let Some(victim) = victim else {
+            return;
+        };
+
+        if victim.steal_requester.compare_exchange(NO_STEAL_REQUEST, this_core, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            get_core_data().apic_mode.send_ipi(victim.lapic_id as u32, 40);
         }
     }
 }

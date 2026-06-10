@@ -72,7 +72,7 @@ impl<T> RwLock<T> {
                     rq.push(thread);
                     drop(rq);
 
-                    get_core_data().scheduler.schedule();
+                    get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
                     if int_state {
                         enable_interrupts()
                     };
@@ -108,7 +108,7 @@ impl<T> RwLock<T> {
                     wq.push(thread);
                     drop(wq);
 
-                    get_core_data().scheduler.schedule();
+                    get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
                     if int_state {
                         enable_interrupts()
                     };

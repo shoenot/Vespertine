@@ -69,7 +69,7 @@ impl<T> Mutex<T> {
             drop(wq);
 
             // yield cpu
-            sched.schedule();
+            sched.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
 
             // continues here when unlocked
             enable_interrupts();

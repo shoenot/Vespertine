@@ -12,10 +12,16 @@ impl ThreadPriority {
     pub const REAPER: ThreadPriority = ThreadPriority(30);
     pub const IDLE: ThreadPriority = ThreadPriority(31);
 
+    pub const BOOST_LIMIT: ThreadPriority = ThreadPriority(1);
+
     #[inline(always)]
     pub fn as_usize(&self) -> usize { self.0 as usize }
 
-    pub fn from(priority: u8) -> Self { ThreadPriority(priority) }
+    pub fn from(priority: u8) -> Self { ThreadPriority(priority.min(Self::IDLE.0)) }
+
+    pub fn boosted(self, levels: u8) -> Self { ThreadPriority(self.0.saturating_sub(levels).max(Self::BOOST_LIMIT.0)) }
+
+    pub fn decay_toward(self, base: Self) -> Self { if self.0 < base.0 { ThreadPriority(self.0 + 1) } else { base } }
 }
 
 impl PartialEq for ThreadPriority {

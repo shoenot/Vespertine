@@ -9,6 +9,8 @@ use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
 use crate::arch::x86_64::io;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::wake_thread;
+use crate::core::thread::schedule::ScheduleReason;
+use crate::core::time::get_time;
 use crate::drivers::keyboard;
 use crate::klogln;
 use crate::memory::handle_page_fault;
@@ -73,6 +75,7 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
+
     if core_data.scheduler.idle_thread.is_null() {
         core_data.apic_mode.arm_oneshot(100_000);
         return;
@@ -83,10 +86,19 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
         wake_thread(td_tcb_ptr);
     }
 
-    core_data.scheduler.schedule();
+    let now = get_time();
+    let current = core_data.scheduler.current_thread;
+
+    let reason = if !current.is_null() && unsafe { (*current).quantum_expiry <= now } {
+        ScheduleReason::QuantumExpired
+    } else {
+        ScheduleReason::TimerEvent
+    };
+
+    core_data.scheduler.schedule(reason);
 }
 
-pub(in crate::arch::x86_64::interrupts) fn ipi_handler() { get_core_data().scheduler.schedule(); }
+pub(in crate::arch::x86_64::interrupts) fn ipi_handler() { get_core_data().scheduler.schedule(ScheduleReason::RescheduleIpi); }
 
 pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     for _ in 0..256 {

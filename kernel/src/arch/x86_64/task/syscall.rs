@@ -18,6 +18,7 @@ use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_close;
 use crate::core::thread::dispatch::wake_thread;
+use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::wait::WaitQueue;
 use crate::core::thread::{
     ThreadState,
@@ -222,7 +223,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 terminate_thread!();
             }
             3 => {
-                get_core_data().scheduler.schedule();
+                get_core_data().scheduler.schedule(ScheduleReason::Yield);
                 Ok(0)
             }
             4 => {
@@ -249,7 +250,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                             wq.push(current);
                             drop(futexes);
 
-                            sched.schedule();
+                            sched.schedule(ScheduleReason::Blocked);
                         } else {
                             drop(futexes);
                         }

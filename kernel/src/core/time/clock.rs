@@ -113,7 +113,8 @@ pub fn update_hardware_timer() {
     let current_time = get_time();
 
     let mut next_event = unsafe {
-        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
+        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).effective_priority != ThreadPriority::IDLE
+        {
             (*core_data.scheduler.current_thread).quantum_expiry
         } else {
             usize::MAX
@@ -173,7 +174,7 @@ pub fn sleep(ns: usize) {
         unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("sleeping thread was not running");
     }
 
-    sched.schedule();
+    sched.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
 
     enable_interrupts();
 }

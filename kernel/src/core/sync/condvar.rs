@@ -36,7 +36,7 @@ impl CondVar {
             mutex.unlock();
             drop(queue);
 
-            get_core_data().scheduler.schedule();
+            get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
 
             if int_state {
                 enable_interrupts()

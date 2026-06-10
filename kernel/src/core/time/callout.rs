@@ -29,11 +29,7 @@ pub struct TimerRegistration {
 
 impl TimerRegistration {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            active: AtomicBool::new(true),
-            fired: AtomicBool::new(false),
-            waker: TicketLock::new(None),
-        })
+        Arc::new(Self { active: AtomicBool::new(true), fired: AtomicBool::new(false), waker: TicketLock::new(None) })
     }
 
     pub fn register(&self, waker: &Waker) {
@@ -138,7 +134,7 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
             continue;
         }
 
-        get_core_data().scheduler.schedule();
+        get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
         enable_interrupts();
     }
 }

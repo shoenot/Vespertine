@@ -40,7 +40,7 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
     }
 
     unsafe {
-        (*tcb_ptr).home_core = best_core;
+        (*tcb_ptr).set_assigned_core(best_core);
     }
 
     let this_core = get_core_data().logical_id;
@@ -78,7 +78,7 @@ pub fn spawn_user_thread(
     }
 
     unsafe {
-        (*tcb_ptr).home_core = best_core;
+        (*tcb_ptr).set_assigned_core(best_core);
     }
 
     let this_core = get_core_data().logical_id;
@@ -97,7 +97,14 @@ pub fn spawn_user_thread(
 }
 
 pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
-    unsafe { (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_ok() }
+    unsafe {
+        if (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
+            return false;
+        }
+
+        (*thread).effective_priority = (*thread).base_priority.boosted(2);
+        true
+    }
 }
 
 pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) -> bool {
@@ -111,7 +118,7 @@ pub fn wake_thread(thread: *mut ThreadControlBlock) {
         }
 
         let this_core = get_core_data().logical_id;
-        let target_core = (*thread).home_core;
+        let target_core = (*thread).assigned_core();
 
         if this_core == target_core {
             // local thread wakeup

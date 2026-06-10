@@ -1,8 +1,8 @@
 pub mod async_mutex;
 pub mod async_sleep;
 pub mod syscall_bridge;
-pub mod waiter;
 mod tests;
+pub mod waiter;
 use alloc::boxed::Box;
 use alloc::collections::vec_deque::VecDeque;
 use alloc::sync::Arc;
@@ -35,6 +35,7 @@ use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
     wake_thread,
 };
+use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
@@ -88,7 +89,8 @@ fn enqueue_task(task: Arc<Task>) {
     if ptr.is_null() {
         return; // thread not registered yet
     }
-    let executor_is_local_and_blocked = unsafe { (*ptr).home_core == get_core_data().logical_id && (*ptr).state() == ThreadState::Blocked };
+    let executor_is_local_and_blocked =
+        unsafe { (*ptr).assigned_core() == get_core_data().logical_id && (*ptr).state() == ThreadState::Blocked };
     wake_thread(ptr);
     if executor_is_local_and_blocked {
         // A local wake can make the executor ready while the current CPU's
@@ -216,7 +218,7 @@ impl Executor {
                     drop(queue); // drop right before yield
 
                     if !cancel_block_if_awoken(unsafe { &*current_thread }, &EXECUTOR_AWOKEN) {
-                        sched.schedule();
+                        sched.schedule(ScheduleReason::Blocked);
                     }
                     if int_state {
                         enable_interrupts();

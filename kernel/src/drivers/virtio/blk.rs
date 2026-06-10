@@ -21,8 +21,8 @@ use core::task::{
 };
 
 use crate::arch::get_core_data;
-use crate::core::asynchronous::waiter::AsyncWaiter;
 use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
+use crate::core::asynchronous::waiter::AsyncWaiter;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
@@ -375,7 +375,7 @@ impl BlockRequest {
 }
 
 fn free_submission_resources(vq: &mut Virtqueue, page_phys: usize, descs: &[u16]) {
-    for &desc in descs {
+    for &desc in descs.iter().rev() {
         vq.free_desc(desc);
     }
     crate::memory::ALLOCATOR.free(page_phys, BlockSize::Normal);
@@ -564,11 +564,7 @@ impl VirtioBlockDevice {
             };
             let page_virt = page_phys + *HHDMOFFSET;
             let dma_len = sectors_count as usize * 512;
-            let dma_buffer = if is_write {
-                DmaBuffer::from_phys(buf_phys as usize, dma_len)?
-            } else {
-                DmaBuffer::new(dma_len)?
-            };
+            let dma_buffer = if is_write { DmaBuffer::from_phys(buf_phys as usize, dma_len)? } else { DmaBuffer::new(dma_len)? };
 
             write_bytes(page_virt as *mut u8, 0, 4096);
 
@@ -775,7 +771,7 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("virtio worker was not running");
 
                     if !cancel_block_if_awoken(&*current_thread, &(*vq_state).awoken) {
-                        get_core_data().scheduler.schedule();
+                        get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
                     }
                 }
 

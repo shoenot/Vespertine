@@ -70,7 +70,8 @@ pub fn init_idle_thread(core_logical_id: usize) -> *mut ThreadControlBlock {
     // init TCB
     unsafe {
         (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, core_logical_id, ThreadPriority::IDLE, KERNEL_PROCESS.clone());
-        (*tcb_ptr).priority = ThreadPriority::IDLE;
+        (*tcb_ptr).base_priority = ThreadPriority::IDLE;
+        (*tcb_ptr).effective_priority = ThreadPriority::IDLE;
     }
 
     tcb_ptr

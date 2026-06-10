@@ -60,8 +60,9 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
 pub fn init_timer_daemon(data_ptr: *mut CPULocalData) {
     unsafe {
         let data = &mut *data_ptr;
-        data.timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
-        let timer_daemon_tcb = data.timer_daemon_tcb;
+        let timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
+        (*timer_daemon_tcb).pin_to_core(data.logical_id);
+        data.timer_daemon_tcb = timer_daemon_tcb;
         data.scheduler.push(timer_daemon_tcb);
     }
 }

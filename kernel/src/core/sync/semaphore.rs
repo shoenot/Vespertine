@@ -76,7 +76,7 @@ impl Semaphore {
                 drop(wq);
 
                 // yield CPU
-                sched.schedule();
+                sched.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
 
                 // continue here when unlocked
                 if int_state {

@@ -89,7 +89,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     Exec::new("shell".into())
         .source(app_stdin.handle())
         .sink(app_stdout.handle())
-        .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+        .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE)
         .grant_new(app_ctrl.handle(), TAG_APP_TERM, AccessRights::all())?
         .inherit_capabilities()
         .spawn()?;
