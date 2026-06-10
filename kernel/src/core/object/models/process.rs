@@ -136,10 +136,10 @@ impl Future for WaitManyFuture<'_> {
 
         for (item, endpoint) in items.iter().zip(&endpoints) {
             if item.signal.contains(Signal::READABLE) || item.signal.contains(Signal::PEER_CLOSED) {
-                endpoint.read_bus.inner.lock().waiters.register(&this.waiter, cx.waker());
+                endpoint.read_bus.inner.lock().readable_signal_waiters.register(&this.waiter, cx.waker());
             }
             if item.signal.contains(Signal::WRITABLE) {
-                endpoint.write_bus.inner.lock().waiters.register(&this.waiter, cx.waker());
+                endpoint.write_bus.inner.lock().writable_signal_waiters.register(&this.waiter, cx.waker());
             }
         }
 

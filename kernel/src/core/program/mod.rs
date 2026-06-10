@@ -27,15 +27,12 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::arch::get_core_data;
 use crate::core::object::models::process::Process;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
 use crate::core::object::vfs::kernel_walk;
-use crate::core::thread::{
-    ThreadControlBlock,
-    get_current_process,
-};
+use crate::core::thread::get_current_process;
+use crate::klogln;
 use crate::memory::vmm::{
     VM_FLAG_EXEC,
     VM_FLAG_USER,
@@ -49,10 +46,6 @@ use crate::memory::vmo::{
 use crate::memory::{
     HHDMOFFSET,
     NORMAL_PAGE_SIZE,
-};
-use crate::{
-    KERNEL_PROCESS,
-    klogln,
 };
 
 #[derive(Debug)]
@@ -91,24 +84,9 @@ pub struct ElfLoadResult {
 }
 
 async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError> {
-    // SWITCH TO KERNEL PROCESS TEMPORARILY
-    // read only first 4k to parse headers
-
-    let (file_size, old_proc, thread_addr) = {
-        let current_thread = get_core_data().scheduler.get_current_thread();
-        let thread_addr = current_thread as usize;
-        let old_proc = unsafe { (*current_thread).process.clone() };
-
-        // print the process' handle table before switching out:
-        // klogln!("table: {:?}", old_proc.proc_handles.read().entries);
-
-        unsafe {
-            (*current_thread).process = KERNEL_PROCESS.get().unwrap().clone();
-        }
-        (file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ), old_proc, thread_addr)
-    };
-
-    let file_size = file_size.await.map_err(|e| {
+    // KernelObject file reads accept kernel destination pointers directly, so
+    // loader I/O must not change the calling thread's process identity.
+    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ).await.map_err(|e| {
         klogln!("[ERROR] read_elf_header: Stat failed: {:?}", e);
         LoaderError::FileReadError
     })?;
@@ -120,18 +98,13 @@ async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, E
         (buffer_ptr as usize, file_layout)
     };
 
-    let read_result = file_obj
-        .invoke(Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buf_addr as usize, len: header_read_size }), AccessRights::READ);
-
-    unsafe {
-        let thread_ptr = thread_addr as *mut ThreadControlBlock;
-        (*thread_ptr).process = old_proc;
-    }
-
-    read_result.await.map_err(|e| {
-        klogln!("[ERROR] load_elf: Read failed: {:?}", e);
-        LoaderError::FileReadError
-    })?;
+    file_obj
+        .invoke(Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buf_addr, len: header_read_size }), AccessRights::READ)
+        .await
+        .map_err(|e| {
+            klogln!("[ERROR] load_elf: Read failed: {:?}", e);
+            LoaderError::FileReadError
+        })?;
 
     let mut header_vec = vec![0u8; header_read_size];
     unsafe {

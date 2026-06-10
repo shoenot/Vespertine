@@ -39,6 +39,7 @@ use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
 };
+use crate::core::time::arm_sleep_ns;
 
 static TASK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -87,7 +88,13 @@ fn enqueue_task(task: Arc<Task>) {
     if ptr.is_null() {
         return; // thread not registered yet
     }
+    let executor_is_local_and_blocked = unsafe { (*ptr).home_core == get_core_data().logical_id && (*ptr).state() == ThreadState::Blocked };
     wake_thread(ptr);
+    if executor_is_local_and_blocked {
+        // A local wake can make the executor ready while the current CPU's
+        // timer is stopped in idle. Guarantee a prompt scheduling boundary.
+        arm_sleep_ns(100_000);
+    }
 }
 
 fn poll_task(task: Arc<Task>) {

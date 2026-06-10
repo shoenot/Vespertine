@@ -239,10 +239,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                 }
                             }
                         }
-                        if !check_flag(grid.termios.c_lflag, ICANON) && !raw_trans_buffer.is_empty()
-                        {
-                            let _ = sys_write_bytes(term_stdin.handle(), &raw_trans_buffer);
-                        }
+                    }
+
+                    if !check_flag(grid.termios.c_lflag, ICANON) && !raw_trans_buffer.is_empty() {
+                        let _ = sys_write_bytes(term_stdin.handle(), &raw_trans_buffer);
                     }
                 }
                 _ => {}

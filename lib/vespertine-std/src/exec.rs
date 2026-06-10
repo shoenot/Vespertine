@@ -4,7 +4,7 @@ use vespertine_abi::{
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_rt::syscall::{sys_close, sys_invoke};
+use vespertine_rt::syscall::{sys_close, sys_invoke, sys_yield};
 
 use crate::{
     Error,
@@ -35,8 +35,8 @@ impl Process {
             if res.is_err() || status.is_terminated {
                 break;
             }
-            // yield or sleep
-            crate::clock::Clock::sleep_ms(10);
+            // Let the child run without depending on the async timer path.
+            sys_yield();
         }
         Ok(())
     }

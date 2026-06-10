@@ -99,13 +99,13 @@ impl Future for InternalWriteFuture<'_> {
 
         let mut inner = this.channel.write_bus.inner.lock();
         if inner.buffer.is_full() {
-            inner.waiters.register(&this.waiter, cx.waker());
+            inner.write_waiters.register(&this.waiter, cx.waker());
             return Poll::Pending;
         }
 
         let count = inner.buffer.push_slice(this.data);
         drop(inner);
-        this.channel.write_bus.notify_state_changed();
+        this.channel.write_bus.notify_readable();
         Poll::Ready(Ok(count))
     }
 }
@@ -129,7 +129,7 @@ impl Future for InternalReadFuture<'_> {
         if !inner.buffer.is_empty() {
             let count = inner.buffer.pop_slice(this.data);
             drop(inner);
-            this.channel.read_bus.notify_state_changed();
+            this.channel.read_bus.notify_writable();
             return Poll::Ready(Ok(count));
         }
 
@@ -137,7 +137,7 @@ impl Future for InternalReadFuture<'_> {
             return Poll::Ready(Ok(0));
         }
 
-        inner.waiters.register(&this.waiter, cx.waker());
+        inner.read_waiters.register(&this.waiter, cx.waker());
         Poll::Pending
     }
 }

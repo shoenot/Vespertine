@@ -125,7 +125,7 @@ fn test_dropped_reader_is_not_woken() {
     drop(dropped);
 
     writer.write_bus.inner.lock().buffer.push_slice(&[1]);
-    writer.write_bus.notify_state_changed();
+    writer.write_bus.notify_readable();
     assert_eq!(dropped_counter.wakes.load(Ordering::Acquire), 0);
     assert_eq!(remaining_counter.wakes.load(Ordering::Acquire), 1);
 }
@@ -156,7 +156,7 @@ fn test_read_and_signal_waiters_coexist() {
     assert!(poll(&mut wait, &mut Context::from_waker(&wait_waker)).is_pending());
 
     writer.write_bus.inner.lock().buffer.push_slice(&[1]);
-    writer.write_bus.notify_state_changed();
+    writer.write_bus.notify_readable();
     assert_eq!(read_counter.wakes.load(Ordering::Acquire), 1);
     assert_eq!(wait_counter.wakes.load(Ordering::Acquire), 1);
 }
@@ -165,12 +165,28 @@ fn test_shared_waiter_across_buses_wakes_once() {
     let (endpoint, _) = SocketEndpoint::new_pair();
     let waiter = AsyncWaiter::new();
     let (counter, waker) = context();
-    endpoint.read_bus.inner.lock().waiters.register(&waiter, &waker);
-    endpoint.write_bus.inner.lock().waiters.register(&waiter, &waker);
+    endpoint.read_bus.inner.lock().readable_signal_waiters.register(&waiter, &waker);
+    endpoint.write_bus.inner.lock().writable_signal_waiters.register(&waiter, &waker);
 
-    endpoint.read_bus.notify_state_changed();
-    endpoint.write_bus.notify_state_changed();
+    endpoint.read_bus.notify_readable();
+    endpoint.write_bus.notify_writable();
     assert_eq!(counter.wakes.load(Ordering::Acquire), 1);
+}
+
+fn test_readable_change_does_not_wake_blocked_writer() {
+    let (reader, writer) = SocketEndpoint::new_pair();
+    let read_waiter = AsyncWaiter::new();
+    let write_waiter = AsyncWaiter::new();
+    let (read_counter, read_waker) = context();
+    let (write_counter, write_waker) = context();
+
+    writer.write_bus.inner.lock().read_waiters.register(&read_waiter, &read_waker);
+    writer.write_bus.inner.lock().write_waiters.register(&write_waiter, &write_waker);
+    writer.write_bus.notify_readable();
+
+    assert_eq!(read_counter.wakes.load(Ordering::Acquire), 1);
+    assert_eq!(write_counter.wakes.load(Ordering::Acquire), 0);
+    drop(reader);
 }
 
 fn test_wait_future_rechecks_readiness() {
@@ -226,6 +242,8 @@ pub(super) fn run() {
     test_read_and_signal_waiters_coexist();
     crate::klogln!("[TEST] socket shared waiter");
     test_shared_waiter_across_buses_wakes_once();
+    crate::klogln!("[TEST] socket targeted wakeups");
+    test_readable_change_does_not_wake_blocked_writer();
     crate::klogln!("[TEST] socket registration recheck");
     test_wait_future_rechecks_readiness();
     crate::klogln!("[TEST] socket timer restart");

@@ -89,7 +89,10 @@ impl RingBuffer {
 #[derive(Debug)]
 pub struct SocketBusInner {
     pub buffer: RingBuffer,
-    pub waiters: WaiterList,
+    pub read_waiters: WaiterList,
+    pub write_waiters: WaiterList,
+    pub readable_signal_waiters: WaiterList,
+    pub writable_signal_waiters: WaiterList,
 }
 
 #[derive(Debug)]
@@ -103,19 +106,58 @@ pub struct SocketBus {
 impl SocketBus {
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(SocketBusInner { buffer: RingBuffer::new(), waiters: WaiterList::new() }),
+            inner: Mutex::new(SocketBusInner {
+                buffer: RingBuffer::new(),
+                read_waiters: WaiterList::new(),
+                write_waiters: WaiterList::new(),
+                readable_signal_waiters: WaiterList::new(),
+                writable_signal_waiters: WaiterList::new(),
+            }),
             is_closed: AtomicBool::new(false),
             read_min: AtomicUsize::new(1),
             read_timeout_ds: AtomicUsize::new(0),
         }
     }
 
-    pub fn notify_state_changed(&self) {
+    pub fn notify_readers(&self) {
+        let wakers = self.inner.lock().read_waiters.take_wakers();
+        wake_all(wakers);
+    }
+
+    pub fn notify_writers(&self) {
+        let wakers = self.inner.lock().write_waiters.take_wakers();
+        wake_all(wakers);
+    }
+
+    pub fn notify_readable(&self) {
         let wakers = {
             let mut inner = self.inner.lock();
-            inner.waiters.take_wakers()
+            let mut wakers = inner.read_waiters.take_wakers();
+            wakers.extend(inner.readable_signal_waiters.take_wakers());
+            wakers
         };
+        wake_all(wakers);
+    }
 
+    pub fn notify_writable(&self) {
+        let wakers = {
+            let mut inner = self.inner.lock();
+            let mut wakers = inner.write_waiters.take_wakers();
+            wakers.extend(inner.writable_signal_waiters.take_wakers());
+            wakers
+        };
+        wake_all(wakers);
+    }
+
+    pub fn notify_all(&self) {
+        let wakers = {
+            let mut inner = self.inner.lock();
+            let mut wakers = inner.read_waiters.take_wakers();
+            wakers.extend(inner.write_waiters.take_wakers());
+            wakers.extend(inner.readable_signal_waiters.take_wakers());
+            wakers.extend(inner.writable_signal_waiters.take_wakers());
+            wakers
+        };
         wake_all(wakers);
     }
 }
@@ -179,11 +221,11 @@ impl Future for SocketReadFuture<'_> {
                 return Poll::Ready(Err(InvocationError::InvalidPointer));
             }
 
-            this.endpoint.read_bus.notify_state_changed();
+            this.endpoint.read_bus.notify_writable();
             return Poll::Ready(Ok(count));
         }
 
-        inner.waiters.register(&this.waiter, cx.waker());
+        inner.read_waiters.register(&this.waiter, cx.waker());
 
         if this.requested_min > 0 && this.timeout_ms > 0 && available > 0 && available != this.last_available {
             this.timer = Some(Box::pin(sleep_async(this.timeout_ms)));
@@ -207,7 +249,7 @@ impl Future for SocketReadFuture<'_> {
                 if !safe_copy_to(this.buffer_ptr as *mut u8, temp.as_ptr(), count) {
                     return Poll::Ready(Err(InvocationError::InvalidPointer));
                 }
-                this.endpoint.read_bus.notify_state_changed();
+                this.endpoint.read_bus.notify_writable();
                 return Poll::Ready(Ok(count));
             }
         }
@@ -244,7 +286,7 @@ impl Future for SocketWriteFuture<'_> {
                 return Poll::Ready(Err(InvocationError::WouldBlock));
             }
 
-            inner.waiters.register(&this.waiter, cx.waker());
+            inner.write_waiters.register(&this.waiter, cx.waker());
             return Poll::Pending;
         }
 
@@ -261,7 +303,7 @@ impl Future for SocketWriteFuture<'_> {
         let written = inner.buffer.push_slice(&temp);
         drop(inner);
 
-        this.endpoint.write_bus.notify_state_changed();
+        this.endpoint.write_bus.notify_readable();
 
         Poll::Ready(Ok(written))
     }
@@ -300,10 +342,10 @@ impl SocketWaitFuture<'_> {
         }
 
         if self.requested.contains(Signal::READABLE) || self.requested.contains(Signal::PEER_CLOSED) {
-            self.endpoint.read_bus.inner.lock().waiters.register(&self.waiter, cx.waker());
+            self.endpoint.read_bus.inner.lock().readable_signal_waiters.register(&self.waiter, cx.waker());
         }
         if self.requested.contains(Signal::WRITABLE) {
-            self.endpoint.write_bus.inner.lock().waiters.register(&self.waiter, cx.waker());
+            self.endpoint.write_bus.inner.lock().writable_signal_waiters.register(&self.waiter, cx.waker());
         }
 
         after_registration();
@@ -366,8 +408,8 @@ impl KernelObject for SocketEndpoint {
                     return Err(InvocationError::AccessDenied);
                 }
                 self.is_nb.store(nb, Ordering::Release);
-                self.read_bus.notify_state_changed();
-                self.write_bus.notify_state_changed();
+                self.read_bus.notify_readers();
+                self.write_bus.notify_writers();
                 Ok(0)
             }
             Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds }) => {
@@ -376,7 +418,7 @@ impl KernelObject for SocketEndpoint {
                 }
                 self.write_bus.read_min.store(min, Ordering::Release);
                 self.write_bus.read_timeout_ds.store(timeout_ds, Ordering::Release);
-                self.write_bus.notify_state_changed();
+                self.write_bus.notify_readers();
                 Ok(0)
             }
             Invocation::Wait(WaitOp::One(signal)) => {
@@ -397,7 +439,7 @@ impl KernelObject for SocketEndpoint {
 impl Drop for SocketEndpoint {
     fn drop(&mut self) {
         self.write_bus.is_closed.store(true, Ordering::Release);
-        self.write_bus.notify_state_changed();
+        self.write_bus.notify_readable();
     }
 }
 

@@ -30,6 +30,17 @@ unsafe impl Send for Semaphore {}
 impl Semaphore {
     pub const fn new(counter: isize) -> Self { Self { counter: AtomicIsize::new(counter), wait_queue: TicketLock::new(WaitQueue::new()) } }
 
+    pub fn try_wait(&self) -> bool {
+        let mut counter = self.counter.load(Ordering::Relaxed);
+        while counter > 0 {
+            match self.counter.compare_exchange_weak(counter, counter - 1, Ordering::Acquire, Ordering::Relaxed) {
+                Ok(_) => return true,
+                Err(value) => counter = value,
+            }
+        }
+        false
+    }
+
     pub fn wait(&self) {
         let mut counter = self.counter.load(Ordering::Relaxed);
         loop {

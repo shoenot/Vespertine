@@ -40,10 +40,24 @@ static KBD_ITEMS_READY: Semaphore = Semaphore::new(0);
 
 pub fn push_scancode(scancode: u8) {
     unsafe {
-        let tail = KBD_BUFFER_TAIL.load(Ordering::Relaxed) % KBD_BUFFER_SIZE;
-        KBD_BUFFER[tail] = scancode;
-        KBD_BUFFER_TAIL.fetch_add(1, Ordering::Relaxed);
+        let head = KBD_BUFFER_HEAD.load(Ordering::Acquire);
+        let tail = KBD_BUFFER_TAIL.load(Ordering::Relaxed);
+        if tail.wrapping_sub(head) >= KBD_BUFFER_SIZE {
+            return;
+        }
+
+        KBD_BUFFER[tail % KBD_BUFFER_SIZE] = scancode;
+        KBD_BUFFER_TAIL.store(tail.wrapping_add(1), Ordering::Release);
         KBD_ITEMS_READY.signal();
+    }
+}
+
+fn pop_scancode() -> u8 {
+    unsafe {
+        let head = KBD_BUFFER_HEAD.load(Ordering::Relaxed);
+        let scancode = KBD_BUFFER[head % KBD_BUFFER_SIZE];
+        KBD_BUFFER_HEAD.store(head.wrapping_add(1), Ordering::Release);
+        scancode
     }
 }
 
@@ -96,81 +110,80 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
 
     loop {
         KBD_ITEMS_READY.wait();
+        let mut output = [0u8; KBD_BUFFER_SIZE * 2];
+        let mut output_len = 0;
 
-        let scancode = unsafe {
-            let head = KBD_BUFFER_HEAD.fetch_add(1, Ordering::Relaxed) % KBD_BUFFER_SIZE;
-            KBD_BUFFER[head]
-        };
+        loop {
+            let scancode = pop_scancode();
 
-        if scancode == 0xE0 {
-            is_extended = true;
-            continue;
-        }
+            if scancode == 0xE0 {
+                is_extended = true;
+            } else {
+                let is_release = (scancode & 0x80) != 0;
+                let key = (scancode & 0x7F) as usize;
 
-        let is_release = (scancode & 0x80) != 0;
-        let key = (scancode & 0x7F) as usize;
-
-        match key {
-            0x1D => ctrl_held = !is_release,
-            0x38 => alt_held = !is_release,
-            0x2A | 0x36 => shift_held = !is_release,
-            0x3A => {
-                if !is_release {
-                    caps_lock = !caps_lock;
+                match key {
+                    0x1D => ctrl_held = !is_release,
+                    0x38 => alt_held = !is_release,
+                    0x2A | 0x36 => shift_held = !is_release,
+                    0x3A if !is_release => caps_lock = !caps_lock,
+                    _ => {}
                 }
-            }
-            _ => {}
-        }
 
-        if !is_release && !matches!(key, 0x1D | 0x2A | 0x36 | 0x38 | 0x3A) {
-            let mut c = {
-                if shift_held {
-                    KBD_US_SHIFT[key]
-                } else if is_extended {
-                    KBD_US_EXTENDED[key]
-                } else {
-                    KBD_US_BASE[key]
+                if !is_release && !matches!(key, 0x1D | 0x2A | 0x36 | 0x38 | 0x3A) {
+                    let mut c = if shift_held {
+                        KBD_US_SHIFT[key]
+                    } else if is_extended {
+                        KBD_US_EXTENDED[key]
+                    } else {
+                        KBD_US_BASE[key]
+                    };
+
+                    if caps_lock && c.is_ascii_alphabetic() {
+                        c = if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() };
+                    }
+
+                    if ctrl_held {
+                        c = match c {
+                            '@' | ' ' => '\x00',
+                            'a'..='z' => ((c as u8 - b'a') + 1) as char,
+                            'A'..='Z' => ((c as u8 - b'A') + 1) as char,
+                            '[' => '\x1b',
+                            '\\' => '\x1c',
+                            ']' => '\x1d',
+                            '^' => '\x1e',
+                            '_' => '\x1f',
+                            '?' => '\x7f',
+                            _ => c,
+                        };
+                    }
+
+                    if alt_held && output_len < output.len() {
+                        output[output_len] = 0x1b;
+                        output_len += 1;
+                    }
+
+                    if c != '\0' {
+                        let mut byte_buffer = [0u8; 4];
+                        let bytes = c.encode_utf8(&mut byte_buffer).as_bytes();
+                        if output_len + bytes.len() <= output.len() {
+                            output[output_len..output_len + bytes.len()].copy_from_slice(bytes);
+                            output_len += bytes.len();
+                        }
+                    }
                 }
-            };
 
-            if caps_lock && c.is_ascii_alphabetic() {
-                if c.is_ascii_lowercase() {
-                    c = c.to_ascii_uppercase();
-                } else {
-                    c = c.to_ascii_lowercase();
-                }
+                is_extended = false;
             }
 
-            if ctrl_held {
-                c = match c {
-                    '@' | ' ' => '\x00',
-                    'a'..='z' => ((c as u8 - b'a') + 1) as char,
-                    'A'..='Z' => ((c as u8 - b'A') + 1) as char,
-                    '[' => '\x1b',
-                    '\\' => '\x1c',
-                    ']' => '\x1d',
-                    '^' => '\x1e',
-                    '_' => '\x1f',
-                    '?' => '\x7f',
-                    _ => c,
-                };
-            }
-
-            if alt_held {
-                let escape = [0x1b];
-                let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: escape.as_ptr() as usize, len: escape.len() });
-                let _ = handle_sys_invoke(chan_handle, write_op);
-            }
-
-            if c != '\0' {
-                let mut byte_buffer = [0u8; 4];
-                let byte_len = c.encode_utf8(&mut byte_buffer).len();
-
-                let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: byte_buffer.as_mut_ptr() as usize, len: byte_len });
-                let _ = handle_sys_invoke(chan_handle, write_op);
+            if !KBD_ITEMS_READY.try_wait() {
+                break;
             }
         }
 
-        is_extended = false;
+        if output_len > 0 {
+            let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: output.as_ptr() as usize, len: output_len });
+            let _ = handle_sys_invoke(chan_handle, write_op);
+        }
     }
 }
