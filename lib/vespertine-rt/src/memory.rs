@@ -1,82 +1,10 @@
 use core::{ptr::null_mut, sync::atomic::AtomicUsize};
 
-use crate::{
-    get_init_pkg,
-    syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_wait, sys_write},
-};
+use crate::syscall::{SysError, sys_close, sys_invoke};
 use vespertine_abi::{
-    HandleID, Invocation, MemManOp, MemPoolOp, ProcOp, Signal, VmoOp,
-    protocol::{BrokerRequest, BrokerResponse, MemoryRequest, ResourceResponse},
-    tag::{TAG_SYS_MEMMAN, TAG_SYS_RES_MAN},
+    HandleID, Invocation, MemPoolOp, ProcOp, VmoOp,
 };
 use vespertine_common::slab::PageProvider;
-
-pub fn get_memory_manager() -> Result<HandleID, SysError> {
-    // 1. Check if the MemoryManager is already in the extra handles (e.g. for hesper)
-    let pkg = get_init_pkg();
-    if !pkg.is_null() {
-        if let Some(grant) = unsafe { (*pkg).ext().iter().find(|g| g.tag == TAG_SYS_MEMMAN) } {
-            return Ok(grant.id);
-        }
-    }
-
-    let root = HandleID(0);
-    let sys_dir = sys_lookup(root, "System")?;
-    let srv_dir = sys_lookup(sys_dir, "Services")?;
-
-    // 2. Try to use the Resource Broker first
-    if let Ok(broker) = sys_lookup(srv_dir, "ResourceBroker") {
-        let conn_res = sys_invoke(
-            broker,
-            &Invocation::Broker(vespertine_abi::BrokerOp::Connect {
-                socket_to_give: HandleID(0),
-            }),
-        );
-        let _ = sys_close(broker);
-
-        if let Ok(conn_val) = conn_res {
-            let conn_sock = HandleID(conn_val);
-
-            // Query for the Memory Manager
-            let req = BrokerRequest {
-                tag: TAG_SYS_MEMMAN,
-            };
-            let req_ptr = &req as *const _ as *const u8;
-            let req_size = core::mem::size_of::<BrokerRequest>();
-
-            if sys_write(conn_sock, req_ptr, req_size, 0).is_ok() {
-                let mut resp = BrokerResponse { handle: 0 };
-                let resp_ptr = &mut resp as *mut _ as *mut u8;
-                let resp_size = core::mem::size_of::<BrokerResponse>();
-
-                if sys_read(conn_sock, resp_ptr, resp_size, 0).is_ok() && resp.handle != 0 {
-                    let _ = sys_close(conn_sock);
-                    let _ = sys_close(sys_dir);
-                    let _ = sys_close(srv_dir);
-                    return Ok(HandleID(resp.handle));
-                }
-            }
-            let _ = sys_close(conn_sock);
-        }
-    }
-
-    // 3. Fallback to direct path lookup
-    if let Ok(mem_man) = sys_lookup(srv_dir, "MemoryManager") {
-        let _ = sys_close(sys_dir);
-        let _ = sys_close(srv_dir);
-        return Ok(mem_man);
-    }
-
-    let _ = sys_close(sys_dir);
-    let _ = sys_close(srv_dir);
-    Err(SysError::InvalidHandle)
-}
-
-pub fn create_private_pool(mem_man: HandleID) -> Result<HandleID, SysError> {
-    let op = Invocation::MemoryManager(MemManOp::CreatePool { limit: 0 });
-    let pool_idx = sys_invoke(mem_man, &op)?;
-    Ok(HandleID(pool_idx))
-}
 
 pub struct UserPageProvider {
     pub mem_pool_handle: HandleID,
@@ -129,38 +57,13 @@ impl PageProvider for UserPageProvider {
                     return mapped_addr as *mut u8;
                 }
                 Err(SysError::PoolExhausted) => {
-                    let pkg = get_init_pkg();
-                    if pkg.is_null() {
-                        return null_mut();
-                    }
-                    let res_man = unsafe {
-                        match (*pkg).ext().iter().find(|g| g.tag == TAG_SYS_RES_MAN) {
-                            Some(r) => r,
-                            None => return null_mut(),
-                        }
-                    }
-                    .id;
-                    let mut req = MemoryRequest {
-                        requested_bytes: size,
-                        pool_handle: self.mem_pool_handle,
-                    };
-                    let req_ptr = &mut req as *mut _ as *mut u8;
-                    let req_size = size_of::<MemoryRequest>();
-                    sys_write(res_man, req_ptr, req_size, 0)
-                        .expect("Could not request more memory");
-
-                    sys_wait(res_man, Signal::READABLE).expect("Could not request more memory");
-
-                    let mut res = ResourceResponse { status: 0 };
-                    let res_ptr = &mut res as *mut _ as *mut u8;
-                    let res_size = size_of::<ResourceResponse>();
-                    sys_read(res_man, res_ptr, res_size, 0).expect("Could not request more memory");
-
-                    if res.status == 0 {
+                    let expansion = Invocation::MemPool(MemPoolOp::RequestExpansion {
+                        additional_bytes: size,
+                    });
+                    if sys_invoke(self.mem_pool_handle, &expansion).is_ok() {
                         continue;
-                    } else {
-                        return null_mut();
                     }
+                    return null_mut();
                 }
                 Err(_) => return null_mut(),
             }

@@ -19,7 +19,8 @@ use crate::core::thread::get_current_process;
 use crate::memory::vmo::Vmo;
 #[derive(Debug)]
 pub struct PoolState {
-    limit: Option<usize>,
+    limit: AtomicUsize,
+    maximum_limit: usize,
     allocated: AtomicUsize,
     parent: Option<Arc<PoolState>>,
 }
@@ -28,12 +29,11 @@ impl PoolState {
     pub fn try_allocate(&self, size: usize) -> Result<(), InvocationError> {
         let mut current = self.allocated.load(Ordering::Relaxed);
         loop {
-            if let Some(lim) = self.limit {
-                if current + size > lim {
-                    return Err(InvocationError::PoolExhausted);
-                }
+            let requested = current.checked_add(size).ok_or(InvocationError::PoolExhausted)?;
+            if requested > self.limit.load(Ordering::Acquire) {
+                return Err(InvocationError::PoolExhausted);
             }
-            match self.allocated.compare_exchange_weak(current, current + size, Ordering::SeqCst, Ordering::Relaxed) {
+            match self.allocated.compare_exchange_weak(current, requested, Ordering::SeqCst, Ordering::Relaxed) {
                 Ok(_) => break,                  // reservation success
                 Err(actual) => current = actual, // retry bc another thread beat this
             }
@@ -49,6 +49,25 @@ impl PoolState {
 
         Ok(())
     }
+
+    pub fn request_expansion(&self, additional_bytes: usize) -> Result<usize, InvocationError> {
+        if additional_bytes == 0 {
+            return Err(InvocationError::InvalidArgument);
+        }
+
+        let mut current_limit = self.limit.load(Ordering::Acquire);
+        loop {
+            let new_limit = current_limit.checked_add(additional_bytes).ok_or(InvocationError::AccessDenied)?;
+            if new_limit > self.maximum_limit {
+                return Err(InvocationError::AccessDenied);
+            }
+
+            match self.limit.compare_exchange_weak(current_limit, new_limit, Ordering::SeqCst, Ordering::Acquire) {
+                Ok(_) => return Ok(new_limit),
+                Err(actual) => current_limit = actual,
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -58,7 +77,20 @@ pub struct MemPool {
 
 impl MemPool {
     pub fn new(limit: Option<usize>, parent: Option<Arc<PoolState>>) -> Self {
-        Self { state: Arc::new(PoolState { limit, allocated: AtomicUsize::new(0), parent }) }
+        let limit = limit.unwrap_or(usize::MAX);
+        Self::new_expandable(limit, limit, parent)
+    }
+
+    pub fn new_expandable(initial_limit: usize, maximum_limit: usize, parent: Option<Arc<PoolState>>) -> Self {
+        assert!(initial_limit <= maximum_limit);
+        Self {
+            state: Arc::new(PoolState {
+                limit: AtomicUsize::new(initial_limit),
+                maximum_limit,
+                allocated: AtomicUsize::new(0),
+                parent,
+            }),
+        }
     }
 }
 
@@ -94,6 +126,13 @@ impl KernelObject for MemPool {
                 let handle = proc.proc_handles.write().insert(sub_pool, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
 
                 Ok(handle.0)
+            }
+            Invocation::MemPool(MemPoolOp::RequestExpansion { additional_bytes }) => {
+                if !calling_rights.contains(AccessRights::MUTATE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+
+                self.state.request_expansion(additional_bytes)
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }

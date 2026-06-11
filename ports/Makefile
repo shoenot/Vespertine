@@ -26,7 +26,7 @@ mlibc/build/build.ninja: mlibc/meson.build
 		--includedir=Headers \
 		--libdir=Libraries \
 		-Dlibgcc_dependency=false \
-		-Ddefault_library=both
+		-Ddefault_library=shared
 
 mlibc/meson.build:
 	if [ ! -d mlibc ]; then \

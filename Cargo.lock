@@ -70,6 +70,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dusk"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-rt",
+ "vespertine-std",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

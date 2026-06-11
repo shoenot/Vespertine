@@ -34,6 +34,7 @@ pub static VM_FLAG_HUGE: usize = 1 << 3;
 pub static VM_FLAG_GLOBAL: usize = 1 << 4;
 pub static VM_FLAG_CACHE_DISABLE: usize = 1 << 5;
 pub static VM_FLAG_WRITE_THROUGH: usize = 1 << 6;
+pub static VM_FLAG_NO_ACCESS: usize = 1 << 7;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
 static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;
@@ -643,7 +644,7 @@ impl VirtMemManager {
             let hwflags = convert_vm_flags(new_flags) as u64;
             {
                 let mut pager = self.pager.lock();
-                if needs_cow_reset {
+                if new_flags & VM_FLAG_NO_ACCESS != 0 || needs_cow_reset {
                     pager.unmap_page(virt, *HHDMOFFSET as u64, block_size);
                 } else {
                     pager.change_flags(virt, hwflags, *HHDMOFFSET as u64, block_size);
@@ -671,6 +672,10 @@ impl VirtMemManager {
         }
 
         let target_vma = target_vma_ptr.map(|ptr| unsafe { &*ptr }).ok_or(FaultError::InvalidAddress)?; // if vma not found that means segfault
+
+        if target_vma.flags & VM_FLAG_NO_ACCESS != 0 {
+            return Err(FaultError::AccessDenied);
+        }
 
         let is_write = (error_code & (1 << 1)) != 0;
         let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;

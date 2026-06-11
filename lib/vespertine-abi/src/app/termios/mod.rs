@@ -48,6 +48,7 @@ pub enum TermCommand {
     SetTermios(Termios),
     GetTermios,
     GetWindowSize,
+    GetCursorPosition,
 }
 
 #[repr(C)]

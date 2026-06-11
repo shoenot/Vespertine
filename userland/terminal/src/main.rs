@@ -7,14 +7,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::{TAG_APP_TERM, TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
+use vespertine_abi::tag::CAP_APP_TERMCTRL;
 use vespertine_abi::{
-    AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
+    AccessRights, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
 };
 use vespertine_rt::syscall::{
     sys_invoke, sys_read, sys_set_read_policy, sys_sleep, sys_write_bytes,
 };
 use vespertine_rt::thread as rt_thread;
+use vespertine_std::clock::{Clock, Time};
 use vespertine_std::fs::walk_path;
 use vespertine_std::log::SystemLog;
 use vespertine_std::socket::Socket;
@@ -84,23 +85,32 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     let kbd_handle = env::source();
 
-    log.write_string("Launching shell".into())?;
+    log.write_string("Launching dusk".into())?;
 
-    Exec::new("shell".into())
+    Exec::new("dusk".into())
         .source(app_stdin.handle())
         .sink(app_stdout.handle())
-        .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE)
-        .grant_new(app_ctrl.handle(), TAG_APP_TERM, AccessRights::all())?
+        .root_rights(
+            AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE,
+        )
+        .grant_new(
+            app_ctrl.handle(), 
+            CAP_APP_TERMCTRL, 
+            AccessRights::READ | AccessRights::WRITE,
+        )?
         .inherit_capabilities()
         .spawn()?;
 
     // Spawn the cursor blinker thread
-    let clock = walk_path("/System/Services/Clock", env::root())?;
     rt_thread::spawn(move || {
         let dummy = [1u8; 1];
         loop {
-            let _ = sys_sleep(500, clock);
-            let _ = sys_write_bytes(blink_write.handle(), &dummy);
+            if Time::sleep_ms(500).is_err() {
+                break;
+            }
+            if sys_write_bytes(blink_write.handle(), &dummy).is_err() {
+                break;
+            }
         }
     })
     .map_err(|_| Error {
@@ -318,6 +328,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         };
                         let _ =
                             ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
+                    },
+                    TermCommand::GetCursorPosition => {
+                        let cursor = (grid.cursor_y, grid.cursor_x);
+                        let _ = ctrl_term.send_packet::<(usize, usize)>(PacketType::TermCursorPos as u32, &cursor);
                     }
                 },
                 Err(_) => {}

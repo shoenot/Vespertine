@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 
+use alloc::sync::Arc;
 use async_trait::async_trait;
 use vespertine_abi::op::ClockOp;
 use vespertine_abi::{
@@ -41,3 +42,4 @@ impl KernelObject for Clock {
         }
     }
 }
+

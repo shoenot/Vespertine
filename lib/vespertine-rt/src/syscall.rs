@@ -1,8 +1,7 @@
 use core::arch::asm;
 
 use vespertine_abi::{
-    ClockOp, DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp,
-    WaitOp, tag::TAG_SYS_CLOCK,
+    ClockOp, DirectoryOp, FileOp, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp,
 };
 
 #[derive(Debug)]

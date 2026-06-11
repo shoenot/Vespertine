@@ -69,14 +69,14 @@ impl Invocation {
             Invocation::MemoryManager(MemManOp::CreatePool { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
+            Invocation::MemPool(MemPoolOp::RequestExpansion { .. }) => AccessRights::MUTATE,
             Invocation::Clock(ClockOp::GetTimestamp { .. }) => AccessRights::READ,
             Invocation::Clock(ClockOp::Sleep { .. }) => AccessRights::WRITE,
             Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
             Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
             Invocation::Socket(SocketOp::SetReadPolicy { .. }) => AccessRights::WRITE,
             Invocation::Wait(..) => AccessRights::READ,
-            Invocation::Broker(BrokerOp::Connect { .. }) => AccessRights::READ,
-            Invocation::Broker(BrokerOp::Accept) => AccessRights::READ,
+            Invocation::Broker(BrokerOp::Request { .. }) => AccessRights::READ,
         }
     }
 }
@@ -84,6 +84,10 @@ impl Invocation {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HandleID(pub usize);
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CapabilityID(pub usize);
 
 define_bitflags! {
     pub struct AccessRights(u8) {
@@ -112,10 +116,10 @@ pub struct ProcStatus {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct HandleGrant {
+pub struct CapabilityGrant {
     pub id: HandleID,
     pub rights: AccessRights,
-    pub tag: usize,
+    pub capability: CapabilityID,
 }
 
 #[repr(C)]
@@ -125,9 +129,10 @@ pub struct ProcessInitPackage {
     pub root_handle: HandleID,
     pub source_handle: HandleID,
     pub sink_handle: HandleID,
+    pub memory_pool_handle: HandleID,
 
-    pub extra_handles_ptr: *const HandleGrant,
-    pub extra_handles_len: usize,
+    pub capabilities_ptr: *const CapabilityGrant,
+    pub capabilities_len: usize,
 
     pub argc: usize,
     pub argv: *const *const u8,
@@ -135,8 +140,8 @@ pub struct ProcessInitPackage {
 }
 
 impl ProcessInitPackage {
-    pub fn ext(&self) -> &[HandleGrant] {
-        unsafe { slice::from_raw_parts(self.extra_handles_ptr, self.extra_handles_len) }
+    pub fn capabilities(&self) -> &[CapabilityGrant] {
+        unsafe { slice::from_raw_parts(self.capabilities_ptr, self.capabilities_len) }
     }
 }
 

@@ -3,13 +3,13 @@ use core::mem::forget;
 use vespertine_abi::{
     app::termios::*,
     protocol::{PacketType, VESPER_MAGIC},
-    tag::TAG_APP_TERM,
+    tag::CAP_APP_TERMCTRL,
 };
 
-use crate::{Error, ErrorKind, env::find_tag, socket::Socket};
+use crate::{Error, ErrorKind, env, socket::Socket};
 
 fn get_ctrl_sock() -> Result<Socket, Error> {
-    let term = find_tag(TAG_APP_TERM)
+    let term = env::capability(CAP_APP_TERMCTRL)
         .ok_or(Error {
             kind: ErrorKind::NotFound,
             message: "Terminal control socket not found".into(),
@@ -40,6 +40,14 @@ pub fn get_termsize() -> Result<(usize, usize), Error> {
     let (_, winsz) = sock.recv_packet::<(usize, usize)>()?;
     forget(sock);
     Ok(winsz)
+}
+
+pub fn get_term_cursor_position() -> Result<(usize, usize), Error> {
+    let sock = get_ctrl_sock()?;
+    sock.send_packet(PacketType::TermCommand as u32, &TermCommand::GetCursorPosition)?;
+    let (_, (row, column)) = sock.recv_packet::<(usize, usize)>()?;
+    forget(sock);
+    Ok((row, column))
 }
 
 pub fn set_raw_mode() -> Result<(), Error> {

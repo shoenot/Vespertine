@@ -1,18 +1,44 @@
 use vespertine_abi::{
-    AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, ProcStatus, tag::TAG_SYS_PROCMAN,
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcStatus, tag::CAP_PROCMAN
 };
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_rt::syscall::{sys_close, sys_invoke, sys_yield};
+use vespertine_rt::{once::OnceCell, syscall::{sys_close, sys_invoke, sys_yield}};
 
 use crate::{
-    Error,
-    ErrorKind::{self, NotFound},
-    env,
-    fs::Dir,
-    socket::Socket,
+    Error, ErrorKind, broker::Broker, env, fs::{Dir, walk_path}, socket::Socket
 };
+
+struct ProcManager {
+    handle: HandleID,
+}
+
+impl ProcManager {
+    pub fn request() -> Result<Self, Error> {
+        let broker_handle = walk_path("/System/Services/ProcManager", env::root()).map_err(Error::from)?;
+        let broker = Broker::from_handle(broker_handle);
+        let handle = broker.request(CAP_PROCMAN, AccessRights::CREATE | AccessRights::EXECUTE)?;
+        Ok(Self { handle })
+    }
+
+    pub fn spawn(&self, op: ProcManOp) -> Result<HandleID, Error> {
+        let result = sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
+        Ok(HandleID(result))
+    }
+}
+
+impl Drop for ProcManager {
+    fn drop(&mut self) {
+        let _ = sys_close(self.handle);
+    }
+}
+
+static PROC_MANAGER: OnceCell<ProcManager> = OnceCell::new();
+
+fn process_manager() -> Result<&'static ProcManager, Error> {
+    PROC_MANAGER.get_or_try_init(ProcManager::request)
+}
 
 #[allow(dead_code)]
 pub struct Process {
@@ -48,7 +74,7 @@ pub struct Exec {
     root: HandleID,
     source: HandleID,
     sink: HandleID,
-    extra_handles: Vec<HandleGrant>,
+    capabilities: Vec<CapabilityGrant>,
     root_rights: AccessRights,
 }
 
@@ -58,6 +84,7 @@ pub struct Exec {
 // Handle(1) = self handle
 // Handle(2) = source
 // Handle(3) = sink
+// Handle(4) = memory pool
 // --------------------------------------------------------//
 
 impl Exec {
@@ -70,7 +97,7 @@ impl Exec {
             root: env::root(),
             source: env::source(),
             sink: env::sink(),
-            extra_handles: Vec::new(),
+            capabilities: Vec::new(),
             root_rights: AccessRights::new(),
         }
     }
@@ -100,29 +127,27 @@ impl Exec {
         self
     }
 
-    pub fn grant(mut self, tag: usize, rights: AccessRights) -> Result<Self, Error> {
-        let handle = env::find_tag(tag)
-            .ok_or(Error {
-                kind: ErrorKind::NotFound,
-                message: "Must own handle to grant it".into(),
-            })?
-            .id;
-        self.grant_new(handle, tag, rights)
+    pub fn grant(self, capability: CapabilityID, rights: AccessRights) -> Result<Self, Error> {
+        let grant = env::capability(capability).ok_or(Error {
+            kind: ErrorKind::NotFound,
+            message: "Must own capability to grant it".into(),
+        })?;
+        self.grant_new(grant.id, capability, rights)
     }
 
     pub fn grant_new(
         mut self,
         id: HandleID,
-        tag: usize,
+        capability: CapabilityID,
         rights: AccessRights,
     ) -> Result<Self, Error> {
-        let grant = HandleGrant { id, tag, rights };
-        self.extra_handles.push(grant);
+        let grant = CapabilityGrant { id, capability, rights };
+        self.capabilities.push(grant);
         Ok(self)
     }
 
     pub fn inherit_capabilities(mut self) -> Self {
-        self.extra_handles.extend(env::extra_handles());
+        self.capabilities.extend(env::capabilities());
         self
     }
 
@@ -132,11 +157,6 @@ impl Exec {
     }
 
     pub fn spawn(self) -> Result<Process, Error> {
-        let pm = env::find_tag(TAG_SYS_PROCMAN).ok_or(Error {
-            kind: ErrorKind::AccessDenied,
-            message: "[ERROR] Process manager capability not found.".into(),
-        })?;
-
         let exec = Dir::from(env::root())
             .subdir("Programs")?
             .lookup(self.exec_name.as_str())?;
@@ -156,17 +176,14 @@ impl Exec {
             root_rights: self.root_rights,
             source: self.source,
             sink: self.sink,
-            extra_handles_ptr: self.extra_handles.as_ptr() as usize,
-            extra_handles_len: self.extra_handles.len(),
+            capabilities_ptr: self.capabilities.as_ptr() as usize,
+            capabilities_len: self.capabilities.len(),
             args_buffer_ptr: args_buf.as_ptr() as usize,
             args_buffer_len: args_buf.len(),
         };
 
-        let handle = sys_invoke(pm.id, &Invocation::ProcessManager(op)).map_err(Error::from)?;
-
-        Ok(Process {
-            handle: HandleID(handle),
-        })
+        let handle = process_manager()?.spawn(op)?;
+        Ok(Process { handle })
     }
 
     pub fn spawn_piped_source(self) -> Result<(Process, Socket), Error> {

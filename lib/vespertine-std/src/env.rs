@@ -2,7 +2,7 @@ use core::ffi::{CStr, c_char};
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::{HandleGrant, HandleID, ProcessInitPackage};
+use vespertine_abi::{CapabilityGrant, CapabilityID, HandleID, ProcessInitPackage};
 use vespertine_rt::get_init_pkg;
 
 extern crate alloc;
@@ -47,12 +47,13 @@ pub fn self_handle() -> HandleID {
     pkg().self_handle
 }
 
-pub fn extra_handles() -> &'static [HandleGrant] {
-    pkg().ext()
+pub fn capabilities() -> &'static [CapabilityGrant] {
+    pkg().capabilities()
 }
 
-pub fn find_tag(tag: usize) -> Option<&'static HandleGrant> {
-    let grants = extra_handles();
-    let ret = grants.iter().find(|g| g.tag == tag);
-    ret
+pub fn capability(capability: CapabilityID) -> Option<CapabilityGrant> {
+    capabilities()
+    .iter()
+    .copied()
+    .find(|g| g.capability == capability)
 }

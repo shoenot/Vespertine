@@ -7,9 +7,7 @@ use core::ptr::{
 };
 
 use vespertine_abi::{
-    AT_VESPERTINE_INITPKG,
-    HandleGrant,
-    ProcessInitPackage,
+    AT_VESPERTINE_INITPKG, CapabilityGrant, ProcessInitPackage
 };
 use vespertine_common::slab::NORMAL_PAGE_SIZE;
 
@@ -33,7 +31,7 @@ struct AuxEntry {
 
 impl ProcessEnvironment {
     pub fn inject(
-        stack_vmo: &Arc<Vmo>, stack_vaddr: usize, stack_size: usize, extra_handles: &[HandleGrant], args_buffer: &[u8], argc: usize,
+        stack_vmo: &Arc<Vmo>, stack_vaddr: usize, stack_size: usize, capabilities: &[CapabilityGrant], args_buffer: &[u8], argc: usize,
         mut initpkg: ProcessInitPackage, entry_point: usize, phdr_addr: usize, phnum: usize, base_addr: usize,
     ) -> Result<(usize, usize), InvocationError> {
         let top_page_offset = stack_size - NORMAL_PAGE_SIZE;
@@ -41,16 +39,16 @@ impl ProcessEnvironment {
 
         // calculate sizes
         let initpkg_size = size_of::<ProcessInitPackage>();
-        let handles_array_size = extra_handles.len() * size_of::<HandleGrant>();
+        let capabilities_array_size = capabilities.len() * size_of::<CapabilityGrant>();
         let argv_array_size = (argc + 1) * size_of::<*const u8>();
         let strings_size = args_buffer.len();
 
         // System V stack structure: argc (usize) + argv (pointers) + null + envp (pointers, none) + null + 7 aux entries
         let sysv_total_size = (1 + (argc + 1) + 1) * size_of::<usize>() + AUX_ENTRY_COUNT * size_of::<AuxEntry>();
 
-        // Pack top-down: sysv (lowest) -> pkg -> handles -> strings (highest)
+        // Pack top-down: sysv (lowest) -> pkg -> capabilities -> strings (highest)
         // This ensures RSP (at sysv) has the entire payload ABOVE it.
-        let total_payload_size = sysv_total_size + 16 + initpkg_size + 16 + handles_array_size + 16 + strings_size;
+        let total_payload_size = sysv_total_size + 16 + initpkg_size + 16 + capabilities_array_size + 16 + strings_size;
         if total_payload_size > NORMAL_PAGE_SIZE {
             return Err(InvocationError::OutOfMemory);
         }
@@ -59,21 +57,21 @@ impl ProcessEnvironment {
 
         let sysv_offset = base_offset;
         let pkg_offset = (sysv_offset + sysv_total_size + 15) & !0xF;
-        let handles_offset = (pkg_offset + initpkg_size + 15) & !0xF;
-        let strings_offset = (handles_offset + handles_array_size + 15) & !0xF;
+        let capabilities_offset = (pkg_offset + initpkg_size + 15) & !0xF;
+        let strings_offset = (capabilities_offset + capabilities_array_size + 15) & !0xF;
 
         // hhdm ptrs
         let hhdm_addr = phys_frame + *HHDMOFFSET;
 
         let strings_hhdm_ptr = (hhdm_addr + strings_offset) as *mut u8;
-        let handles_hhdm_ptr = (hhdm_addr + handles_offset) as *mut HandleGrant;
+        let capabilities_hhdm_ptr = (hhdm_addr + capabilities_offset) as *mut CapabilityGrant;
         let pkg_hhdm_ptr = (hhdm_addr + pkg_offset) as *mut ProcessInitPackage;
         let sysv_hhdm_ptr = (hhdm_addr + sysv_offset) as *mut u8;
 
         // virt addrs
         let base_vaddr = stack_vaddr + top_page_offset;
         let strings_vaddr = base_vaddr + strings_offset;
-        let handles_vaddr = base_vaddr + handles_offset;
+        let capabilities_vaddr = base_vaddr + capabilities_offset;
         let pkg_vaddr = base_vaddr + pkg_offset;
         let sysv_vaddr = base_vaddr + sysv_offset;
 
@@ -83,8 +81,8 @@ impl ProcessEnvironment {
                 copy_nonoverlapping(args_buffer.as_ptr(), strings_hhdm_ptr, strings_size);
             }
 
-            // build handle grants
-            copy_nonoverlapping(extra_handles.as_ptr(), handles_hhdm_ptr, extra_handles.len());
+            // build capability grants
+            copy_nonoverlapping(capabilities.as_ptr(), capabilities_hhdm_ptr, capabilities.len());
 
             // build argv pointers manually on the stack side
             let mut sysv_ptr = sysv_hhdm_ptr as *mut usize;
@@ -122,7 +120,7 @@ impl ProcessEnvironment {
             ptr::write(aux_ptr.add(7), AuxEntry { a_type: 0, a_val: 0 });
 
             // Write init package
-            initpkg.extra_handles_ptr = handles_vaddr as *const HandleGrant;
+            initpkg.capabilities_ptr = capabilities_vaddr as *const CapabilityGrant;
             initpkg.argc = argc;
             initpkg.argv = (sysv_vaddr + size_of::<usize>()) as *const *const u8;
             ptr::write(pkg_hhdm_ptr, initpkg);

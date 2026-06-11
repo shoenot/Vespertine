@@ -14,7 +14,7 @@ AS := nasm
 
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
-USER_PROGS := shell hesper ns terminal dt
+USER_PROGS := shell hesper ns terminal dt dusk
 
 PART_START    := 2048
 PART_SECTORS  := 128991

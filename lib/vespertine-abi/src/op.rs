@@ -157,8 +157,8 @@ pub enum ProcManOp {
         source: HandleID,
         sink: HandleID,
 
-        extra_handles_ptr: usize,
-        extra_handles_len: usize,
+        capabilities_ptr: usize,
+        capabilities_len: usize,
 
         args_buffer_ptr: usize,
         args_buffer_len: usize,
@@ -176,6 +176,7 @@ pub enum MemManOp {
 pub enum MemPoolOp {
     AllocateVmo { size: usize },
     CreateSubPool { limit: usize },
+    RequestExpansion { additional_bytes: usize },
 }
 
 #[repr(C)]
@@ -195,6 +196,8 @@ pub enum WaitOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum BrokerOp {
-    Connect { socket_to_give: HandleID },
-    Accept,
+    Request {
+        capability: CapabilityID,
+        requested_rights: AccessRights,
+    },
 }

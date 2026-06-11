@@ -3,18 +3,9 @@ use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 
 use vespertine_abi::op::ProcManOp;
-use vespertine_abi::tag::{
-    TAG_SYS_CLOCK,
-    TAG_SYS_LOGGER,
-    TAG_SYS_MEMMAN,
-    TAG_SYS_PROCMAN,
-    TAG_SYS_SOCKFAC,
-};
+use vespertine_abi::tag::{CAP_LOGGER, CAP_PROCMAN};
 use vespertine_abi::{
-    AccessRights,
-    HandleGrant,
-    HandleID,
-    Invocation,
+    AccessRights, BrokerOp, CapabilityGrant, HandleID, Invocation
 };
 
 use crate::arch::{
@@ -27,9 +18,7 @@ use crate::core::asynchronous::{
 };
 use crate::core::object::models::socket::init_ipc_pipeline;
 use crate::core::object::vfs::{
-    kernel_invoke,
-    kernel_register_obj,
-    kernel_walk,
+    kernel_close, kernel_invoke, kernel_register_obj, kernel_walk
 };
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
@@ -76,10 +65,27 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         tests::run_post_vfs_tests().await;
         klogln!("[ASYNC INIT] post vfs tests completed");
 
-        let pm_handle = kernel_walk("/System/Services/ProcessManager", HandleID(0)).await.expect("[FATAL] No Process Manager found");
-        let sf_handle = kernel_walk("/System/Services/SocketFactory", HandleID(0)).await.expect("[FATAL] No Socket Factory found");
-        let mm_handle = kernel_walk("/System/Services/MemoryManager", HandleID(0)).await.expect("[FATAL] No Memory Manager found");
-        let clk_handle = kernel_walk("/System/Services/Clock", HandleID(0)).await.expect("[FATAL] No Clock Service found");
+        let pm_broker_handle = kernel_walk(
+            "/System/Services/ProcManager",
+            HandleID(0),
+        )
+        .await
+        .expect("[FATAL] No Process Manager broker found");
+
+        let pm_handle = HandleID(
+            kernel_invoke(
+                pm_broker_handle,
+                Invocation::Broker(BrokerOp::Request {
+                    capability: CAP_PROCMAN,
+                    requested_rights: AccessRights::CREATE | AccessRights::EXECUTE,
+                }),
+            )
+            .await
+            .expect("[FATAL] Failed to request Process Manager capability"),
+        );
+        
+        let _ = kernel_close(pm_broker_handle);
+        
         let log_handle = kernel_walk("/System/Services/Log", HandleID(0)).await.expect("[FATAL] No Log Service found");
 
         // userspace init proc
@@ -92,13 +98,12 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let root_rights = AccessRights::all();
         let source = kbd_source_handle;
         let sink = screen_handle;
-        let extra_handles = [
-            HandleGrant { id: pm_handle, rights: AccessRights::all(), tag: TAG_SYS_PROCMAN },
-            HandleGrant { id: sf_handle, rights: AccessRights::all(), tag: TAG_SYS_SOCKFAC },
-            HandleGrant { id: mm_handle, rights: AccessRights::all(), tag: TAG_SYS_MEMMAN },
-            HandleGrant { id: clk_handle, rights: AccessRights::all(), tag: TAG_SYS_CLOCK },
-            HandleGrant { id: log_handle, rights: AccessRights::all(), tag: TAG_SYS_LOGGER },
-        ];
+
+        let capabilities = [CapabilityGrant {
+            id: log_handle,
+            rights: AccessRights::WRITE,
+            capability: CAP_LOGGER,
+        }];
 
         let spawn_op = ProcManOp::Spawn {
             exec_handle,
@@ -106,8 +111,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             root_rights,
             source,
             sink,
-            extra_handles_ptr: extra_handles.as_ptr() as usize,
-            extra_handles_len: extra_handles.len(),
+            capabilities_ptr: capabilities.as_ptr() as usize,
+            capabilities_len: capabilities.len(),
             args_buffer_ptr: 0,
             args_buffer_len: 0,
         };

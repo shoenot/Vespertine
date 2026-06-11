@@ -1,13 +1,13 @@
-use vespertine_abi::{HandleID, tag::TAG_SYS_LOGGER};
+use vespertine_abi::{HandleID, tag::CAP_LOGGER};
 use vespertine_rt::syscall::sys_write;
 
-use crate::{Error, ErrorKind, Write, env::find_tag};
+use crate::{Error, Write, env};
 
 pub struct SystemLog(HandleID);
 
 impl SystemLog {
     pub fn connect() -> Self {
-        let handle = find_tag(TAG_SYS_LOGGER).expect("Could not find logger").id;
+        let handle = env::capability(CAP_LOGGER).expect("Could not find logger").id;
         Self(handle)
     }
 }

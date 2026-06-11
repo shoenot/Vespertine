@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr::null;
@@ -6,16 +7,13 @@ use core::ptr::null;
 use async_trait::async_trait;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::{
-    AccessRights,
-    HandleGrant,
-    HandleID,
-    Invocation,
-    ProcessInitPackage,
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcessInitPackage
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::handle::HandleTable;
 use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::mempool::MemPool;
 use crate::core::object::models::process::ProcessControlBlock;
 use crate::core::object::obj::KernelObject;
 use crate::core::program::env::ProcessEnvironment;
@@ -29,6 +27,9 @@ use crate::memory::vmm::{
     VM_FLAG_WRITE,
 };
 use crate::memory::vmo::Vmo;
+
+pub const DEFAULT_PROCESS_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+pub const DEFAULT_PROCESS_MEMORY_MAXIMUM: usize = 1024 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct ProcessManager {}
@@ -45,8 +46,8 @@ impl KernelObject for ProcessManager {
                 root_rights,
                 source,
                 sink,
-                extra_handles_ptr,
-                extra_handles_len,
+                capabilities_ptr,
+                capabilities_len,
                 args_buffer_ptr,
                 args_buffer_len,
             }) => {
@@ -72,21 +73,38 @@ impl KernelObject for ProcessManager {
                     new_proc_table.insert_at(HandleID(3), sink_obj, AccessRights::WRITE);
                 }
 
+                // memory pool handle at 4
+                let mem_pool_obj = Arc::new(MemPool::new_expandable(
+                    DEFAULT_PROCESS_MEMORY_LIMIT,
+                    DEFAULT_PROCESS_MEMORY_MAXIMUM,
+                    None,
+                ));
+                new_proc_table.insert_at(
+                    HandleID(4),
+                    mem_pool_obj,
+                    AccessRights::WRITE | AccessRights::CREATE | AccessRights::MUTATE,
+                );
+
                 // keep executable file alive for page faults
                 if let Ok(exec_obj) = parent_proc.proc_handles.read().resolve(exec_handle, AccessRights::READ) {
                     new_proc_table.insert(exec_obj, AccessRights::READ);
                 }
 
                 // extract handles safely
-                let mut child_extra_handles = Vec::with_capacity(extra_handles_len);
+                let mut child_capabilities = Vec::with_capacity(capabilities_len);
 
-                if extra_handles_len > 0 {
+                if capabilities_len > 0 {
                     let mut parent_grants =
-                        vec![vespertine_abi::HandleGrant { id: HandleID(0), rights: AccessRights::new(), tag: 0 }; extra_handles_len];
+                        vec![CapabilityGrant { 
+                            id: HandleID(0), 
+                            rights: AccessRights::new(), 
+                            capability: CapabilityID(0) }; 
+                    capabilities_len];
+
                     let success = safe_copy_from(
                         parent_grants.as_mut_ptr() as *mut u8,
-                        extra_handles_ptr as *const u8,
-                        core::mem::size_of::<vespertine_abi::HandleGrant>() * extra_handles_len,
+                        capabilities_ptr as *const u8,
+                        size_of::<CapabilityGrant>() * capabilities_len,
                     );
 
                     if !success {
@@ -98,7 +116,7 @@ impl KernelObject for ProcessManager {
                         if let Ok(obj) = parent_proc.proc_handles.read().resolve(grant.id, grant.rights) {
                             // insert into child with attenuated rights
                             let chd = new_proc_table.insert(obj, grant.rights);
-                            child_extra_handles.push(HandleGrant { id: chd, rights: grant.rights, tag: grant.tag });
+                            child_capabilities.push(CapabilityGrant { id: chd, rights: grant.rights, capability: grant.capability });
                         } else {
                             return Err(InvocationError::InvalidHandle);
                         }
@@ -151,8 +169,11 @@ impl KernelObject for ProcessManager {
                     self_handle: HandleID(1),
                     source_handle: HandleID(2),
                     sink_handle: HandleID(3),
-                    extra_handles_ptr: null(), // inject method sets this, so initialize with null.
-                    extra_handles_len,
+                    memory_pool_handle: HandleID(4),
+
+                    capabilities_ptr: null(), // inject method sets this, so initialize with null.
+                    capabilities_len,
+
                     argc: 0,
                     argv: null(), // same as above
                     envp: null(),
@@ -164,7 +185,7 @@ impl KernelObject for ProcessManager {
                         &stack_vmo,
                         stack_addr,
                         stack_size,
-                        &child_extra_handles,
+                        &child_capabilities,
                         &args_buffer,
                         argc,
                         initpkg,

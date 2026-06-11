@@ -1,12 +1,13 @@
 use alloc::slice;
 use alloc::sync::Arc;
 
+use vespertine_abi::tag::{CAP_CLOCK, CAP_PROCMAN, CAP_SOCKFAC};
 use vespertine_abi::{
     AccessRights,
     HandleID,
 };
 
-use crate::core::object::models::brokerport::ResourceBrokerPort;
+use crate::core::object::models::broker::Broker;
 use crate::core::object::models::clock::Clock;
 use crate::core::object::models::directory::*;
 use crate::core::object::models::log::Log;
@@ -64,24 +65,26 @@ pub async fn init_vfs() {
     mount_kernel_dir("Logs", log_handle, sys_mount_handle).await;
 
     let proc_man = Arc::new(ProcessManager {});
-    let proc_man_handle = kernel_register_obj(proc_man, AccessRights::all());
-    mount_kernel_dir("ProcessManager", proc_man_handle, srv_handle).await;
+    let mut proc_man_broker = Broker::new();
+    proc_man_broker.publish(CAP_PROCMAN, proc_man, AccessRights::CREATE | AccessRights::EXECUTE);
+    let proc_man_broker_handle = kernel_register_obj(Arc::new(proc_man_broker), AccessRights::all());
+    mount_kernel_dir("ProcManager", proc_man_broker_handle, srv_handle).await;
 
     let mem_man = Arc::new(MemoryManager {});
     let mem_man_handle = kernel_register_obj(mem_man, AccessRights::all());
     mount_kernel_dir("MemoryManager", mem_man_handle, srv_handle).await;
 
     let clock = Arc::new(Clock {});
-    let clock_handle = kernel_register_obj(clock, AccessRights::all());
-    mount_kernel_dir("Clock", clock_handle, srv_handle).await;
+    let mut clock_broker = Broker::new();
+    clock_broker.publish(CAP_CLOCK, clock, AccessRights::READ | AccessRights::WRITE);
+    let clock_broker_handle = kernel_register_obj(Arc::new(clock_broker), AccessRights::READ);
+    mount_kernel_dir("Clock", clock_broker_handle, srv_handle).await;
 
     let socket_fac = Arc::new(SocketFactory {});
-    let socket_fac_handle = kernel_register_obj(socket_fac, AccessRights::all());
-    mount_kernel_dir("SocketFactory", socket_fac_handle, srv_handle).await;
-
-    let broker = Arc::new(ResourceBrokerPort::new());
-    let broker_handle = kernel_register_obj(broker, AccessRights::all());
-    mount_kernel_dir("ResourceBroker", broker_handle, srv_handle).await;
+    let mut sockfac_broker = Broker::new();
+    sockfac_broker.publish(CAP_SOCKFAC, socket_fac, AccessRights::CREATE);
+    let socket_broker_handle = kernel_register_obj(Arc::new(sockfac_broker), AccessRights::READ);
+    mount_kernel_dir("Socket", socket_broker_handle, srv_handle).await;
 
     let log_obj = Arc::new(Log {});
     let log_handle = kernel_register_obj(log_obj, AccessRights::WRITE);

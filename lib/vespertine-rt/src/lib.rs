@@ -6,6 +6,7 @@ pub mod sink;
 pub mod source;
 pub mod syscall;
 pub mod thread;
+pub mod once;
 
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -18,7 +19,7 @@ use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcessInitPackage, VmoOp}
 use vespertine_common::slab::SlabAllocator;
 
 use crate::{
-    memory::{UserPageProvider, create_private_pool, get_memory_manager},
+    memory::UserPageProvider,
     mutex::Mutex,
     syscall::{sys_close, sys_invoke},
 };
@@ -58,8 +59,10 @@ pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc {
 pub static mut MAIN_MEM_POOL: HandleID = HandleID(0);
 
 pub fn init_heap() {
-    let mem_man = get_memory_manager().expect("MemoryManger not found");
-    let pool = create_private_pool(mem_man).expect("Failed to create MemPool");
+    let pkg = get_init_pkg();
+    if pkg.is_null() { panic!("Missing process init package") };
+    let pool = unsafe { (*pkg).memory_pool_handle };
+
     unsafe {
         MAIN_MEM_POOL = pool;
     }

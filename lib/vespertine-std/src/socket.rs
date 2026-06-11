@@ -1,47 +1,69 @@
 use core::{mem::zeroed, slice};
 
 use vespertine_abi::{
-    HandleID, Signal,
-    protocol::{PacketFlags, PacketHeader, VESPER_MAGIC},
-    tag::TAG_SYS_SOCKFAC,
+    AccessRights, HandleID, Signal, protocol::{PacketFlags, PacketHeader, VESPER_MAGIC}, tag::{CAP_SOCKFAC}
 };
-use vespertine_rt::syscall::{
+use vespertine_rt::{once::OnceCell, syscall::{
     sys_close, sys_create_socket, sys_read, sys_set_nb, sys_wait, sys_write,
-};
+}};
+
+
+pub struct SocketFactory {
+    handle: HandleID,
+}
+
+impl SocketFactory {
+    pub fn request() -> Result<Self, Error> {
+        let broker_handle = walk_path("/System/Services/Socket", env::root()).map_err(Error::from)?;
+        let broker = Broker::from_handle(broker_handle);
+        let handle = broker.request(CAP_SOCKFAC, AccessRights::CREATE)?;
+        Ok(Self { handle })
+    }
+
+    pub fn new_pair(&self) -> Result<(Socket, Socket), Error> {
+        let (h1, h2) = sys_create_socket(self.handle).map_err(Error::from)?;
+        Ok((Socket(Some(h1)), Socket(Some(h2))))
+    }
+}
+
+impl Drop for SocketFactory {
+    fn drop(&mut self) {
+        let _ = sys_close(self.handle);
+    }
+}
 
 use crate::{
-    Error, ErrorKind, env,
-    io::{Read, Write},
+    Error, ErrorKind, broker::Broker, env, fs::walk_path, io::{Read, Write}
 };
 
-pub struct Socket(HandleID);
+static SOCKET_FACTORY: OnceCell<SocketFactory> = OnceCell::new();
+
+fn socket_factory() -> Result<&'static SocketFactory, Error> {
+    SOCKET_FACTORY.get_or_try_init(SocketFactory::request)
+}
+
+pub struct Socket(Option<HandleID>);
 
 impl Socket {
     pub fn new_pair() -> Result<(Socket, Socket), Error> {
-        let sf = env::find_tag(TAG_SYS_SOCKFAC)
-            .ok_or(Error {
-                kind: ErrorKind::NotFound,
-                message: "Socket Factory not found".into(),
-            })?
-            .id;
-        let (h1, h2) = sys_create_socket(sf).map_err(Error::from)?;
-        Ok((Socket(h1), Socket(h2)))
+        socket_factory()?.new_pair()
     }
 
     pub fn from_handle(handle: HandleID) -> Self {
-        Self(handle)
+        Self(Some(handle))
     }
+
     pub fn handle(&self) -> HandleID {
-        self.0
+        self.0.expect("Socket already closed")
     }
 
     pub fn set_nonblocking(&self, nb: bool) -> Result<(), Error> {
-        sys_set_nb(self.0, nb).map_err(Error::from)?;
+        sys_set_nb(self.handle(), nb).map_err(Error::from)?;
         Ok(())
     }
 
     pub fn wait(&self, signal: Signal) -> Result<(), Error> {
-        sys_wait(self.0, signal).map_err(Error::from)?;
+        sys_wait(self.handle(), signal).map_err(Error::from)?;
         Ok(())
     }
 
@@ -100,25 +122,29 @@ impl Socket {
         Ok((header, payload))
     }
 
-    pub fn close(&self) {
-        let _ = sys_close(self.0);
+    pub fn close(mut self) {
+        if let Some(handle) = self.0.take() {
+            let _ = sys_close(handle);
+        }
     }
 }
 
 impl Read for Socket {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        sys_read(self.0, buf.as_mut_ptr(), buf.len(), 0).map_err(Error::from)
+        sys_read(self.handle(), buf.as_mut_ptr(), buf.len(), 0).map_err(Error::from)
     }
 }
 
 impl Write for Socket {
     fn write(&self, buf: &[u8]) -> Result<usize, Error> {
-        sys_write(self.0, buf.as_ptr(), buf.len(), 0).map_err(Error::from)
+        sys_write(self.handle(), buf.as_ptr(), buf.len(), 0).map_err(Error::from)
     }
 }
 
 impl Drop for Socket {
     fn drop(&mut self) {
-        self.close();
+        if let Some(handle) = self.0.take() {
+            let _ = sys_close(handle);
+        }
     }
 }
