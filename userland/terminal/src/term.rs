@@ -6,7 +6,7 @@ use core::{
 use alloc::{format, vec::Vec};
 use vespertine_abi::HandleID;
 use vespertine_rt::syscall::sys_write_bytes;
-use vespertine_std::fb::Framebuffer;
+use vespertine_std::{Write, fb::Framebuffer, log::SystemLog};
 use vte::Perform;
 
 use vespertine_abi::app::termios::*;

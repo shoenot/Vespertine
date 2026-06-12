@@ -3,6 +3,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use vespertine_common::lock::TicketLock;
 use core::future::Future;
 use core::pin::Pin;
 use core::ptr::addr_of;
@@ -13,19 +14,13 @@ use core::sync::atomic::{
 };
 use core::task::{
     Context,
-    Poll,
+    Poll, Waker,
 };
 
 use async_trait::async_trait;
 use vespertine_abi::op::ProcOp;
 use vespertine_abi::{
-    AccessRights,
-    HandleID,
-    Invocation,
-    ProcStatus,
-    Signal,
-    WaitItem,
-    WaitOp,
+    AccessRights, HandleID, Invocation, ProcStatus, ProcessExitInfo, ProcessExitKind, Signal, WaitItem, WaitOp
 };
 
 use crate::arch::get_core_data;
@@ -33,16 +28,14 @@ use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
 };
-use crate::core::asynchronous::waiter::AsyncWaiter;
+use crate::core::asynchronous::waiter::{AsyncWaiter, WaiterList, wake_all};
 use crate::core::object::handle::HandleTable;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::socket::{
     SocketEndpoint,
-    matching_signals,
 };
 use crate::core::object::models::thread::Thread;
-use crate::core::object::obj::KernelObject;
-use crate::core::object::vfs::proc_cpy_handle;
+use crate::core::object::obj::{KernelObject, ObjectWaitFuture, matching_signals};
 use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
@@ -68,6 +61,8 @@ pub struct ProcessControlBlock {
     pub active_threads: AtomicUsize,
     pub is_terminated: AtomicBool,
     pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
+    pub completion_waiters: TicketLock<WaiterList>,
+    pub exit_info: RwLock<ProcessExitInfo>,
 }
 
 struct WaitManyFuture<'a> {
@@ -82,33 +77,24 @@ impl Drop for WaitManyFuture<'_> {
 }
 
 impl WaitManyFuture<'_> {
-    fn load_items_and_endpoints(&self) -> Result<(Vec<WaitItem>, Vec<Arc<SocketEndpoint>>), InvocationError> {
+    fn load_items_and_endpoints(&self) -> Result<(Vec<WaitItem>, Vec<Arc<dyn KernelObject>>), InvocationError> {
         let mut items = vec![WaitItem { handle: HandleID(0), signal: Signal(0), pending: Signal(0) }; self.count];
         if !safe_copy_from(items.as_mut_ptr() as *mut u8, self.items_ptr as *const u8, self.count * size_of::<WaitItem>()) {
             return Err(InvocationError::InvalidPointer);
         }
 
-        let mut endpoints = Vec::with_capacity(self.count);
+        let mut objects = Vec::with_capacity(self.count);
         let table = self.process.proc_handles.read();
         for item in &items {
-            let entry = table.resolve_entry(item.handle, AccessRights::READ)?;
-            if entry.object.type_name() != "Socket" {
-                return Err(InvocationError::UnsupportedOperation);
-            }
-            let endpoint = unsafe {
-                let raw_fat = Arc::into_raw(entry.object.clone());
-                let raw_thin = raw_fat as *const () as *const SocketEndpoint;
-                Arc::from_raw(raw_thin)
-            };
-            endpoints.push(endpoint);
+            objects.push(table.resolve(item.handle, AccessRights::READ)?);
         }
-        Ok((items, endpoints))
+        Ok((items, objects))
     }
 
-    fn refresh_and_copy(&self, items: &mut [WaitItem], endpoints: &[Arc<SocketEndpoint>]) -> Result<bool, InvocationError> {
+    fn refresh_and_copy(&self, items: &mut [WaitItem], objects: &[Arc<dyn KernelObject>]) -> Result<bool, InvocationError> {
         let mut any_ready = false;
-        for (item, endpoint) in items.iter_mut().zip(endpoints) {
-            item.pending = matching_signals(endpoint.current_signals(), item.signal);
+        for (item, object) in items.iter_mut().zip(objects) {
+            item.pending = matching_signals(object.current_signals(), item.signal);
             any_ready |= item.pending != Signal(0);
         }
         if any_ready && !safe_copy_to(self.items_ptr as *mut u8, items.as_ptr() as *const u8, self.count * size_of::<WaitItem>()) {
@@ -123,27 +109,24 @@ impl Future for WaitManyFuture<'_> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        let (mut items, endpoints) = match this.load_items_and_endpoints() {
+        let (mut items, objects) = match this.load_items_and_endpoints() {
             Ok(value) => value,
             Err(error) => return Poll::Ready(Err(error)),
         };
 
-        match this.refresh_and_copy(&mut items, &endpoints) {
+        match this.refresh_and_copy(&mut items, &objects) {
             Ok(true) => return Poll::Ready(Ok(0)),
             Ok(false) => {}
             Err(error) => return Poll::Ready(Err(error)),
         }
 
-        for (item, endpoint) in items.iter().zip(&endpoints) {
-            if item.signal.contains(Signal::READABLE) || item.signal.contains(Signal::PEER_CLOSED) {
-                endpoint.read_bus.inner.lock().readable_signal_waiters.register(&this.waiter, cx.waker());
-            }
-            if item.signal.contains(Signal::WRITABLE) {
-                endpoint.write_bus.inner.lock().writable_signal_waiters.register(&this.waiter, cx.waker());
+        for (item, object) in items.iter().zip(&objects) {
+            if let Err(error) = object.register_waiter(item.signal, &this.waiter, cx.waker()) {
+                return Poll::Ready(Err(error));
             }
         }
 
-        match this.refresh_and_copy(&mut items, &endpoints) {
+        match this.refresh_and_copy(&mut items, &objects) {
             Ok(true) => {
                 this.waiter.deactivate();
                 Poll::Ready(Ok(0))
@@ -166,6 +149,8 @@ impl ProcessControlBlock {
             active_threads: AtomicUsize::new(0),
             is_terminated: AtomicBool::new(false),
             futexes: RwLock::new(BTreeMap::new()),
+            completion_waiters: TicketLock::new(WaiterList::new()),
+            exit_info: RwLock::new(ProcessExitInfo::running()),
         })
     }
 
@@ -180,6 +165,42 @@ impl ProcessControlBlock {
         safe_copy_to(ptr as *mut u8, src_ptr, size_of::<ProcStatus>());
         Ok(0)
     }
+
+
+    pub fn complete(&self, exit_info: ProcessExitInfo) -> bool {
+        {
+            let mut stored = self.exit_info.write();
+    
+            if stored.kind != ProcessExitKind::Running {
+                return false;
+            }
+    
+            *stored = exit_info;
+        }
+    
+        self.is_terminated.store(true, Ordering::Release);
+        self.proc_handles.write().clear();
+    
+        let wakers = self.completion_waiters.lock().take_wakers();
+        wake_all(wakers);
+    
+        true
+    }
+
+
+    pub fn get_exit_info(&self, ptr: *mut ProcessExitInfo) -> Result<usize, InvocationError> {
+        let exit_info = *self.exit_info.read();
+
+        if !safe_copy_to(
+            ptr as *mut u8, 
+            &exit_info as *const ProcessExitInfo as *const u8, 
+            size_of::<ProcessExitInfo>()
+        ) {
+            return Err(InvocationError::InvalidPointer);
+        }
+
+        Ok(0)
+    }
 }
 
 #[async_trait]
@@ -189,11 +210,11 @@ impl KernelObject for ProcessControlBlock {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Proc(ProcOp::Kill) => {
-                self.is_terminated.store(true, Ordering::SeqCst);
-                self.proc_handles.write().clear();
+                self.complete(ProcessExitInfo::killed(0));
                 Ok(0)
             }
             Invocation::Proc(ProcOp::GetStatus { status_ptr }) => self.status(status_ptr as *mut ProcStatus),
+            Invocation::Proc(ProcOp::GetExitInfo { info_ptr }) => self.get_exit_info(info_ptr as *mut ProcessExitInfo),
             Invocation::Proc(ProcOp::Unmap { vaddr, len }) => {
                 self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
             }
@@ -205,6 +226,9 @@ impl KernelObject for ProcessControlBlock {
                 let id = self.proc_handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
             }
+            Invocation::Wait(WaitOp::One(signal)) => {
+                ObjectWaitFuture::new(self, signal).await
+            },
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
@@ -236,5 +260,19 @@ impl KernelObject for ProcessControlBlock {
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+
+    fn current_signals(&self) -> Signal {
+        if self.is_terminated.load(Ordering::Acquire) { Signal::TERMINATED }
+        else { Signal(0) }
+    }
+
+    fn register_waiter(&self, requested: Signal, waiter: &Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
+        if requested != Signal::TERMINATED { 
+            return Err(InvocationError::UnsupportedOperation);
+        }
+
+        self.completion_waiters.lock().register(waiter, waker);
+        Ok(())
     }
 }

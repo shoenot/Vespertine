@@ -266,16 +266,16 @@ fn run_command(context: &mut ShellContext, cmd: CommandNode) {
     match cmd {
         CommandNode::Run { exec, args } => {
             launch_command(exec.as_str(), &args);
-        }
+        },
         CommandNode::Echo { args } => {
             for arg in args {
                 print!("{}", arg);
                 println!("")
             }
-        }
+        },
         CommandNode::ChangeDir { path } => {
             context.update_cwd(path);
-        }
-        CommandNode::NoOp => {}
+        },
+        CommandNode::NoOp => {},
     }
 }

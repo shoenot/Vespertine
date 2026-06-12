@@ -115,6 +115,9 @@ pub enum ProcOp {
     GetStatus {
         status_ptr: usize,
     },
+    GetExitInfo {
+        info_ptr: usize,
+    },
     Unmap {
         vaddr: usize,
         len: usize,

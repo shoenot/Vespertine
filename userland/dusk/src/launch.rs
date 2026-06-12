@@ -1,15 +1,18 @@
 use alloc::string::String;
 use vespertine_abi::{AccessRights, tag::CAP_APP_TERMCTRL};
 use vespertine_rt::println;
-use vespertine_std::{Error, ErrorKind, Exec, env, term::unset_raw_mode};
+use vespertine_std::{Error, ErrorKind, Exec, env, term::{check_raw_mode, clear_term_screen, unset_raw_mode}};
+
+use crate::lexer::ShellError;
 
 pub fn launch_command(name: &str, args: &[String]) {
     let res = build_exec(name, args).and_then(Exec::spawn);
 
     match res {
         Ok(proc) => {
-            if let Err(error) = proc.wait() {
-                println!("[ERROR] {}: {:?}", name, error);
+            match proc.wait() {
+                Ok(exit) => println!("Process exited: {:?}", exit),
+                Err(error) => println!("[ERROR] {}: {:?}", name, error),
             }
         }
         Err(error) if error.kind == ErrorKind::NotFound => {

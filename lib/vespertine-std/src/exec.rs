@@ -1,5 +1,5 @@
 use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcStatus, tag::CAP_PROCMAN
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp, ProcStatus, ProcessExitInfo, ProcessExitKind, Signal, WaitOp, tag::CAP_PROCMAN
 };
 extern crate alloc;
 use alloc::string::String;
@@ -46,25 +46,24 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn wait(&self) -> Result<(), Error> {
-        loop {
-            let mut status = ProcStatus {
-                pid: 0,
-                active_threads: 0,
-                is_terminated: false,
-                memory_usage: 0,
-            };
-            let op = vespertine_abi::ProcOp::GetStatus {
-                status_ptr: &mut status as *mut _ as usize,
-            };
-            let res = sys_invoke(self.handle, &Invocation::Proc(op));
-            if res.is_err() || status.is_terminated {
-                break;
-            }
-            // Let the child run without depending on the async timer path.
-            sys_yield();
-        }
-        Ok(())
+    pub fn wait(&self) -> Result<ProcessExitInfo, Error> {
+        sys_invoke(
+            self.handle,
+            &Invocation::Wait(WaitOp::One(Signal::TERMINATED)),
+        )
+        .map_err(Error::from)?;
+    
+        let mut info = ProcessExitInfo::running();
+    
+        sys_invoke(
+            self.handle,
+            &Invocation::Proc(ProcOp::GetExitInfo {
+                info_ptr: &mut info as *mut _ as usize,
+            }),
+        )
+        .map_err(Error::from)?;
+    
+        Ok(info)
     }
 }
 

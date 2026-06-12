@@ -106,15 +106,13 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
     }
 }
 
-pub fn sys_terminate() {
+pub fn sys_terminate(exit_code: u32) -> ! {
     unsafe {
         asm!(
             "mov rax, 2",
             "syscall",
-            out("rdx") _,   // clobbered
-            out("rcx") _,   // clobbered
-            out("r11") _,   // clobbered
-            options(nomem, nostack),
+            in("rdi") exit_code as usize,
+            options(noreturn),
         );
     }
 }

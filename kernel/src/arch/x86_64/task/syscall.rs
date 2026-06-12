@@ -220,7 +220,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 Err(e) => Err(e),
             },
             2 => {
-                terminate_thread!();
+                terminate_thread!((*frame).rdi as u32);
             }
             3 => {
                 get_core_data().scheduler.schedule(ScheduleReason::Yield);

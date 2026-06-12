@@ -7,6 +7,7 @@ pub enum ShellError {
     InvalidToken,
     ExpectedToken,
     NoCursorPosition,
+    TerminalError,
 }
 
 impl Display for ShellError {
@@ -14,6 +15,7 @@ impl Display for ShellError {
         match self {
             ShellError::InvalidToken => write!(f, "Shell Error: invalid token"),
             ShellError::ExpectedToken => write!(f, "Shell Error: expected appropriate token"),
+            ShellError::TerminalError => write!(f, "Shell Error: terminal error"),
             ShellError::NoCursorPosition => {
                 write!(f, "Shell Error: failure to get cursor position")
             }

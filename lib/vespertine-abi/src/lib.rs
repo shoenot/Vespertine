@@ -57,6 +57,7 @@ impl Invocation {
             Invocation::Vmo(VmoOp::MapIntoProc { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::Kill) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::GetStatus { .. }) => AccessRights::READ,
+            Invocation::Proc(ProcOp::GetExitInfo { .. }) => AccessRights::READ,
             Invocation::Proc(ProcOp::Unmap { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::SpawnThread { .. }) => AccessRights::CREATE,
             Invocation::Proc(ProcOp::SetFsBase { .. }) => AccessRights::WRITE,
@@ -104,6 +105,7 @@ define_bitflags! {
         READABLE    = 1 << 0;
         WRITABLE    = 1 << 1;
         PEER_CLOSED = 1 << 2;
+        TERMINATED  = 1 << 3;
     }
 }
 
@@ -144,6 +146,39 @@ impl ProcessInitPackage {
         unsafe { slice::from_raw_parts(self.capabilities_ptr, self.capabilities_len) }
     }
 }
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessExitKind {
+    Running = 0,
+    Exited = 1,
+    Killed = 2,
+    Faulted = 3,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessExitInfo {
+    pub kind: ProcessExitKind,
+    pub code: u32,
+    pub detail: u64,
+}
+
+impl ProcessExitInfo {
+    pub const fn running() -> Self {
+        Self { kind: ProcessExitKind::Running, code: 0, detail: 0 }
+    }
+
+    pub const fn exited(code: u32) -> Self {
+        Self { kind: ProcessExitKind::Exited, code, detail: 0 }
+    }
+
+    pub const fn killed(reason: u32) -> Self {
+        Self { kind: ProcessExitKind::Killed, code: reason, detail: 0 }
+    }
+    
+}
+
 
 #[repr(C)]
 #[derive(Debug, Clone)]

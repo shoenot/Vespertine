@@ -7,6 +7,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use vespertine_abi::{HandleID, Invocation, ProcOp};
 
+use crate::syscall::sys_terminate;
 use crate::{
     get_init_pkg,
     syscall::{SysError, sys_invoke, sys_mmap},
@@ -25,9 +26,7 @@ extern "sysv64" fn thread_trampoline(arg: usize) -> ! {
     (args.func)();
     args.done.store(true, Ordering::Release);
 
-    unsafe {
-        asm!("mov rax, 2", "syscall", options(noreturn),);
-    }
+    sys_terminate(0);
 }
 
 // Public side

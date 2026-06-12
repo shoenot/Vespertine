@@ -41,6 +41,7 @@ use crate::{
     KERNEL_PROCESS,
     impl_queue_methods,
 };
+use vespertine_abi::ProcessExitInfo;
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
 
@@ -358,13 +359,13 @@ impl SchedulerState {
         self.schedule(ScheduleReason::Blocked);
     }
 
-    pub fn terminate(&mut self) {
+    pub fn terminate(&mut self, exit_code: u32) {
         unsafe {
             let proc = &(*self.current_thread).process;
             let active = proc.active_threads.fetch_sub(1, core::sync::atomic::Ordering::SeqCst);
+
             if active == 1 {
-                proc.is_terminated.store(true, core::sync::atomic::Ordering::SeqCst);
-                proc.proc_handles.write().clear();
+                proc.complete(ProcessExitInfo::exited(exit_code));
             }
 
             disable_interrupts();

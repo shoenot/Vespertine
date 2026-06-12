@@ -313,8 +313,14 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                         let timeout_ds = if canonical { 0 } else { t.c_cc[VTIME] as usize };
 
+                        let current_is_raw = grid.termios != Termios::default();
+                        let new_is_default = t == Termios::default();
+
                         grid.apply_termios(t);
                         let _ = sys_set_read_policy(term_stdin.handle(), min, timeout_ds);
+                        if current_is_raw && new_is_default {
+                            grid.clear_screen();
+                        }
                     }
                     TermCommand::GetTermios => {
                         let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);
@@ -332,7 +338,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     TermCommand::GetCursorPosition => {
                         let cursor = (grid.cursor_y, grid.cursor_x);
                         let _ = ctrl_term.send_packet::<(usize, usize)>(PacketType::TermCursorPos as u32, &cursor);
-                    }
+                    },
+                    TermCommand::Clear => {
+                        grid.clear_screen();
+                    },
                 },
                 Err(_) => {}
             }

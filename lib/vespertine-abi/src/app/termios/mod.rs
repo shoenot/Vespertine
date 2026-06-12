@@ -2,7 +2,7 @@ mod bits;
 pub use bits::*;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Termios {
     pub c_iflag: u32,
     pub c_oflag: u32,
@@ -49,6 +49,7 @@ pub enum TermCommand {
     GetTermios,
     GetWindowSize,
     GetCursorPosition,
+    Clear,
 }
 
 #[repr(C)]

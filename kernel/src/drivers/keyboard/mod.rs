@@ -129,46 +129,67 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                     0x3A if !is_release => caps_lock = !caps_lock,
                     _ => {}
                 }
-
+                let mut handled_sequence = false;
                 if !is_release && !matches!(key, 0x1D | 0x2A | 0x36 | 0x38 | 0x3A) {
-                    let mut c = if shift_held {
-                        KBD_US_SHIFT[key]
-                    } else if is_extended {
-                        KBD_US_EXTENDED[key]
-                    } else {
-                        KBD_US_BASE[key]
-                    };
-
-                    if caps_lock && c.is_ascii_alphabetic() {
-                        c = if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() };
-                    }
-
-                    if ctrl_held {
-                        c = match c {
-                            '@' | ' ' => '\x00',
-                            'a'..='z' => ((c as u8 - b'a') + 1) as char,
-                            'A'..='Z' => ((c as u8 - b'A') + 1) as char,
-                            '[' => '\x1b',
-                            '\\' => '\x1c',
-                            ']' => '\x1d',
-                            '^' => '\x1e',
-                            '_' => '\x1f',
-                            '?' => '\x7f',
-                            _ => c,
+                    if is_extended {
+                        let sequence: &[u8] = match key {
+                            0x48 => b"\x1b[A", // Up
+                            0x50 => b"\x1b[B", // Down
+                            0x4D => b"\x1b[C", // Right
+                            0x4B => b"\x1b[D", // Left
+                            _ => &[],
                         };
+
+                        if !sequence.is_empty() {
+                            if output_len + sequence.len() <= output.len() {
+                                output[output_len..output_len + sequence.len()]
+                                    .copy_from_slice(sequence);
+                                output_len += sequence.len();
+                            }
+                            handled_sequence = true;
+                        }
                     }
 
-                    if alt_held && output_len < output.len() {
-                        output[output_len] = 0x1b;
-                        output_len += 1;
-                    }
+                    if !handled_sequence {
+                        let mut c = if shift_held {
+                            KBD_US_SHIFT[key]
+                        } else if is_extended {
+                            KBD_US_EXTENDED[key]
+                        } else {
+                            KBD_US_BASE[key]
+                        };
 
-                    if c != '\0' {
-                        let mut byte_buffer = [0u8; 4];
-                        let bytes = c.encode_utf8(&mut byte_buffer).as_bytes();
-                        if output_len + bytes.len() <= output.len() {
-                            output[output_len..output_len + bytes.len()].copy_from_slice(bytes);
-                            output_len += bytes.len();
+                        if caps_lock && c.is_ascii_alphabetic() {
+                            c = if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() };
+                        }
+
+                        if ctrl_held {
+                            c = match c {
+                                '@' | ' ' => '\x00',
+                                'a'..='z' => ((c as u8 - b'a') + 1) as char,
+                                'A'..='Z' => ((c as u8 - b'A') + 1) as char,
+                                '[' => '\x1b',
+                                '\\' => '\x1c',
+                                ']' => '\x1d',
+                                '^' => '\x1e',
+                                '_' => '\x1f',
+                                '?' => '\x7f',
+                                _ => c,
+                            };
+                        }
+
+                        if alt_held && output_len < output.len() {
+                            output[output_len] = 0x1b;
+                            output_len += 1;
+                        }
+
+                        if c != '\0' {
+                            let mut byte_buffer = [0u8; 4];
+                            let bytes = c.encode_utf8(&mut byte_buffer).as_bytes();
+                            if output_len + bytes.len() <= output.len() {
+                                output[output_len..output_len + bytes.len()].copy_from_slice(bytes);
+                                output_len += bytes.len();
+                            }
                         }
                     }
                 }

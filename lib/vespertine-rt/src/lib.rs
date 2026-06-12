@@ -21,7 +21,7 @@ use vespertine_common::slab::SlabAllocator;
 use crate::{
     memory::UserPageProvider,
     mutex::Mutex,
-    syscall::{sys_close, sys_invoke},
+    syscall::{sys_close, sys_invoke, sys_terminate},
 };
 
 pub const ARENA_SIZE: usize = 1024 * 64; // pre allocate 64kb per init heap
@@ -111,13 +111,7 @@ pub extern "sysv64" fn _start(initpkg_ptr: *const ProcessInitPackage) -> ! {
         main(initpkg_ptr);
     }
 
-    unsafe {
-        asm!(
-            "mov rax, 2", // syscall 2 (terminate)
-            "syscall",
-            options(noreturn)
-        );
-    }
+    sys_terminate(0);
 }
 
 unsafe extern "sysv64" {

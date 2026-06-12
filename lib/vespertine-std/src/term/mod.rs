@@ -50,6 +50,12 @@ pub fn get_term_cursor_position() -> Result<(usize, usize), Error> {
     Ok((row, column))
 }
 
+pub fn clear_term_screen() -> Result<(), Error> {
+    let sock = get_ctrl_sock()?;
+    sock.send_packet(PacketType::TermCommand as u32, &TermCommand::Clear)?;
+    Ok(())
+}
+
 pub fn set_raw_mode() -> Result<(), Error> {
     let mut t = get_terminfo()?;
     t.c_iflag &= !(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
@@ -60,7 +66,14 @@ pub fn set_raw_mode() -> Result<(), Error> {
     set_terminfo(t)
 }
 
+pub fn check_raw_mode() -> Result<bool, Error> {
+    let def = Termios::default();
+    let t = get_terminfo()?;
+    if t != def { return Ok(true) } else { return Ok(false) };
+}
+
 pub fn unset_raw_mode() -> Result<(), Error> {
     let t = Termios::default();
-    set_terminfo(t)
+    set_terminfo(t)?;
+    Ok(())
 }

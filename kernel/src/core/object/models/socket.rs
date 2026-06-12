@@ -11,7 +11,7 @@ use core::sync::atomic::{
 };
 use core::task::{
     Context,
-    Poll,
+    Poll, Waker,
 };
 
 use async_trait::async_trait;
@@ -41,7 +41,7 @@ use crate::core::asynchronous::waiter::{
     wake_all,
 };
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::KernelObject;
+use crate::core::object::obj::{KernelObject, ObjectWaitFuture, matching_signals};
 use crate::core::sync::Mutex;
 
 #[path = "socket_tests.rs"]
@@ -316,16 +316,6 @@ struct SocketWriteFuture<'a> {
     waiter: Arc<AsyncWaiter>,
 }
 
-pub(crate) fn matching_signals(current: Signal, requested: Signal) -> Signal {
-    let mut matched = Signal(0);
-    for signal in [Signal::READABLE, Signal::WRITABLE, Signal::PEER_CLOSED] {
-        if current.contains(signal) && requested.contains(signal) {
-            matched = matched | signal;
-        }
-    }
-    matched
-}
-
 struct SocketWaitFuture<'a> {
     endpoint: &'a SocketEndpoint,
     requested: Signal,
@@ -422,10 +412,7 @@ impl KernelObject for SocketEndpoint {
                 Ok(0)
             }
             Invocation::Wait(WaitOp::One(signal)) => {
-                if !calling_rights.contains(AccessRights::READ) {
-                    return Err(InvocationError::AccessDenied);
-                }
-                SocketWaitFuture { endpoint: self, requested: signal, waiter: AsyncWaiter::new() }.await
+                ObjectWaitFuture::new(self, signal).await
             }
             Invocation::Wait(WaitOp::Many { items_ptr: _, count: _ }) => {
                 // invoke through ProcessControlBlock::invoke, not here manually
@@ -433,6 +420,25 @@ impl KernelObject for SocketEndpoint {
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+
+    fn current_signals(&self) -> Signal { SocketEndpoint::current_signals(self) }
+
+    fn register_waiter(&self, requested: Signal, waiter: &Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
+        let supported = Signal::READABLE | Signal::WRITABLE | Signal::PEER_CLOSED;
+        if requested != (requested & supported) {
+            return Err(InvocationError::UnsupportedOperation)
+        }
+
+        if requested.contains(Signal::READABLE) || requested.contains(Signal::PEER_CLOSED) {
+            self.read_bus.inner.lock().readable_signal_waiters.register(waiter, waker);
+        }
+
+        if requested.contains(Signal::WRITABLE) {
+            self.write_bus.inner.lock().writable_signal_waiters.register(waiter, waker);
+        }
+
+        Ok(())
     }
 }
 
