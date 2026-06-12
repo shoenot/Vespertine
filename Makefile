@@ -39,7 +39,7 @@ userland:
 	$(MAKE) -C userland
 
 .PHONY: run
-run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
+run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso target/disk.img
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -52,7 +52,7 @@ run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).
 		-serial stdio 
 
 .PHONY: run-debug
-run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
+run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso target/disk.img
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -76,6 +76,7 @@ target/disk.img:
 	echo "[INFO] Creating new target/disk.img"
 	dd if=/dev/zero of=target/disk.img bs=1M count=64 status=none
 	sgdisk -n 1:$(PART_START):$$(($(PART_START) + $(PART_SECTORS) - 1)) -t 1:8300 target/disk.img > /dev/null
+	$(MAKE) update-disk
 
 .PHONY: update-disk
 update-disk: userland ports target/disk.img
@@ -100,7 +101,7 @@ sync-from-disk:
 	echo "[SUCCESS] target/build_deps/disk/ updated from target/disk.img."
 
 # ISO Creation (Hybrid BIOS/UEFI)
-target/build/$(IMAGE_NAME).iso: target/build_deps/limine/limine kernel update-disk
+target/build/$(IMAGE_NAME).iso: target/build_deps/limine/limine kernel
 	mkdir -p target/build
 	rm -rf iso_root
 	mkdir -p iso_root/boot/limine
@@ -123,6 +124,40 @@ target/build/$(IMAGE_NAME).iso: target/build_deps/limine/limine kernel update-di
 	
 	./target/build_deps/limine/limine bios-install target/build/$(IMAGE_NAME).iso
 	rm -rf iso_root
+
+.PHONY: copy-out
+copy-out:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make copy-out FILE=path/to/file [OUT=path/on/host]"; \
+		exit 1; \
+	fi
+	mkdir -p target/build
+	dd if=target/disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
+	debugfs -R "dump $(FILE) $(or $(OUT),$(notdir $(FILE)))" target/build/partition.img 2>/dev/null || echo "[ERROR] Failed to copy $(FILE) out of image"
+	rm -f target/build/partition.img
+
+.PHONY: sync-to-assets
+sync-to-assets: sync-from-disk
+	echo "[INFO] Syncing persistent changes back to assets/disk/"
+	rsync -av --exclude='/Programs' --exclude='/System' target/build_deps/disk/ assets/disk/
+
+.PHONY: update-programs
+update-programs: userland ports
+	@if [ ! -f target/disk.img ]; then \
+		echo "[ERROR] target/disk.img does not exist. Run 'make update-disk' first."; \
+		exit 1; \
+	fi
+	echo "[INFO] Updating Programs folder inside target/disk.img"
+	mkdir -p target/build
+	dd if=target/disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
+	for prog in $$(ls target/build_deps/disk/Programs); do \
+		echo "  Updating $$prog..."; \
+		debugfs -w -R "rm /Programs/$$prog" target/build/partition.img 2>/dev/null || true; \
+		debugfs -w -R "write target/build_deps/disk/Programs/$$prog /Programs/$$prog" target/build/partition.img 2>/dev/null || true; \
+	done
+	dd if=target/build/partition.img of=target/disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
+	rm -f target/build/partition.img
+	echo "[SUCCESS] Programs folder in target/disk.img updated."
 
 
 # External Dependencies (Limine and OVMF)

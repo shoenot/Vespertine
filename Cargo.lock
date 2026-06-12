@@ -213,15 +213,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shell"
-version = "0.1.0"
-dependencies = [
- "vespertine-abi",
- "vespertine-rt",
- "vespertine-std",
-]
-
-[[package]]
 name = "simple-psf"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
