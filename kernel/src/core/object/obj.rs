@@ -8,7 +8,7 @@ use vespertine_abi::{
     Invocation, Signal,
 };
 
-use crate::core::{asynchronous::waiter::AsyncWaiter, object::invoke::InvocationError};
+use crate::core::{asynchronous::waiter::AsyncWaiter, object::invoke::InvocationError, security::permissions::FilePermissions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectType {
@@ -32,6 +32,10 @@ pub trait KernelObject: Send + Sync + Debug {
     }
 
     fn object_type(&self) -> ObjectType { ObjectType::Other }
+
+    fn permissions(&self) -> Option<FilePermissions> {
+        None
+    }
 }
 
 pub fn matching_signals(current: Signal, requested: Signal) -> Signal {

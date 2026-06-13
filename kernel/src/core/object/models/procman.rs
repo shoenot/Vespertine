@@ -18,6 +18,7 @@ use crate::core::object::models::process::ProcessControlBlock;
 use crate::core::object::obj::KernelObject;
 use crate::core::program::env::ProcessEnvironment;
 use crate::core::program::load_elf;
+use crate::core::security::credentials::Credentials;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
@@ -127,7 +128,7 @@ impl KernelObject for ProcessManager {
                 }
 
                 // create the process
-                let new_proc = ProcessControlBlock::new(new_proc_table);
+                let new_proc = ProcessControlBlock::new(new_proc_table, parent_proc.credentials);
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
                 let load_result = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?;

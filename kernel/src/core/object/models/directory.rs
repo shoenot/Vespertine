@@ -137,12 +137,7 @@ impl Directory {
             }
         };
 
-        let rights = AccessRights(
-            calling_rights.0 &
-                (AccessRights::MUTATE | AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE).0,
-        );
-
-        let handle_id = get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj_arc, rights);
+        let handle_id = get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj_arc, AccessRights::all());
         Ok(handle_id.0)
     }
 

@@ -27,6 +27,7 @@ use vespertine_abi::{
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::Filename;
 use crate::core::object::obj::{KernelObject, ObjectType};
+use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 
@@ -58,17 +59,7 @@ impl KernelObject for MountDirectory {
                 let filename = Filename::new(name as *const u8, name_len)?;
 
                 if let Some(obj) = self.overlays.read().get(&filename) {
-                    let rights = AccessRights(
-                        calling_rights.0 &
-                            (AccessRights::MUTATE |
-                                AccessRights::READ |
-                                AccessRights::WRITE |
-                                AccessRights::CREATE |
-                                AccessRights::EXECUTE)
-                                .0,
-                    );
-                    let handle_id =
-                        get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj.clone(), rights);
+                    let handle_id = get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj.clone(), AccessRights::all());
                     return Ok(handle_id.0);
                 }
 
@@ -175,5 +166,9 @@ impl KernelObject for MountDirectory {
 
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+
+    fn permissions(&self) -> Option<FilePermissions> {
+        self.underlying.read().permissions()
     }
 }

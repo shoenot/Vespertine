@@ -36,6 +36,7 @@ use crate::core::object::models::socket::{
 };
 use crate::core::object::models::thread::Thread;
 use crate::core::object::obj::{KernelObject, ObjectWaitFuture, matching_signals};
+use crate::core::security::credentials::Credentials;
 use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
@@ -55,6 +56,7 @@ pub type Process = Arc<ProcessControlBlock>;
 #[derive(Debug)]
 pub struct ProcessControlBlock {
     pub proc_id: usize,
+    pub credentials: Credentials,
     pub proc_handles: RwLock<HandleTable>,
     pub vmm: RwLock<VirtMemManager>,
     pub pml4_addr: usize,
@@ -138,11 +140,12 @@ impl Future for WaitManyFuture<'_> {
 }
 
 impl ProcessControlBlock {
-    pub fn new(init_table: HandleTable) -> Process {
+    pub fn new(init_table: HandleTable, credentials: Credentials) -> Process {
         let vmm = VirtMemManager::new(&ALLOCATOR);
         let pml4_addr = vmm.get_pml4_addr();
         Arc::new(Self {
             proc_id: get_new_pid(),
+            credentials,
             proc_handles: RwLock::new(init_table),
             vmm: RwLock::new(vmm),
             pml4_addr,
@@ -157,6 +160,7 @@ impl ProcessControlBlock {
     pub fn status(&self, ptr: *mut ProcStatus) -> Result<usize, InvocationError> {
         let proc_status = ProcStatus {
             pid: self.proc_id,
+            user: self.credentials.user(),
             active_threads: self.active_threads.load(Ordering::Relaxed),
             is_terminated: self.is_terminated.load(Ordering::Relaxed),
             memory_usage: self.vmm.read().get_total_allocated_size(),

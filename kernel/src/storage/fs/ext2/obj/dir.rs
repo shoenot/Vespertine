@@ -29,6 +29,7 @@ use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::Filename;
 use crate::core::object::obj::{KernelObject, ObjectType};
 use crate::core::object::vfs::FileDescription;
+use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::{
     RwLock,
     TicketLock,
@@ -43,6 +44,7 @@ use crate::memory::{
 };
 use crate::storage::fs::VfsNode;
 use crate::storage::fs::ext2::Ext2FileSystem;
+use crate::storage::fs::ext2::permissions::directory_permissions;
 use crate::storage::fs::ext2::structs::{
     DiskDirHeader,
     DiskInode,
@@ -123,10 +125,7 @@ impl KernelObject for Ext2Directory {
                     Arc::new(FileDescription::new(base_file as Arc<dyn KernelObject>)) as Arc<dyn KernelObject>
                 };
 
-                let rights = AccessRights(calling_rights.0 & (AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE).0);
-
-                let handle_id =
-                    get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(target_object, rights);
+                let handle_id = get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(target_object, AccessRights::all());
 
                 Ok(handle_id.0)
             }
@@ -603,6 +602,11 @@ impl KernelObject for Ext2Directory {
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+
+    fn permissions(&self) -> Option<FilePermissions> {
+        let inode = self.inode_data.read();
+        Some(directory_permissions(inode.uid, inode.mode))
     }
 }
 

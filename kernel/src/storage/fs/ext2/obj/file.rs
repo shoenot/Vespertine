@@ -16,6 +16,7 @@ use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::{KernelObject, ObjectType};
+use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::memory::vmo::{
@@ -28,6 +29,7 @@ use crate::memory::{
     HHDMOFFSET,
 };
 use crate::storage::fs::ext2::Ext2FileSystem;
+use crate::storage::fs::ext2::permissions::file_permissions;
 use crate::storage::fs::ext2::structs::DiskInode;
 use crate::storage::fs::{
     VfsNode,
@@ -77,6 +79,11 @@ impl KernelObject for Ext2File {
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+
+    fn permissions(&self) -> Option<FilePermissions> {
+        let inode = self.inode_data.read();
+        Some(file_permissions(inode.uid, inode.mode))
     }
 }
 

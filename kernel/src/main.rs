@@ -49,6 +49,7 @@ use crate::core::object::models::process::{
     ProcessControlBlock,
 };
 use crate::core::object::vfs::ROOT_DIRECTORY;
+use crate::core::security::credentials::Credentials;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
@@ -69,7 +70,7 @@ pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
 pub fn init_kernel_process() {
     KERNEL_PROCESS.get_or_init(|| {
-        let mut proc = ProcessControlBlock::new(HandleTable::new());
+        let mut proc = ProcessControlBlock::new(HandleTable::new(), Credentials::system());
         if let Some(p) = Arc::get_mut(&mut proc) {
             p.pml4_addr = get_cr3() as usize & 0x000F_FFFF_FFFF_F000;
         }

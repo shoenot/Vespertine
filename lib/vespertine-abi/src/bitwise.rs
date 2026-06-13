@@ -52,7 +52,7 @@ macro_rules! define_bitflags {
 
             #[inline(always)]
             pub const fn all() -> Self {
-                Self(0b11111)
+                Self(<$ty>::MAX)
             }
 
             #[inline(always)]

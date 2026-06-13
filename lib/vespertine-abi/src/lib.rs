@@ -39,13 +39,13 @@ impl Invocation {
             Invocation::Channel(ChannelOp::PushSmall { .. }) => AccessRights::WRITE,
             Invocation::Channel(ChannelOp::PushLarge { .. }) => AccessRights::WRITE,
             Invocation::Channel(ChannelOp::Pull { .. }) => AccessRights::READ,
-            Invocation::Directory(DirectoryOp::Link { .. }) => AccessRights::WRITE,
-            Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::WRITE,
-            Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
-            Invocation::Directory(DirectoryOp::List { .. }) => AccessRights::READ,
-            Invocation::Directory(DirectoryOp::Resolve { .. }) => AccessRights::READ,
-            Invocation::Directory(DirectoryOp::CreateFile { .. }) => AccessRights::WRITE,
-            Invocation::Directory(DirectoryOp::CreateDir { .. }) => AccessRights::WRITE,
+            Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::TRAVERSE,
+            Invocation::Directory(DirectoryOp::Resolve { .. }) => AccessRights::TRAVERSE,
+            Invocation::Directory(DirectoryOp::List { .. }) => AccessRights::LIST,
+            Invocation::Directory(DirectoryOp::Link { .. }) => AccessRights::CREATE,
+            Invocation::Directory(DirectoryOp::CreateFile { .. }) => AccessRights::CREATE,
+            Invocation::Directory(DirectoryOp::CreateDir { .. }) => AccessRights::CREATE,
+            Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::REMOVE,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
             Invocation::File(FileOp::Write { .. }) => AccessRights::WRITE,
             Invocation::File(FileOp::Stat) => AccessRights::new(),
@@ -98,6 +98,9 @@ define_bitflags! {
         EXECUTE         = 1 << 2;
         CREATE          = 1 << 3;
         MUTATE          = 1 << 4;
+        TRAVERSE        = 1 << 5;
+        LIST            = 1 << 6;
+        REMOVE          = 1 << 7;
     }
 }
 
@@ -112,6 +115,7 @@ define_bitflags! {
 
 pub struct ProcStatus {
     pub pid: usize,
+    pub user: UserID,
     pub active_threads: usize,
     pub is_terminated: bool,
     pub memory_usage: usize,
@@ -181,7 +185,6 @@ impl ProcessExitInfo {
     
 }
 
-
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct WaitItem {
@@ -189,3 +192,9 @@ pub struct WaitItem {
     pub signal: Signal,
     pub pending: Signal,
 }
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct UserID(pub u32);
+
+pub const SYSTEM_USER: UserID = UserID(0);

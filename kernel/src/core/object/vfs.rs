@@ -18,6 +18,7 @@ use vespertine_abi::{
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::process::Process;
 use crate::core::object::obj::KernelObject;
+use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::get_current_process;
 use crate::klogln;
@@ -150,5 +151,9 @@ impl KernelObject for FileDescription {
             // Transparently pass through GetVmo, Stat, etc. directly to Ext2File
             _ => self.inner.invoke(invocation, rights).await,
         }
+    }
+
+    fn permissions(&self) -> Option<FilePermissions> {
+        self.inner.permissions()
     }
 }

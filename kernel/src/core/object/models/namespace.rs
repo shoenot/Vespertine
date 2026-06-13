@@ -10,6 +10,7 @@ use vespertine_common::path::{Component, Components};
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::obj::ObjectType;
+use crate::core::security::permissions::{FilePermissions, allowed_rights};
 use crate::core::{object::{invoke::InvocationError, obj::KernelObject}, thread::get_current_process};
 
 static NEXT_LOCATION_ID: AtomicUsize = AtomicUsize::new(1);
@@ -18,7 +19,7 @@ const PATH_MAX: usize = 4096;
 
 enum Resolved {
     Directory(Arc<DirLocation>),
-    Object(Arc<dyn KernelObject>, AccessRights),
+    Object(Arc<dyn KernelObject>),
 }
 
 #[derive(Debug, Clone)]
@@ -78,19 +79,20 @@ impl DirLocation {
 
     async fn resolve(&self, start_handle: HandleID, path: &str, requested_rights: AccessRights, root_rights: AccessRights) -> Result<usize, InvocationError> {
         let root = self.arc_clone();
-        let (start, start_rights) = resolve_location(start_handle, AccessRights::READ)?;
+        let (start, _) = resolve_location(start_handle, AccessRights::TRAVERSE)?;
+        let ns_ceiling = root_rights;
         let mut ancestry = if path.starts_with('/') {
-            vec![(root.clone(), root_rights)]
+            vec![root.clone()]
         } else {
-            ancestry_from(&root, &start, start_rights)?
+            ancestry_from(&root, &start)?
         };
-        let mut resolved = Resolved::Directory(ancestry.last().ok_or(InvocationError::InvalidArgument)?.0.clone());
+        let mut resolved = Resolved::Directory(ancestry.last().ok_or(InvocationError::InvalidArgument)?.clone());
 
         for component in Components::new(path) {
             match component {
                 Component::Root => {
                     ancestry.truncate(1);
-                    resolved = Resolved::Directory(ancestry[0].0.clone());
+                    resolved = Resolved::Directory(ancestry[0].clone());
                 },
                 Component::Current => {
                     if !matches!(resolved, Resolved::Directory(_)) {
@@ -104,48 +106,56 @@ impl DirLocation {
                     }
                     if ancestry.len() > 1 { ancestry.pop(); }
 
-                    resolved = Resolved::Directory(ancestry.last().ok_or(InvocationError::InvalidArgument)?.0.clone());
+                    resolved = Resolved::Directory(ancestry.last().ok_or(InvocationError::InvalidArgument)?.clone());
                 },
                 Component::Normal(name) => {
                     if !matches!(resolved, Resolved::Directory(_)) {
                         return Err(InvocationError::InvalidArgument);
                     }
 
-                    let (current, current_rights) = ancestry.last().ok_or(InvocationError::InvalidArgument)?;
+                    let current = ancestry.last().ok_or(InvocationError::InvalidArgument)?;
+                    let current_object: Arc<dyn KernelObject> = current.clone();
+                    let current_user_rights = allowed_rights(&current_object)?;
+                    let traversal_rights = ns_ceiling & current_user_rights;
 
-                    let (child, child_rights) = lookup_raw_child(&current.directory(), name, *current_rights).await?;
+                    if !traversal_rights.contains(AccessRights::TRAVERSE) {
+                        return Err(InvocationError::AccessDenied);
+                    }
+
+                    let child = lookup_raw_child(&current.directory(), name, ns_ceiling).await?;
 
                     if child.object_type() == ObjectType::Directory {
                         let child_location = DirLocation::child(child, current.clone());
-                        ancestry.push((child_location.clone(), child_rights));
+                        ancestry.push(child_location.clone());
                         resolved = Resolved::Directory(child_location);
                     } else {
-                        resolved = Resolved::Object(child, child_rights);
+                        resolved = Resolved::Object(child);
                     }
                 }
             }
         }
 
-        let (object, effective_rights): (Arc<dyn KernelObject>, AccessRights) = match resolved {
-            Resolved::Directory(location) => {
-                let rights = ancestry.last().ok_or(InvocationError::InvalidArgument)?.1;
-                (location, rights)
-            },
-            Resolved::Object(object, rights) => {
-                (object, rights)
-            },
+        let object: Arc<dyn KernelObject> = match resolved {
+            Resolved::Directory(location) => location,
+            Resolved::Object(object) => object,
         };
+
+        let user_rights = allowed_rights(&object)?;
+        let effective_rights = ns_ceiling & user_rights;
 
         if !effective_rights.contains(requested_rights) {
             return Err(InvocationError::AccessDenied);
         }
+
+        register_result(object.clone(), requested_rights)?;
+
         let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
         let handle = proc.proc_handles.write().insert(object, requested_rights);
 
         Ok(handle.0)
     }
 
-    async fn lookup(&self, name_ptr: usize, name_len: usize, rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn lookup(&self, name_ptr: usize, name_len: usize, capability_rights: AccessRights) -> Result<usize, InvocationError> {
         let mut bytes = vec![0u8; name_len];
 
         if !safe_copy_from(bytes.as_mut_ptr(), name_ptr as *const u8, name_len) {
@@ -154,14 +164,22 @@ impl DirLocation {
 
         let name = core::str::from_utf8(&bytes).map_err(|_| InvocationError::InvalidEncoding)?;
 
+        let self_object: Arc<dyn KernelObject> = self.arc_clone();
+        let parent_user_rights = allowed_rights(&self_object)?;
+        let parent_effective_rights = capability_rights & parent_user_rights;
+
+        if !parent_effective_rights.contains(AccessRights::TRAVERSE) {
+            return Err(InvocationError::AccessDenied)
+        }
+
         match name {
-            "." => register_result(self.arc_clone(), rights), 
-            ".." => {
-                Err(InvocationError::UnsupportedOperation)
-            },
+            "." => register_result(self.arc_clone(), parent_effective_rights), 
+            ".." => Err(InvocationError::UnsupportedOperation),
             _ => {
-                let (child, child_rights) =
-                    lookup_raw_child(&self.directory(), name, rights).await?;
+                let child = lookup_raw_child(&self.directory(), name, capability_rights).await?;
+
+                let child_user_rights = allowed_rights(&child)?;
+                let child_effective_rights = capability_rights & child_user_rights;
 
                 let result: Arc<dyn KernelObject> =
                     if child.object_type() == ObjectType::Directory {
@@ -170,7 +188,7 @@ impl DirLocation {
                         child
                     };
 
-                register_result(result, child_rights)
+                register_result(result, child_effective_rights)
             }
         }
     }
@@ -223,7 +241,9 @@ impl KernelObject for DirLocation {
         }
     }
 
-
+    fn permissions(&self) -> Option<FilePermissions> {
+        self.dir.permissions()
+    }
 }
 
 fn resolve_location(handle: HandleID, required_rights: AccessRights) -> Result<(Arc<DirLocation>, AccessRights), InvocationError> {
@@ -253,24 +273,22 @@ fn copy_path(path_ptr: usize, path_len: usize) -> Result<String, InvocationError
     String::from_utf8(bytes).map_err(|_| InvocationError::InvalidEncoding)
 }
 
-async fn lookup_raw_child(dir: &Arc<dyn KernelObject>, name: &str, rights: AccessRights) -> Result<(Arc<dyn KernelObject>, AccessRights), InvocationError> {
+async fn lookup_raw_child(dir: &Arc<dyn KernelObject>, name: &str, ns_ceiling: AccessRights) -> Result<Arc<dyn KernelObject>, InvocationError> {
     let op = DirectoryOp::Lookup { name: name.as_ptr() as usize, name_len: name.len() };
-    let result = dir.invoke(Invocation::Directory(op), rights).await?;
+    let result = dir.invoke(Invocation::Directory(op), ns_ceiling).await?;
 
     let temp = HandleID(result);
     let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-    let entry = {
+    let obj = {
         let table = proc.proc_handles.read();
-        let entry = table.get(&temp).ok_or(InvocationError::InvalidHandle)?;
-        let child_rights = entry.rights & rights;
-        (entry.object.clone(), child_rights)
+        table.get(&temp).ok_or(InvocationError::InvalidHandle)?.object.clone()
     };
 
     proc.proc_handles.write().close(temp)?;
-    Ok(entry)
+    Ok(obj)
 }
 
-fn ancestry_from(root: &Arc<DirLocation>, start: &Arc<DirLocation>, rights: AccessRights) -> Result<Vec<(Arc<DirLocation>, AccessRights)>, InvocationError> {
+fn ancestry_from(root: &Arc<DirLocation>, start: &Arc<DirLocation>) -> Result<Vec<Arc<DirLocation>>, InvocationError> {
     let mut reversed = Vec::new();
     let mut cursor = start.clone();
 
@@ -283,7 +301,7 @@ fn ancestry_from(root: &Arc<DirLocation>, start: &Arc<DirLocation>, rights: Acce
     }
 
     reversed.reverse();
-    Ok(reversed.into_iter().map(|location| (location, rights)).collect())
+    Ok(reversed)
 }
 
 fn wrap_child_directory(child: Arc<dyn KernelObject>, parent: Arc<DirLocation>) -> Arc<DirLocation> {
