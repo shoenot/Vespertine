@@ -1,29 +1,27 @@
-use alloc::string::String;
-use vespertine_abi::{AccessRights, tag::CAP_APP_TERMCTRL};
+use alloc::string::{String, ToString};
+use vespertine_abi::{AccessRights, ProcessExitInfo, tag::CAP_APP_TERMCTRL};
 use vespertine_rt::println;
 use vespertine_std::{Error, ErrorKind, Exec, env, term::{check_raw_mode, clear_term_screen, unset_raw_mode}};
 
-use crate::lexer::ShellError;
+use crate::{error::ShellError, runtime::env::ShellContext};
 
-pub fn launch_command(name: &str, args: &[String]) {
+pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Result<ProcessExitInfo, ShellError> {
     let res = build_exec(name, args).and_then(Exec::spawn);
-
-    match res {
+    let info = match res {
         Ok(proc) => {
             match proc.wait() {
-                Ok(exit) => println!("Process exited: {:?}", exit),
-                Err(error) => println!("[ERROR] {}: {:?}", name, error),
+                Ok(exit) => Ok(exit),
+                Err(error) => Err(ShellError::LaunchError(name.to_string(), error)),
             }
-        }
+        },
         Err(error) if error.kind == ErrorKind::NotFound => {
-            println!("Command not found: {}", name);
-        }
-        Err(error) => {
-            println!("[ERROR] Could not launch {}: {:?}", name, error);
-        }
-    }
+            Err(ShellError::NotFound(name.to_string()))
+        },
+        Err(error) => Err(ShellError::LaunchError(name.to_string(), error)),
+    };
 
     let _ = unset_raw_mode();
+    info
 }
 
 pub fn build_exec(name: &str, args: &[String]) -> Result<Exec, Error> {
