@@ -12,7 +12,7 @@ use vespertine_abi::{
 use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
-use crate::core::object::obj::KernelObject;
+use crate::core::object::obj::{KernelObject, ObjectType};
 use crate::core::sync::TicketLock;
 use crate::core::thread::get_current_process;
 use crate::memory::vmo::{
@@ -37,6 +37,8 @@ unsafe impl Sync for FileObj {}
 
 #[async_trait]
 impl KernelObject for FileObj {
+    fn object_type(&self) -> ObjectType { ObjectType::File } 
+
     async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {

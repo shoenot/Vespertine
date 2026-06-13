@@ -9,9 +9,6 @@ pub enum ShellError {
     ExpectedToken,
     NoCursorPosition,
     TerminalError,
-    NotFound(String),
-    AccessDenied(String),
-    LaunchError(String, Error),
 }
 
 impl Display for ShellError {
@@ -21,9 +18,6 @@ impl Display for ShellError {
             ShellError::ExpectedToken => write!(f, "DUSK: expected appropriate token"),
             ShellError::TerminalError => write!(f, "DUSK: terminal error"),
             ShellError::NoCursorPosition => write!(f, "DUSK: failure to get cursor position"),
-            ShellError::NotFound(n) => write!(f, "DUSK: not found: {}", n),
-            ShellError::AccessDenied(n) => write!(f, "DUSK: access denied: {}", n),
-            ShellError::LaunchError(n, e) => write!(f, "DUSK: {} launch error: {:?}", n, e),
         }
     }
 }

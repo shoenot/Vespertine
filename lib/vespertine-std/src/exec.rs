@@ -1,6 +1,7 @@
 use vespertine_abi::{
     AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp, ProcStatus, ProcessExitInfo, ProcessExitKind, Signal, WaitOp, tag::CAP_PROCMAN
 };
+use alloc::format;
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -16,7 +17,7 @@ struct ProcManager {
 
 impl ProcManager {
     pub fn request() -> Result<Self, Error> {
-        let broker_handle = walk_path("/System/Services/ProcManager", env::root()).map_err(Error::from)?;
+        let broker_handle = walk_path("/System/Services/ProcManager", AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_PROCMAN, AccessRights::CREATE | AccessRights::EXECUTE)?;
         Ok(Self { handle })
@@ -71,10 +72,12 @@ pub struct Exec {
     exec_name: String,
     args: Vec<String>,
     root: HandleID,
+    cwd: HandleID,
     source: HandleID,
     sink: HandleID,
     capabilities: Vec<CapabilityGrant>,
     root_rights: AccessRights,
+    cwd_rights: AccessRights,
 }
 
 // --------------------------------------------------------//
@@ -84,6 +87,7 @@ pub struct Exec {
 // Handle(2) = source
 // Handle(3) = sink
 // Handle(4) = memory pool
+// Handle(5) = cwd
 // --------------------------------------------------------//
 
 impl Exec {
@@ -94,10 +98,12 @@ impl Exec {
             exec_name: name,
             args: Vec::new(),
             root: env::root(),
+            cwd: env::cwd(),
             source: env::source(),
             sink: env::sink(),
             capabilities: Vec::new(),
             root_rights: AccessRights::new(),
+            cwd_rights: AccessRights::READ,
         }
     }
 
@@ -113,6 +119,12 @@ impl Exec {
 
     pub fn root(mut self, handle: HandleID) -> Self {
         self.root = handle;
+        self
+    }
+
+    pub fn cwd(mut self, handle: HandleID, rights: AccessRights) -> Self {
+        self.cwd = handle;
+        self.cwd_rights = rights;
         self
     }
 
@@ -156,9 +168,8 @@ impl Exec {
     }
 
     pub fn spawn(self) -> Result<Process, Error> {
-        let exec = Dir::from(env::root())
-            .subdir("Programs")?
-            .lookup(self.exec_name.as_str())?;
+        let exec_path = format!("/Programs/{}", self.exec_name);
+        let exec = walk_path(exec_path.as_str(), AccessRights::READ)?;
 
         // null terminated args buffer
         let mut args_buf = Vec::new();
@@ -175,6 +186,8 @@ impl Exec {
             root_rights: self.root_rights,
             source: self.source,
             sink: self.sink,
+            cwd_handle: self.cwd,
+            cwd_rights: self.cwd_rights,
             capabilities_ptr: self.capabilities.as_ptr() as usize,
             capabilities_len: self.capabilities.len(),
             args_buffer_ptr: args_buf.as_ptr() as usize,

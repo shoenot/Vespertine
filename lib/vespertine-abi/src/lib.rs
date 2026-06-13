@@ -43,6 +43,7 @@ impl Invocation {
             Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
             Invocation::Directory(DirectoryOp::List { .. }) => AccessRights::READ,
+            Invocation::Directory(DirectoryOp::Resolve { .. }) => AccessRights::READ,
             Invocation::Directory(DirectoryOp::CreateFile { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::CreateDir { .. }) => AccessRights::WRITE,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
@@ -132,6 +133,7 @@ pub struct ProcessInitPackage {
     pub source_handle: HandleID,
     pub sink_handle: HandleID,
     pub memory_pool_handle: HandleID,
+    pub cwd_handle: HandleID,
 
     pub capabilities_ptr: *const CapabilityGrant,
     pub capabilities_len: usize,

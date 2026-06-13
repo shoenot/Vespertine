@@ -43,6 +43,10 @@ pub fn root() -> HandleID {
     pkg().root_handle
 }
 
+pub fn cwd() -> HandleID {
+    pkg().cwd_handle
+}
+
 pub fn self_handle() -> HandleID {
     pkg().self_handle
 }

@@ -2,13 +2,13 @@ use vespertine_rt::syscall::SysError;
 extern crate alloc;
 use alloc::string::String;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Error {
     pub kind: ErrorKind,
     pub message: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ErrorKind {
     NotFound,
     AccessDenied,

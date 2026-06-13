@@ -62,6 +62,12 @@ pub enum DirectoryOp {
         name: usize,
         name_len: usize,
     },
+    Resolve {
+        start: HandleID,
+        path_ptr: usize,
+        path_len: usize,
+        rights: AccessRights,
+    },
 }
 
 #[repr(C)]
@@ -157,6 +163,8 @@ pub enum ProcManOp {
         exec_handle: HandleID,
         root_handle: HandleID,
         root_rights: AccessRights,
+        cwd_handle: HandleID,
+        cwd_rights: AccessRights,
         source: HandleID,
         sink: HandleID,
 

@@ -276,7 +276,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadRe
     if let Some(path) = interpreter_path {
         klogln!("[INFO] ELF requires interpreter: {}", path);
 
-        let interp_handle = kernel_walk(&path, HandleID(0)).await.map_err(|e| {
+        let interp_handle = kernel_walk(&path, HandleID(0), AccessRights::READ).await.map_err(|e| {
             klogln!("[ERROR] load_elf: Failed to resolve interpreter path {}: {:?}", path, e);
             LoaderError::FileReadError
         })?;

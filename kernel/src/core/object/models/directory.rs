@@ -33,7 +33,7 @@ use vespertine_abi::{
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::KernelObject;
+use crate::core::object::obj::{KernelObject, ObjectType};
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 
@@ -93,6 +93,8 @@ impl KernelObject for Directory {
     }
 
     fn type_name(&self) -> &'static str { "Directory" }
+
+    fn object_type(&self) -> ObjectType { ObjectType::Directory }
 }
 
 impl Directory {

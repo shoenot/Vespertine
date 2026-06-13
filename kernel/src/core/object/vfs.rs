@@ -57,25 +57,16 @@ pub async fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
         .expect("Link failed.");
 }
 
-pub async fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, InvocationError> {
-    let dirs = path.split('/').collect::<Vec<&str>>();
-    let start = if dirs[0] == "" { HandleID(0) } else { handle };
-    let mut last: HandleID = start;
-    for dir in dirs {
-        if dir == "" || dir == "." || dir == ".." {
-            continue;
-        };
+pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights) -> Result<HandleID, InvocationError> {
+    let root = HandleID(0);
 
-        let res =
-            kernel_invoke(last, Invocation::Directory(DirectoryOp::Lookup { name: dir.as_ptr() as usize, name_len: dir.len() })).await;
-
-        if last != start {
-            let _ = kernel_close(last);
-        }
-
-        last = HandleID(res?);
-    }
-    Ok(last)
+    kernel_invoke(root, Invocation::Directory(DirectoryOp::Resolve {
+            start,
+            path_ptr: path.as_ptr() as usize,
+            path_len: path.len(),
+            rights,
+        }),
+    ).await.map(HandleID)
 }
 
 pub fn proc_register_obj(proc: &Process, obj: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {

@@ -12,3 +12,4 @@ pub mod socket;
 pub mod thread;
 pub mod vmo;
 pub mod broker;
+pub mod namespace;

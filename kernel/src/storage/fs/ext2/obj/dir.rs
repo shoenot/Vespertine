@@ -27,7 +27,7 @@ use super::file::Ext2File;
 use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::Filename;
-use crate::core::object::obj::KernelObject;
+use crate::core::object::obj::{KernelObject, ObjectType};
 use crate::core::object::vfs::FileDescription;
 use crate::core::sync::{
     RwLock,
@@ -58,6 +58,8 @@ pub struct Ext2Directory {
 #[async_trait]
 impl KernelObject for Ext2Directory {
     fn type_name(&self) -> &'static str { "Directory" }
+
+    fn object_type(&self) -> ObjectType { ObjectType::Directory }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {

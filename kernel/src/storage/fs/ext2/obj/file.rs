@@ -15,7 +15,7 @@ use crate::arch::x86_64::task::syscall::{
 use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
-use crate::core::object::obj::KernelObject;
+use crate::core::object::obj::{KernelObject, ObjectType};
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::memory::vmo::{
@@ -49,6 +49,8 @@ unsafe impl Sync for Ext2File {}
 #[async_trait]
 impl KernelObject for Ext2File {
     fn type_name(&self) -> &'static str { "File" }
+
+    fn object_type(&self) -> ObjectType { ObjectType::File } 
 
     async fn invoke(&self, invocation: Invocation, _rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {

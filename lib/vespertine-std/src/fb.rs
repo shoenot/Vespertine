@@ -1,6 +1,6 @@
 use core::slice;
 
-use vespertine_abi::{HandleID, Invocation, VmoOp};
+use vespertine_abi::{AccessRights, HandleID, Invocation, VmoOp};
 use vespertine_rt::syscall::{sys_close, sys_invoke, sys_read};
 
 use crate::{Error, env, fs::walk_path};
@@ -22,7 +22,7 @@ pub struct Framebuffer {
 
 impl Framebuffer {
     pub fn open() -> Result<Self, Error> {
-        let handle = walk_path("/Devices/Framebuffer", env::root())?;
+        let handle = walk_path("/Devices/Framebuffer", AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE )?;
 
         let mut info = FramebufferInfo {
             width: 0,

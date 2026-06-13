@@ -65,12 +65,9 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         tests::run_post_vfs_tests().await;
         klogln!("[ASYNC INIT] post vfs tests completed");
 
-        let pm_broker_handle = kernel_walk(
-            "/System/Services/ProcManager",
-            HandleID(0),
-        )
-        .await
-        .expect("[FATAL] No Process Manager broker found");
+        let pm_broker_handle = kernel_walk("/System/Services/ProcManager", HandleID(0), AccessRights::READ)
+            .await
+            .expect("[FATAL] No Process Manager broker found");
 
         let pm_handle = HandleID(
             kernel_invoke(
@@ -86,14 +83,18 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         
         let _ = kernel_close(pm_broker_handle);
         
-        let log_handle = kernel_walk("/System/Services/Log", HandleID(0)).await.expect("[FATAL] No Log Service found");
+        let log_handle = kernel_walk("/System/Services/Log", HandleID(0), AccessRights::WRITE)
+            .await
+            .expect("[FATAL] No Log Service found");
 
         // userspace init proc
         let screen_writer = Arc::new(ScreenWriter {});
         let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
 
         // init package
-        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0)).await.expect("[FATAL] No program found");
+        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0), AccessRights::READ)
+            .await
+            .expect("[FATAL] No program found");
         let root_handle = HandleID(0);
         let root_rights = AccessRights::all();
         let source = kbd_source_handle;
@@ -109,6 +110,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             exec_handle,
             root_handle,
             root_rights,
+            cwd_handle: root_handle,
+            cwd_rights: root_rights,
             source,
             sink,
             capabilities_ptr: capabilities.as_ptr() as usize,

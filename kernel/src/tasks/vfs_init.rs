@@ -13,6 +13,7 @@ use crate::core::object::models::directory::*;
 use crate::core::object::models::log::Log;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::mount_dir::MountDirectory;
+use crate::core::object::models::namespace::DirLocation;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
@@ -36,12 +37,14 @@ pub async fn init_vfs() {
     let root = mount_ext2_rootfs(blockdev.clone()).await;
 
     let root_obj = ROOT_DIRECTORY.get().expect("[FATAL] ROOT_DIRECTORY uninitialized");
-    let mount_dir = root_obj.as_any().downcast_ref::<MountDirectory>().expect("[FATAL] ROOT_DIRECTORY is not a MountDirectory");
+    let root_location = root_obj.as_any().downcast_ref::<DirLocation>().expect("ROOT_DIRECTORY is not a DirLocation");
+    let root_dir = root_location.directory();
+    let mount_dir = root_dir.as_any().downcast_ref::<MountDirectory>().expect("[FATAL] ROOT_DIRECTORY is not a MountDirectory");
 
     mount_dir.set_underlying(root);
     klogln!("[SUCCESS] Ext2 root directory mounted at /");
 
-    let sys_handle = kernel_walk("/System", HandleID(0)).await.expect("System directory missing!");
+    let sys_handle = kernel_walk("/System", HandleID(0), AccessRights::READ).await.expect("System directory missing!");
     let table = get_current_process().expect("Could not get kernel process").proc_handles.read();
     let sys_obj = table.resolve(sys_handle, AccessRights::READ).expect("...");
     drop(table);

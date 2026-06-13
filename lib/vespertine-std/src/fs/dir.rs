@@ -1,6 +1,7 @@
 use core::fmt::Display;
 use core::ptr::copy_nonoverlapping;
 
+use vespertine_abi::AccessRights;
 use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
 use vespertine_abi::{
     DirectoryOp, HandleID, Invocation, protocol::PacketHeader,
@@ -164,7 +165,11 @@ impl Iterator for ReadDir {
 
 impl Dir {
     pub fn open(path: &str) -> Result<Self, Error> {
-        walk_path(path, HandleID(0)).map(Dir).map_err(Error::from)
+        Self::open_with_rights(path, AccessRights::READ)
+    }
+
+    pub fn open_with_rights(path: &str, rights: AccessRights) -> Result<Self, Error> {
+        walk_path(path, rights).map(Dir).map_err(Error::from)
     }
 
     pub fn from(handle: HandleID) -> Self {
@@ -210,7 +215,7 @@ impl Dir {
     }
 
     pub fn create_dir(path: &str) -> Result<Self, Error> {
-        if let Ok(handle) = walk_path(path, HandleID(0)) {
+        if let Ok(handle) = walk_path(path, AccessRights::READ) {
             let _ = sys_close(handle);
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,
@@ -218,23 +223,19 @@ impl Dir {
             });
         }
         let (parent_path, dir_name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, HandleID(0))?;
+        let parent_handle = walk_path(parent_path, AccessRights::WRITE)?;
         let handle = sys_create_dir(parent_handle, dir_name).map_err(Error::from)?;
 
-        if parent_handle != HandleID(0) {
-            let _ = sys_close(parent_handle);
-        }
+        let _ = sys_close(parent_handle);
 
         Ok(Dir::from(handle))
     }
 
     pub fn remove(path: &str) -> Result<(), Error> {
         let (parent_path, name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, HandleID(0))?;
+        let parent_handle = walk_path(parent_path, AccessRights::WRITE)?;
         sys_unlink(parent_handle, name).map_err(Error::from)?;
-        if parent_handle != HandleID(0) {
-            let _ = sys_close(parent_handle);
-        }
+        let _ = sys_close(parent_handle);
         Ok(())
     }
 }

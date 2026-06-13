@@ -26,7 +26,7 @@ use vespertine_abi::{
 
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::Filename;
-use crate::core::object::obj::KernelObject;
+use crate::core::object::obj::{KernelObject, ObjectType};
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 
@@ -49,6 +49,8 @@ impl KernelObject for MountDirectory {
     fn type_name(&self) -> &'static str { "Directory" }
 
     fn as_any(&self) -> &dyn core::any::Any { self }
+
+    fn object_type(&self) -> ObjectType { ObjectType::Directory }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {

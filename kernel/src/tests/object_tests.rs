@@ -4,8 +4,7 @@ use vespertine_abi::op::{
     MemPoolOp,
 };
 use vespertine_abi::{
-    HandleID,
-    Invocation,
+    AccessRights, HandleID, Invocation
 };
 
 use crate::core::object::models::socket::init_ipc_pipeline;
@@ -16,7 +15,7 @@ use crate::core::object::vfs::{
 use crate::klogln;
 
 pub async fn run_pool_tests() {
-    let mm_handle = kernel_walk("/Objects/MemoryManager", HandleID(0)).await.expect("No Memory Manager found");
+    let mm_handle = kernel_walk("/Objects/MemoryManager", HandleID(0), AccessRights::all()).await.expect("No Memory Manager found");
 
     let root_pool_handle = HandleID(
         kernel_invoke(mm_handle, Invocation::MemoryManager(MemManOp::CreatePool { limit: 0 })).await.expect("Failed to create root pool"),

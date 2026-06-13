@@ -43,6 +43,7 @@ use crate::core::object::handle::{
 };
 use crate::core::object::models::directory::Directory;
 use crate::core::object::models::mount_dir::MountDirectory;
+use crate::core::object::models::namespace::DirLocation;
 use crate::core::object::models::process::{
     Process,
     ProcessControlBlock,
@@ -75,7 +76,8 @@ pub fn init_kernel_process() {
         let root = ROOT_DIRECTORY
             .get_or_init(|| {
                 let root_mem = Arc::new(Directory::new());
-                Arc::new(MountDirectory::new(root_mem))
+                let mount = Arc::new(MountDirectory::new(root_mem));
+                DirLocation::root(mount)
             })
             .clone();
         proc.proc_handles.write().insert_at(HandleID(0), root, AccessRights::all());

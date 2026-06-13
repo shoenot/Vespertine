@@ -7,7 +7,7 @@ use crate::{
 };
 use core::cell::Cell;
 use core::ops::Drop;
-use vespertine_abi::{FileOp, HandleID, Invocation};
+use vespertine_abi::{AccessRights, FileOp, HandleID, Invocation};
 use vespertine_rt::syscall::{sys_close, sys_create_file, sys_invoke, sys_read, sys_write};
 
 extern crate alloc;
@@ -19,12 +19,11 @@ pub struct File {
 
 impl File {
     pub fn open(path: &str) -> Result<Self, Error> {
-        walk_path(path, HandleID(0))
-            .map(|handle| File {
-                handle,
-                cursor: Cell::new(0),
-            })
-            .map_err(Error::from)
+        Self::open_with_rights(path, AccessRights::READ)
+    }
+
+    pub fn open_with_rights(path: &str, rights: AccessRights) -> Result<Self, Error> {
+        walk_path(path, rights).map(File::from).map_err(Error::from)
     }
 
     pub fn from(handle: HandleID) -> Self {
@@ -44,7 +43,7 @@ impl File {
     }
 
     pub fn create(path: &str) -> Result<Self, Error> {
-        if let Ok(handle) = walk_path(path, HandleID(0)) {
+        if let Ok(handle) = walk_path(path, AccessRights::READ) {
             let _ = sys_close(handle);
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,
@@ -52,12 +51,10 @@ impl File {
             });
         }
         let (parent_path, file_name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, HandleID(0))?;
+        let parent_handle = walk_path(parent_path, AccessRights::WRITE)?;
         let handle = sys_create_file(parent_handle, file_name).map_err(Error::from)?;
 
-        if parent_handle != HandleID(0) {
-            let _ = sys_close(parent_handle);
-        }
+        let _ = sys_close(parent_handle);
 
         Ok(File::from(handle))
     }

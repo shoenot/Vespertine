@@ -11,7 +11,7 @@ pub struct Clock {
 
 impl Clock {
     pub fn request(rights: AccessRights) -> Result<Self, Error> {
-        let broker_handle = walk_path("/System/Services/Clock", env::root()).map_err(Error::from)?;
+        let broker_handle = walk_path("/System/Services/Clock", AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_CLOCK, rights)?;
         Ok(Self { handle })

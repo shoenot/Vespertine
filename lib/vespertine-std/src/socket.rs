@@ -14,7 +14,7 @@ pub struct SocketFactory {
 
 impl SocketFactory {
     pub fn request() -> Result<Self, Error> {
-        let broker_handle = walk_path("/System/Services/Socket", env::root()).map_err(Error::from)?;
+        let broker_handle = walk_path("/System/Services/Socket", AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_SOCKFAC, AccessRights::CREATE)?;
         Ok(Self { handle })

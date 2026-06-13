@@ -10,6 +10,13 @@ use vespertine_abi::{
 
 use crate::core::{asynchronous::waiter::AsyncWaiter, object::invoke::InvocationError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectType {
+    Directory,
+    File, 
+    Other,
+}
+
 #[async_trait]
 pub trait KernelObject: Send + Sync + Debug {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;
@@ -23,6 +30,8 @@ pub trait KernelObject: Send + Sync + Debug {
     fn register_waiter(&self, _requested: Signal, _waiter: &Arc<AsyncWaiter>, _waker: &Waker) -> Result<(), InvocationError> { 
         Err(InvocationError::UnsupportedOperation) 
     }
+
+    fn object_type(&self) -> ObjectType { ObjectType::Other }
 }
 
 pub fn matching_signals(current: Signal, requested: Signal) -> Signal {

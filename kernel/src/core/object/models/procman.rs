@@ -44,6 +44,8 @@ impl KernelObject for ProcessManager {
                 exec_handle,
                 root_handle,
                 root_rights,
+                cwd_handle,
+                cwd_rights,
                 source,
                 sink,
                 capabilities_ptr,
@@ -57,6 +59,7 @@ impl KernelObject for ProcessManager {
 
                 let parent_proc = get_current_process().ok_or(InvocationError::OutOfMemory)?;
                 let new_proc_root = parent_proc.proc_handles.read().resolve(root_handle, root_rights)?;
+                let new_proc_cwd = parent_proc.proc_handles.read().resolve(cwd_handle, cwd_rights)?;
 
                 let mut new_proc_table = HandleTable::new(); // create a blank table
 
@@ -84,6 +87,9 @@ impl KernelObject for ProcessManager {
                     mem_pool_obj,
                     AccessRights::WRITE | AccessRights::CREATE | AccessRights::MUTATE,
                 );
+
+                // cwd handle at 5
+                new_proc_table.insert_at(HandleID(5), new_proc_cwd, cwd_rights);
 
                 // keep executable file alive for page faults
                 if let Ok(exec_obj) = parent_proc.proc_handles.read().resolve(exec_handle, AccessRights::READ) {
@@ -113,13 +119,10 @@ impl KernelObject for ProcessManager {
 
                     for grant in parent_grants {
                         // ensure parent itself has the rights its trying to grant
-                        if let Ok(obj) = parent_proc.proc_handles.read().resolve(grant.id, grant.rights) {
+                        let obj = parent_proc.proc_handles.read().resolve(grant.id, grant.rights)?; 
                             // insert into child with attenuated rights
-                            let chd = new_proc_table.insert(obj, grant.rights);
-                            child_capabilities.push(CapabilityGrant { id: chd, rights: grant.rights, capability: grant.capability });
-                        } else {
-                            return Err(InvocationError::InvalidHandle);
-                        }
+                        let chd = new_proc_table.insert(obj, grant.rights);
+                        child_capabilities.push(CapabilityGrant { id: chd, rights: grant.rights, capability: grant.capability });
                     }
                 }
 
@@ -170,6 +173,7 @@ impl KernelObject for ProcessManager {
                     source_handle: HandleID(2),
                     sink_handle: HandleID(3),
                     memory_pool_handle: HandleID(4),
+                    cwd_handle: HandleID(5),
 
                     capabilities_ptr: null(), // inject method sets this, so initialize with null.
                     capabilities_len,
