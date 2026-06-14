@@ -22,12 +22,23 @@ use vespertine_abi::{
     DirectoryOp,
     FileOp,
     Invocation,
+    UserID,
 };
 
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::directory::Filename;
-use crate::core::object::obj::{KernelObject, ObjectType};
-use crate::core::security::permissions::FilePermissions;
+use crate::core::object::models::directory::{
+    Filename,
+    validate_child_name,
+};
+use crate::core::object::obj::{
+    KernelDirectory,
+    KernelObject,
+    ObjectType,
+};
+use crate::core::security::permissions::{
+    FilePermissions,
+    allowed_rights,
+};
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 
@@ -53,49 +64,24 @@ impl KernelObject for MountDirectory {
 
     fn object_type(&self) -> ObjectType { ObjectType::Directory }
 
+    fn as_directory(&self) -> Option<&dyn KernelDirectory> { Some(self) }
+
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
-
-                if let Some(obj) = self.overlays.read().get(&filename) {
-                    let handle_id = get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj.clone(), AccessRights::all());
-                    return Ok(handle_id.0);
-                }
-
-                let underlying = self.underlying.read().clone();
-                underlying.invoke(invocation, calling_rights).await
-            }
-
-            Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
-                if !calling_rights.contains(AccessRights::CREATE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-                let filename = Filename::new(name as *const u8, name_len)?;
+                let object = KernelDirectory::lookup_child(self, &filename.name).await?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let obj_arc = {
-                    let table = proc.proc_handles.read();
-                    let entry = table.get(&handle_id).ok_or(InvocationError::InvalidHandle)?;
-                    entry.object.clone()
-                };
-
-                self.overlays.write().insert(filename, obj_arc);
-                Ok(0)
+                let handle = proc.proc_handles.write().insert(object, AccessRights::all());
+                Ok(handle.0)
             }
+
+            Invocation::Directory(DirectoryOp::Link { .. }) => Err(InvocationError::UnsupportedOperation),
 
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
-                if !calling_rights.contains(AccessRights::REMOVE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-                let filename = Filename::new(name as *const u8, name_len)?.name;
-
-                let removed = self.overlays.write().remove_entry(&*filename).is_some();
-                if removed {
-                    Ok(0)
-                } else {
-                    let underlying = self.underlying.read().clone();
-                    underlying.invoke(invocation, calling_rights).await
-                }
+                let filename = Filename::new(name as *const u8, name_len)?;
+                KernelDirectory::unlink_child(self, &filename.name).await?;
+                Ok(0)
             }
 
             Invocation::Directory(DirectoryOp::List { offset, sink }) => {
@@ -159,16 +145,67 @@ impl KernelObject for MountDirectory {
                 Ok(0)
             }
 
-            Invocation::Directory(DirectoryOp::CreateFile { .. }) | Invocation::Directory(DirectoryOp::CreateDir { .. }) => {
-                let underlying = self.underlying.read().clone();
-                underlying.invoke(invocation, calling_rights).await
+            Invocation::Directory(DirectoryOp::CreateFile { name, name_len }) => {
+                let filename = Filename::new(name as *const u8, name_len)?;
+                let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
+                let object = KernelDirectory::create_child_file(self, &filename.name, owner).await?;
+                let rights = allowed_rights(&object)?;
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                Ok(proc.proc_handles.write().insert(object, rights).0)
+            }
+
+            Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => {
+                let filename = Filename::new(name as *const u8, name_len)?;
+                let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
+                let object = KernelDirectory::create_child_dir(self, &filename.name, owner).await?;
+                let rights = allowed_rights(&object)?;
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                Ok(proc.proc_handles.write().insert(object, rights).0)
             }
 
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
 
-    fn permissions(&self) -> Option<FilePermissions> {
-        self.underlying.read().permissions()
+    fn permissions(&self) -> Option<FilePermissions> { self.underlying.read().permissions() }
+}
+
+#[async_trait]
+impl KernelDirectory for MountDirectory {
+    async fn lookup_child(&self, name: &str) -> Result<Arc<dyn KernelObject>, InvocationError> {
+        if let Some(object) = self.overlays.read().get(name).cloned() {
+            return Ok(object);
+        }
+
+        let underlying = self.underlying.read().clone();
+        underlying.as_directory().ok_or(InvocationError::UnsupportedOperation)?.lookup_child(name).await
+    }
+
+    async fn create_child_file(&self, name: &str, owner: UserID) -> Result<Arc<dyn KernelObject>, InvocationError> {
+        let underlying = self.underlying.read().clone();
+        underlying.as_directory().ok_or(InvocationError::UnsupportedOperation)?.create_child_file(name, owner).await
+    }
+
+    async fn create_child_dir(&self, name: &str, owner: UserID) -> Result<Arc<dyn KernelObject>, InvocationError> {
+        let underlying = self.underlying.read().clone();
+        underlying.as_directory().ok_or(InvocationError::UnsupportedOperation)?.create_child_dir(name, owner).await
+    }
+
+    async fn link_child(&self, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
+        validate_child_name(name)?;
+        let filename = Filename { name: Box::from(name) };
+        if self.overlays.write().insert(filename, object).is_some() {
+            return Err(InvocationError::InvalidArgument);
+        }
+        Ok(())
+    }
+
+    async fn unlink_child(&self, name: &str) -> Result<(), InvocationError> {
+        validate_child_name(name)?;
+        if self.overlays.write().remove(name).is_some() {
+            return Ok(());
+        }
+        let underlying = self.underlying.read().clone();
+        underlying.as_directory().ok_or(InvocationError::UnsupportedOperation)?.unlink_child(name).await
     }
 }

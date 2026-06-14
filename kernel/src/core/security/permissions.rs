@@ -30,3 +30,8 @@ pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, In
 
     Ok(ret)
 }
+
+pub fn rights_for_permissions(permissions: FilePermissions) -> Result<AccessRights, InvocationError> {
+    let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+    Ok(permissions.allowed_for(proc.credentials.user()))
+}

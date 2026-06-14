@@ -1,20 +1,51 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::{fmt::Debug, pin::Pin, task::{Context, Poll, Waker}};
+use core::fmt::Debug;
+use core::pin::Pin;
+use core::task::{
+    Context,
+    Poll,
+    Waker,
+};
 
 use async_trait::async_trait;
 use vespertine_abi::{
     AccessRights,
-    Invocation, Signal,
+    Invocation,
+    Signal,
+    UserID,
 };
 
-use crate::core::{asynchronous::waiter::AsyncWaiter, object::invoke::InvocationError, security::permissions::FilePermissions};
+use crate::core::asynchronous::waiter::AsyncWaiter;
+use crate::core::object::invoke::InvocationError;
+use crate::core::security::permissions::FilePermissions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectType {
     Directory,
-    File, 
+    File,
     Other,
+}
+
+#[async_trait]
+pub trait KernelDirectory: Send + Sync {
+    async fn lookup_child(&self, name: &str) -> Result<Arc<dyn KernelObject>, InvocationError>;
+
+    async fn create_child_file(&self, _name: &str, _owner: UserID) -> Result<Arc<dyn KernelObject>, InvocationError> {
+        Err(InvocationError::UnsupportedOperation)
+    }
+
+    async fn create_child_dir(&self, _name: &str, _owner: UserID) -> Result<Arc<dyn KernelObject>, InvocationError> {
+        Err(InvocationError::UnsupportedOperation)
+    }
+
+    async fn link_child(&self, _name: &str, _object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
+        Err(InvocationError::UnsupportedOperation)
+    }
+
+    async fn unlink_child(&self, _name: &str) -> Result<(), InvocationError> {
+        Err(InvocationError::UnsupportedOperation)
+    }
 }
 
 #[async_trait]
@@ -27,20 +58,18 @@ pub trait KernelObject: Send + Sync + Debug {
 
     fn current_signals(&self) -> Signal { Signal(0) }
 
-    fn register_waiter(&self, _requested: Signal, _waiter: &Arc<AsyncWaiter>, _waker: &Waker) -> Result<(), InvocationError> { 
-        Err(InvocationError::UnsupportedOperation) 
+    fn register_waiter(&self, _requested: Signal, _waiter: &Arc<AsyncWaiter>, _waker: &Waker) -> Result<(), InvocationError> {
+        Err(InvocationError::UnsupportedOperation)
     }
 
     fn object_type(&self) -> ObjectType { ObjectType::Other }
 
-    fn permissions(&self) -> Option<FilePermissions> {
-        None
-    }
+    fn permissions(&self) -> Option<FilePermissions> { None }
+
+    fn as_directory(&self) -> Option<&dyn KernelDirectory> { None }
 }
 
-pub fn matching_signals(current: Signal, requested: Signal) -> Signal {
-    current & requested
-}
+pub fn matching_signals(current: Signal, requested: Signal) -> Signal { current & requested }
 
 pub struct ObjectWaitFuture<'a> {
     object: &'a dyn KernelObject,
@@ -49,19 +78,11 @@ pub struct ObjectWaitFuture<'a> {
 }
 
 impl<'a> ObjectWaitFuture<'a> {
-    pub fn new(object: &'a dyn KernelObject, requested: Signal) -> Self {
-        Self {
-            object,
-            requested,
-            waiter: AsyncWaiter::new(),
-        }
-    }
+    pub fn new(object: &'a dyn KernelObject, requested: Signal) -> Self { Self { object, requested, waiter: AsyncWaiter::new() } }
 }
 
 impl Drop for ObjectWaitFuture<'_> {
-    fn drop(&mut self) {
-        self.waiter.deactivate();
-    }
+    fn drop(&mut self) { self.waiter.deactivate(); }
 }
 
 impl Future for ObjectWaitFuture<'_> {
@@ -74,10 +95,7 @@ impl Future for ObjectWaitFuture<'_> {
             return Poll::Ready(Ok(0));
         }
 
-        if let Err(error) =
-            this.object
-                .register_waiter(this.requested, &this.waiter, cx.waker())
-        {
+        if let Err(error) = this.object.register_waiter(this.requested, &this.waiter, cx.waker()) {
             return Poll::Ready(Err(error));
         }
 
@@ -89,7 +107,6 @@ impl Future for ObjectWaitFuture<'_> {
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct HandleEntry {

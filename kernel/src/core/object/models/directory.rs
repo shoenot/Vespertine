@@ -30,10 +30,13 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::{KernelObject, ObjectType};
+use crate::core::object::obj::{
+    KernelDirectory,
+    KernelObject,
+    ObjectType,
+};
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 
@@ -80,66 +83,73 @@ impl Filename {
     }
 }
 
+pub fn validate_child_name(name: &str) -> Result<(), InvocationError> {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+        return Err(InvocationError::InvalidArgument);
+    }
+    if name.len() > FILENAME_LEN_MAX {
+        return Err(InvocationError::NameTooLong);
+    }
+    Ok(())
+}
+
+fn register_lookup_result(object: Arc<dyn KernelObject>) -> Result<usize, InvocationError> {
+    let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+    Ok(proc.proc_handles.write().insert(object, AccessRights::all()).0)
+}
+
 #[async_trait]
 impl KernelObject for Directory {
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => self.link(name as *const u8, name_len, handle_id),
-            Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => self.unlink(name as *const u8, name_len),
-            Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name as *const u8, name_len, calling_rights),
+            Invocation::Directory(DirectoryOp::Link { .. }) => Err(InvocationError::UnsupportedOperation),
+            Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
+                let filename = Filename::new(name as *const u8, name_len)?;
+                KernelDirectory::unlink_child(self, &filename.name).await?;
+                Ok(0)
+            }
+            Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => {
+                let filename = Filename::new(name as *const u8, name_len)?;
+                let object = KernelDirectory::lookup_child(self, &filename.name).await?;
+                register_lookup_result(object)
+            }
             Invocation::Directory(DirectoryOp::List { offset, sink }) => self.list_contents(offset, sink).await,
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
+
+    fn as_directory(&self) -> Option<&dyn KernelDirectory> { Some(self) }
 
     fn type_name(&self) -> &'static str { "Directory" }
 
     fn object_type(&self) -> ObjectType { ObjectType::Directory }
 }
 
+#[async_trait]
+impl KernelDirectory for Directory {
+    async fn lookup_child(&self, name: &str) -> Result<Arc<dyn KernelObject>, InvocationError> {
+        validate_child_name(name)?;
+        self.tree.read().get(name).cloned().ok_or(InvocationError::PathNotFound)
+    }
+
+    async fn link_child(&self, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
+        validate_child_name(name)?;
+        let filename = Filename { name: Box::from(name) };
+        if self.tree.write().insert(filename, object).is_some() {
+            return Err(InvocationError::InvalidArgument);
+        }
+        Ok(())
+    }
+
+    async fn unlink_child(&self, name: &str) -> Result<(), InvocationError> {
+        validate_child_name(name)?;
+        self.tree.write().remove(name).ok_or(InvocationError::PathNotFound)?;
+        Ok(())
+    }
+}
+
 impl Directory {
     pub const fn new() -> Self { Self { tree: RwLock::new(BTreeMap::new()) } }
-
-    fn link(&self, name: *const u8, name_len: usize, handle_id: HandleID) -> Result<usize, InvocationError> {
-        let filename = Filename::new(name, name_len)?;
-        let current_thread = get_core_data().scheduler.get_current_thread();
-        let proc = unsafe { &(*current_thread).process };
-
-        let obj_arc = {
-            let table = proc.proc_handles.read();
-            let entry = table.get(&handle_id).ok_or(InvocationError::InvalidHandle)?;
-            entry.object.clone()
-        };
-
-        self.tree.write().insert(filename, obj_arc);
-        Ok(0)
-    }
-
-    fn unlink(&self, name: *const u8, name_len: usize) -> Result<usize, InvocationError> {
-        let filename = Filename::new(name, name_len)?.name;
-        self.tree.write().remove_entry(&*filename);
-        Ok(0)
-    }
-
-    fn lookup(&self, name: *const u8, name_len: usize, calling_rights: AccessRights) -> Result<usize, InvocationError> {
-        if name_len > FILENAME_LEN_MAX {
-            return Err(InvocationError::NameTooLong);
-        };
-        let mut filename = [0u8; 255];
-        let _filename_ptr = filename.as_mut_ptr();
-        let name_str = Filename::new(name, name_len)?.name;
-
-        let obj_arc = {
-            let tree = self.tree.read();
-            match tree.get(&*name_str) {
-                Some(obj) => obj.clone(),
-                None => return Err(InvocationError::PathNotFound),
-            }
-        };
-
-        let handle_id = get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(obj_arc, AccessRights::all());
-        Ok(handle_id.0)
-    }
 
     async fn list_contents(&self, _offset: usize, sink: HandleID) -> Result<usize, InvocationError> {
         let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;

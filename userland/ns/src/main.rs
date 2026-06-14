@@ -2,6 +2,7 @@
 #![no_main]
 use alloc::format;
 use alloc::string::String;
+use vespertine_abi::AccessRights;
 use vespertine_abi::ProcessInitPackage;
 use vespertine_abi::tag::*;
 use vespertine_rt::print;
@@ -48,10 +49,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     match opstr {
         "list" | "ls" => {
-            let dir = if optional_args.is_none() {
-                Dir::from(env::root())
+            let dir = if let Some(path) = optional_args {
+                Dir::open(path.as_str())?
             } else {
-                Dir::open(optional_args.unwrap().as_str())?
+                Dir::open(".")?
             };
             let mut dir_iter = dir.list()?;
             while let Some(entry) = dir_iter.next() {
@@ -121,7 +122,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     &content
                 };
 
-            let file = File::open(path.as_str())?;
+            let file = File::open_with_rights(path.as_str(), AccessRights::WRITE)?;
             file.write_all(trimmed_content.as_bytes())?;
             println!("File written successfully");
         }

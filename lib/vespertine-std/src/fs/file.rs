@@ -43,15 +43,8 @@ impl File {
     }
 
     pub fn create(path: &str) -> Result<Self, Error> {
-        if let Ok(handle) = walk_path(path, AccessRights::CREATE) {
-            let _ = sys_close(handle);
-            return Err(Error {
-                kind: ErrorKind::InvalidArgument,
-                message: "A file or directory already exists at this path".into(),
-            });
-        }
         let (parent_path, file_name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, AccessRights::WRITE)?;
+        let parent_handle = walk_path(parent_path, AccessRights::CREATE)?;
         let handle = sys_create_file(parent_handle, file_name).map_err(Error::from)?;
 
         let _ = sys_close(parent_handle);

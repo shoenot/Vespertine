@@ -62,7 +62,6 @@ impl Display for EntryKind {
 
 pub struct ReadDir {
     read_end: Socket,
-    write_end: Socket,
     finished: bool,
     buffer: [u8; 4096],
     cursor: usize,
@@ -186,9 +185,10 @@ impl Dir {
 
         sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
 
+        write_end.close();
+
         Ok(ReadDir {
             read_end,
-            write_end,
             finished: false,
             buffer: [0u8; 4096],
             cursor: 0,
@@ -215,15 +215,8 @@ impl Dir {
     }
 
     pub fn create_dir(path: &str) -> Result<Self, Error> {
-        if let Ok(handle) = walk_path(path, AccessRights::CREATE) {
-            let _ = sys_close(handle);
-            return Err(Error {
-                kind: ErrorKind::InvalidArgument,
-                message: "A file or directory already exists at this path".into(),
-            });
-        }
         let (parent_path, dir_name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, AccessRights::WRITE)?;
+        let parent_handle = walk_path(parent_path, AccessRights::CREATE)?;
         let handle = sys_create_dir(parent_handle, dir_name).map_err(Error::from)?;
 
         let _ = sys_close(parent_handle);

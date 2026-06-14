@@ -56,7 +56,7 @@ pub fn build_exec(name: &str, args: &[String], context: &ShellContext) -> Result
     let exec = Exec::new(name.into())
         .source(env::source())
         .sink(env::sink())
-        .cwd(context.cwd_handle(), child_fs_rights)
+        .cwd(context.cwd_handle(), AccessRights::TRAVERSE)
         .args(args)
         .root_rights(child_fs_rights);
 

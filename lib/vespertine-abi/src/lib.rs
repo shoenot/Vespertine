@@ -113,6 +113,8 @@ define_bitflags! {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct ProcStatus {
     pub pid: usize,
     pub user: UserID,

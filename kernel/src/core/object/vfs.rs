@@ -53,22 +53,19 @@ pub fn debug_dump_handles() {
     klogln!("{:#?}", *table);
 }
 
-pub async fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
-    kernel_invoke(root, Invocation::Directory(DirectoryOp::Link { name: name.as_ptr() as usize, name_len: name.len(), handle_id: handle }))
-        .await
-        .expect("Link failed.");
+pub async fn mount_kernel_object(parent: Arc<dyn KernelObject>, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
+    parent.as_directory().ok_or(InvocationError::UnsupportedOperation)?.link_child(name, object).await
 }
 
 pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights) -> Result<HandleID, InvocationError> {
     let root = HandleID(0);
 
-    kernel_invoke(root, Invocation::Directory(DirectoryOp::Resolve {
-            start,
-            path_ptr: path.as_ptr() as usize,
-            path_len: path.len(),
-            rights,
-        }),
-    ).await.map(HandleID)
+    kernel_invoke(
+        root,
+        Invocation::Directory(DirectoryOp::Resolve { start, path_ptr: path.as_ptr() as usize, path_len: path.len(), rights }),
+    )
+    .await
+    .map(HandleID)
 }
 
 pub fn kernel_root_location() -> Arc<DirLocation> {
@@ -159,7 +156,5 @@ impl KernelObject for FileDescription {
         }
     }
 
-    fn permissions(&self) -> Option<FilePermissions> {
-        self.inner.permissions()
-    }
+    fn permissions(&self) -> Option<FilePermissions> { self.inner.permissions() }
 }
