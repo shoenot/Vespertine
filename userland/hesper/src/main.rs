@@ -28,6 +28,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     Exec::new("terminal".into())
         .source(env::source())
         .sink(env::sink())
+        .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
         .grant(CAP_LOGGER, AccessRights::WRITE)?
         .spawn()?;

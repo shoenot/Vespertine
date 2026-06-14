@@ -90,9 +90,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     Exec::new("dusk".into())
         .source(app_stdin.handle())
         .sink(app_stdout.handle())
-        .root_rights(
-            AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE,
-        )
+        .cwd(env::cwd(), AccessRights::all())
+        .root_rights(AccessRights::all())
         .grant_new(
             app_ctrl.handle(), 
             CAP_APP_TERMCTRL, 

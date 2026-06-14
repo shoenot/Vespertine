@@ -68,7 +68,7 @@ impl KernelObject for MountDirectory {
             }
 
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
+                if !calling_rights.contains(AccessRights::CREATE) {
                     return Err(InvocationError::AccessDenied);
                 }
                 let filename = Filename::new(name as *const u8, name_len)?;
@@ -84,7 +84,7 @@ impl KernelObject for MountDirectory {
             }
 
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
+                if !calling_rights.contains(AccessRights::REMOVE) {
                     return Err(InvocationError::AccessDenied);
                 }
                 let filename = Filename::new(name as *const u8, name_len)?.name;

@@ -43,7 +43,7 @@ impl File {
     }
 
     pub fn create(path: &str) -> Result<Self, Error> {
-        if let Ok(handle) = walk_path(path, AccessRights::READ) {
+        if let Ok(handle) = walk_path(path, AccessRights::CREATE) {
             let _ = sys_close(handle);
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,

@@ -13,15 +13,11 @@ use crate::core::object::models::directory::*;
 use crate::core::object::models::log::Log;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::mount_dir::MountDirectory;
-use crate::core::object::models::namespace::DirLocation;
+use crate::core::object::models::namespace::{DirLocation, kernel_namespace_authority, resolve_kernel_object};
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
-    ROOT_DIRECTORY,
-    kernel_close,
-    kernel_register_obj,
-    kernel_walk,
-    mount_kernel_dir,
+    ROOT_DIRECTORY, kernel_register_obj, kernel_root_location, mount_kernel_dir
 };
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::get_current_process;
@@ -44,12 +40,10 @@ pub async fn init_vfs() {
     mount_dir.set_underlying(root);
     klogln!("[SUCCESS] Ext2 root directory mounted at /");
 
-    let sys_handle = kernel_walk("/System", HandleID(0), AccessRights::READ).await.expect("System directory missing!");
-    let table = get_current_process().expect("Could not get kernel process").proc_handles.read();
-    let sys_obj = table.resolve(sys_handle, AccessRights::READ).expect("...");
-    drop(table);
-    let _ = kernel_close(sys_handle);
+    let authority = kernel_namespace_authority();
+    let root_location = kernel_root_location();
 
+    let sys_obj = resolve_kernel_object(&authority, root_location, "/System").await.expect("System directory missing");
     let sys_mount = Arc::new(MountDirectory::new(sys_obj));
     let sys_mount_handle = kernel_register_obj(sys_mount, AccessRights::all());
     mount_kernel_dir("System", sys_mount_handle, HandleID(0)).await;
@@ -58,9 +52,9 @@ pub async fn init_vfs() {
     let srv_dir = Arc::new(Directory::new());
     let log_dir = Arc::new(Directory::new());
 
-    let dev_handle = kernel_register_obj(dev_dir, AccessRights::READ | AccessRights::WRITE);
-    let srv_handle = kernel_register_obj(srv_dir, AccessRights::READ | AccessRights::WRITE);
-    let log_handle = kernel_register_obj(log_dir, AccessRights::READ | AccessRights::WRITE);
+    let dev_handle = kernel_register_obj(dev_dir, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
+    let srv_handle = kernel_register_obj(srv_dir, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
+    let log_handle = kernel_register_obj(log_dir, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
 
     // mount all dirs
     mount_kernel_dir("Devices", dev_handle, HandleID(0)).await;

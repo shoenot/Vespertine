@@ -16,6 +16,7 @@ use vespertine_abi::{
 };
 
 use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::namespace::DirLocation;
 use crate::core::object::models::process::Process;
 use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::FilePermissions;
@@ -68,6 +69,11 @@ pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights) -> R
             rights,
         }),
     ).await.map(HandleID)
+}
+
+pub fn kernel_root_location() -> Arc<DirLocation> {
+    let root = ROOT_DIRECTORY.get().expect("[FATAL] ROOT_DIRECTORY uninitialized");
+    root.as_any().downcast_ref::<DirLocation>().expect("[FATAL] ROOT_DIRECTORY is not a DirLocation").arc_clone()
 }
 
 pub fn proc_register_obj(proc: &Process, obj: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {

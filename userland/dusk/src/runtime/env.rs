@@ -35,7 +35,7 @@ impl ShellContext {
     pub fn change_dir(&mut self, path: ShellPath) -> Result<(), Error> {
         let path_string = path.to_string();
 
-        let new_handle = walk_path_from(&path_string, env::root(), self.cwd_handle, AccessRights::READ)?;
+        let new_handle = walk_path_from(&path_string, env::root(), self.cwd_handle, AccessRights::all())?;
         let new_display_path = self.cwd.join(&path);
 
         if self.cwd_handle != env::cwd() {

@@ -17,6 +17,20 @@ static NEXT_LOCATION_ID: AtomicUsize = AtomicUsize::new(1);
 
 const PATH_MAX: usize = 4096;
 
+#[derive(Debug)]
+pub struct KernelNamespaceAuthority {
+    _private: (),
+}
+
+pub(crate) fn kernel_namespace_authority() -> KernelNamespaceAuthority {
+    KernelNamespaceAuthority { _private: () }
+}
+
+enum KernelResolved {
+    Directory(Arc<DirLocation>),
+    Object(Arc<dyn KernelObject>),
+}
+
 enum Resolved {
     Directory(Arc<DirLocation>),
     Object(Arc<dyn KernelObject>),
@@ -73,17 +87,17 @@ impl DirLocation {
         false
     }
 
-    fn arc_clone(&self) -> Arc<Self> {
+    pub(crate) fn arc_clone(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
 
     async fn resolve(&self, start_handle: HandleID, path: &str, requested_rights: AccessRights, root_rights: AccessRights) -> Result<usize, InvocationError> {
         let root = self.arc_clone();
-        let (start, _) = resolve_location(start_handle, AccessRights::TRAVERSE)?;
         let ns_ceiling = root_rights;
         let mut ancestry = if path.starts_with('/') {
             vec![root.clone()]
         } else {
+            let (start, _) = resolve_location(start_handle, AccessRights::TRAVERSE)?;
             ancestry_from(&root, &start)?
         };
         let mut resolved = Resolved::Directory(ancestry.last().ok_or(InvocationError::InvalidArgument)?.clone());
@@ -147,12 +161,7 @@ impl DirLocation {
             return Err(InvocationError::AccessDenied);
         }
 
-        register_result(object.clone(), requested_rights)?;
-
-        let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-        let handle = proc.proc_handles.write().insert(object, requested_rights);
-
-        Ok(handle.0)
+        register_result(object, requested_rights)
     }
 
     async fn lookup(&self, name_ptr: usize, name_len: usize, capability_rights: AccessRights) -> Result<usize, InvocationError> {
@@ -311,4 +320,62 @@ fn wrap_child_directory(child: Arc<dyn KernelObject>, parent: Arc<DirLocation>) 
 fn register_result(object: Arc<dyn KernelObject>, rights: AccessRights) -> Result<usize, InvocationError> {
     let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
     Ok(proc.proc_handles.write().insert(object, rights).0)
+}
+
+pub async fn resolve_kernel_object(_authority: &KernelNamespaceAuthority, root: Arc<DirLocation>, path: &str) -> Result<Arc<dyn KernelObject>, InvocationError> {
+    if path.len() > PATH_MAX {
+        return Err(InvocationError::NameTooLong);
+    }
+
+    let mut ancestry = vec![root.clone()];
+    let mut resolved = KernelResolved::Directory(root);
+
+    for component in Components::new(path) {
+        match component {
+            Component::Root => {
+                ancestry.truncate(1);
+                resolved = KernelResolved::Directory(ancestry[0].clone());
+            }
+
+            Component::Current => {
+                if !matches!(resolved, KernelResolved::Directory(_)) {
+                    return Err(InvocationError::InvalidArgument);
+                }
+            }
+
+            Component::Parent => {
+                if !matches!(resolved, KernelResolved::Directory(_)) {
+                    return Err(InvocationError::InvalidArgument);
+                }
+
+                if ancestry.len() > 1 { ancestry.pop(); }
+
+                resolved = KernelResolved::Directory(ancestry.last().ok_or(InvocationError::InvalidArgument)?.clone());
+            }
+
+            Component::Normal(name) => {
+                if !matches!(resolved, KernelResolved::Directory(_)) {
+                    return Err(InvocationError::InvalidArgument);
+                }
+
+                let current = ancestry.last().ok_or(InvocationError::InvalidArgument)?;
+
+                let child = lookup_raw_child(&current.directory(), name, AccessRights::all()).await?;
+
+                if child.object_type() == ObjectType::Directory {
+                    let location = DirLocation::child(child, current.clone());
+
+                    ancestry.push(location.clone());
+                    resolved = KernelResolved::Directory(location);
+                } else {
+                    resolved = KernelResolved::Object(child);
+                }
+            }
+        }
+    }
+
+    Ok(match resolved {
+        KernelResolved::Directory(location) => location,
+        KernelResolved::Object(object) => object,
+    })
 }

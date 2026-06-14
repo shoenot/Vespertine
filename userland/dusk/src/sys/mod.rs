@@ -50,15 +50,15 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
 }
 
 pub fn build_exec(name: &str, args: &[String], context: &ShellContext) -> Result<Exec, Error> {
-    let cwd_rights = AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE;
+    let child_fs_rights = 
+        AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE |
+        AccessRights::TRAVERSE | AccessRights::REMOVE | AccessRights::LIST;
     let exec = Exec::new(name.into())
         .source(env::source())
         .sink(env::sink())
-        .cwd(context.cwd_handle(), cwd_rights)
+        .cwd(context.cwd_handle(), child_fs_rights)
         .args(args)
-        .root_rights(
-            AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE,
-        );
+        .root_rights(child_fs_rights);
 
     match name {
         "kilo" => exec.grant(CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE),

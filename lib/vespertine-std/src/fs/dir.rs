@@ -165,7 +165,7 @@ impl Iterator for ReadDir {
 
 impl Dir {
     pub fn open(path: &str) -> Result<Self, Error> {
-        Self::open_with_rights(path, AccessRights::READ)
+        Self::open_with_rights(path, AccessRights::LIST | AccessRights::TRAVERSE)
     }
 
     pub fn open_with_rights(path: &str, rights: AccessRights) -> Result<Self, Error> {
@@ -215,7 +215,7 @@ impl Dir {
     }
 
     pub fn create_dir(path: &str) -> Result<Self, Error> {
-        if let Ok(handle) = walk_path(path, AccessRights::READ) {
+        if let Ok(handle) = walk_path(path, AccessRights::CREATE) {
             let _ = sys_close(handle);
             return Err(Error {
                 kind: ErrorKind::InvalidArgument,
@@ -233,7 +233,7 @@ impl Dir {
 
     pub fn remove(path: &str) -> Result<(), Error> {
         let (parent_path, name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, AccessRights::WRITE)?;
+        let parent_handle = walk_path(parent_path, AccessRights::REMOVE)?;
         sys_unlink(parent_handle, name).map_err(Error::from)?;
         let _ = sys_close(parent_handle);
         Ok(())
