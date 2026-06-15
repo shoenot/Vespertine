@@ -387,63 +387,23 @@ impl Display for PathBuf {
 }
 
 pub fn split_parent_name<'a>(path: &'a Path<'a>) -> Result<(PathBuf, &'a str), PathError> {
-    let mut absolute = false;
-    let mut components: Vec<&'a str> = Vec::new();
+  path.validate()?;
 
-    for component in path.components() {
-        match component {
-            Component::Root => {
-                absolute = true;
-                components.clear();
-            }
+  let raw = path.as_str().trim_end_matches('/');
 
-            Component::Current => {}
+  if raw.is_empty() {
+      return Err(PathError::NoFileName);
+  }
 
-            Component::Parent => {
-                if !components.is_empty() {
-                    components.pop();
-                } else if !absolute {
-                    components.push("..");
-                }
-            }
+  let (parent, name) = match raw.rfind('/') {
+      Some(0) => (PathBuf::root(), &raw[1..]),
+      Some(index) => (PathBuf::from_str(&raw[..index]), &raw[index + 1..]),
+      None => (PathBuf::current(), raw),
+  };
 
-            Component::Normal(name) => {
-                components.push(name);
-            }
-        }
-    }
-
-    let Some(name) = components.pop() else {
-        return Err(PathError::NoFileName);
-    };
-
-    if name == "." || name == ".." {
-        return Err(PathError::NoFileName);
-    }
-
-    let parent = if components.is_empty() {
-        if absolute {
-            PathBuf::from_str("/")
-        } else {
-            PathBuf::from_str(".")
-        }
-    } else {
-        let mut inner = String::new();
-
-        if absolute {
-            inner.push('/');
-        }
-
-        inner.push_str(&components.join("/"));
-
-        PathBuf { inner }
-    };
-
-    validate_file_name(name)?;
-
-    Ok((parent, name))
+  validate_file_name(name)?;
+  Ok((parent, name))
 }
-
 
 pub fn validate_file_name(name: &str) -> Result<(), PathError> {
     if name.is_empty() || name == "." || name == ".." {
@@ -512,4 +472,13 @@ fn split_parent_and_name() {
     assert!(split_parent_name(&Path::new("/")).is_err());
     assert!(split_parent_name(&Path::new(".")).is_err());
     assert!(split_parent_name(&Path::new("..")).is_err());
+}
+
+#[test]
+fn split_preserves_parent_traversal() {
+  let (parent, name) =
+      split_parent_name(&Path::new("missing/../file")).unwrap();
+
+  assert_eq!(parent.as_str(), "missing/..");
+  assert_eq!(name, "file");
 }

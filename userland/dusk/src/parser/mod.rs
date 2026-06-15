@@ -4,9 +4,10 @@ use core::iter::Peekable;
 
 use ast::*;
 
-use alloc::{string::String, vec::{IntoIter, Vec}};
+use alloc::{boxed::Box, string::String, vec::{IntoIter, Vec}};
+use vespertine_std::fs::PathBuf;
 
-use crate::{error::ShellError, lexer::Token, runtime::ShellPath};
+use crate::{error::ShellError, lexer::Token};
 
 
 pub struct Parser {
@@ -51,14 +52,14 @@ impl Parser {
                 },
                 "cd" => match self.advance() {
                     None => CommandNode::ChangeDir {
-                        path: ShellPath::new("/"),
+                        path: PathBuf::root(),
                     },
                     Some(Token::Word(path)) => {
                         if self.peek().is_some() {
                             return Err(ShellError::InvalidToken);
                         }
                         CommandNode::ChangeDir {
-                            path: ShellPath::new(path.as_str()),
+                            path: PathBuf::from(path),
                         }
                     }
                     _ => return Err(ShellError::InvalidToken),
@@ -77,15 +78,22 @@ impl Parser {
     pub fn collect_args(&mut self) -> Result<Vec<String>, ShellError> {
         let mut args = Vec::new();
         while let Some(token) = self.advance() {
-            match token {
-                Token::Word(word) => args.push(word),
-                _ => return Err(ShellError::InvalidToken),
+            if token != Token::Pipe {
+                match token {
+                    Token::Word(word) => args.push(word),
+                    _ => return Err(ShellError::InvalidToken),
+                }
             }
         }
         Ok(args)
     }
 
-    pub fn parse_line(&mut self) -> Result<BaseNode, ShellError> {
-        Ok(BaseNode::Cmd(self.parse_command()?))
+    pub fn parse_base(&mut self) -> Result<BaseNode, ShellError> {
+        let ret = BaseNode::Cmd(self.parse_command()?);
+        if matches!(self.peek(), Some(Token::Pipe)) {
+            let second = self.parse_base()?;
+            return Ok(BaseNode::Pipe(Box::new(ret), Box::new(second)));
+        }
+        Ok(ret)
     }
 }

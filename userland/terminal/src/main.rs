@@ -16,7 +16,6 @@ use vespertine_rt::syscall::{
 };
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::clock::{Clock, Time};
-use vespertine_std::fs::walk_path;
 use vespertine_std::log::SystemLog;
 use vespertine_std::socket::Socket;
 use vespertine_std::{Error, fb::Framebuffer};

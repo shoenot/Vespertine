@@ -1,14 +1,12 @@
 use alloc::{collections::btree_map::BTreeMap, format, string::{String, ToString}};
 use vespertine_abi::{AccessRights, HandleID, ProcessExitInfo};
 use vespertine_rt::syscall::sys_close;
-use vespertine_std::{Error, env, fs::walk_path_from};
+use vespertine_std::{Error, env, fs::{Path, PathBuf, resolve, resolve_from}};
 
 use crate::sys::ShellResult;
 
-use super::ShellPath;
-
 pub struct ShellContext {
-    cwd: ShellPath,
+    cwd: PathBuf,
     cwd_handle: HandleID,
     environment: BTreeMap<String, String>,
     pub last_result: ShellResult,
@@ -17,14 +15,14 @@ pub struct ShellContext {
 impl ShellContext {
     pub fn new() -> Self {
         Self {
-            cwd: ShellPath::new("/"),
+            cwd: PathBuf::root(),
             cwd_handle: env::cwd(),
             environment: BTreeMap::new(),
             last_result: ShellResult::None,
         }
     }
 
-    pub fn cwd(&self) -> &ShellPath {
+    pub fn cwd(&self) -> &PathBuf {
         &self.cwd
     }
 
@@ -32,11 +30,9 @@ impl ShellContext {
         self.cwd_handle
     }
 
-    pub fn change_dir(&mut self, path: ShellPath) -> Result<(), Error> {
-        let path_string = path.to_string();
-
-        let new_handle = walk_path_from(&path_string, env::root(), self.cwd_handle, AccessRights::TRAVERSE)?;
-        let new_display_path = self.cwd.join(&path);
+    pub fn change_dir(&mut self, path: PathBuf) -> Result<(), Error> {
+        let new_handle = resolve_from(&path.as_path(), env::root(), self.cwd_handle, AccessRights::TRAVERSE)?;
+        let new_display_path = self.cwd.join(&path.as_path());
 
         if self.cwd_handle != env::cwd() {
             let _ = sys_close(self.cwd_handle);

@@ -1,7 +1,5 @@
-mod path;
 pub mod env;
 use alloc::string::{String, ToString};
-pub use path::*;
 use vespertine_abi::ProcessExitInfo;
 use vespertine_rt::{print, println};
 
@@ -26,6 +24,7 @@ impl ShellRuntime {
 
         let res = match base {
             BaseNode::Cmd(cmd) => self.run_command(cmd),
+            BaseNode::Pipe(_, _) => unimplemented!(),
         };
 
         self.context.last_result = res.clone();

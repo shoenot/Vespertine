@@ -6,20 +6,18 @@ use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
 use vespertine_abi::{
     DirectoryOp, HandleID, Invocation, protocol::PacketHeader,
 };
-use vespertine_rt::syscall::{
-    sys_close, sys_create_dir, sys_create_socket, sys_invoke, sys_read, sys_unlink,
-};
+use vespertine_rt::syscall::{sys_close, sys_create_dir, sys_invoke, sys_unlink};
 
 use crate::Read;
-use crate::fs::parse_parent_and_name;
+use crate::fs::{Path, split_parent_name};
 use crate::socket::Socket;
-use crate::{Error, ErrorKind, fs::walk_path};
+use crate::{Error, fs::resolve};
 
 extern crate alloc;
 
 use alloc::string::String;
 
-pub struct Dir(pub HandleID);
+pub struct Dir(HandleID);
 
 #[repr(C)]
 pub struct DirEntry {
@@ -163,15 +161,19 @@ impl Iterator for ReadDir {
 }
 
 impl Dir {
-    pub fn open(path: &str) -> Result<Self, Error> {
+    pub fn open(path: &Path<'_>) -> Result<Self, Error> {
         Self::open_with_rights(path, AccessRights::LIST | AccessRights::TRAVERSE)
     }
 
-    pub fn open_with_rights(path: &str, rights: AccessRights) -> Result<Self, Error> {
-        walk_path(path, rights).map(Dir).map_err(Error::from)
+    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> {
+        resolve(path, rights).map(Dir)
     }
 
-    pub fn from(handle: HandleID) -> Self {
+    pub fn handle(&self) -> HandleID {
+        self.0
+    }
+
+    pub fn from_handle(handle: HandleID) -> Self {
         Dir(handle)
     }
 
@@ -202,7 +204,7 @@ impl Dir {
             name_len: name.len(),
         };
         let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
-        Ok(Dir::from(HandleID(handle)))
+        Ok(Dir::from_handle(HandleID(handle)))
     }
 
     pub fn lookup(&self, name: &str) -> Result<HandleID, Error> {
@@ -214,21 +216,25 @@ impl Dir {
         Ok(HandleID(handle))
     }
 
-    pub fn create_dir(path: &str) -> Result<Self, Error> {
-        let (parent_path, dir_name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, AccessRights::CREATE)?;
-        let handle = sys_create_dir(parent_handle, dir_name).map_err(Error::from)?;
-
-        let _ = sys_close(parent_handle);
-
-        Ok(Dir::from(handle))
+    pub fn create_dir(path: &Path<'_>) -> Result<Self, Error> {
+        let (parent_path, dir_name) = split_parent_name(path).map_err(Error::from)?;
+        let parent = resolve(&parent_path.as_path(), AccessRights::CREATE)?;
+        let res = sys_create_dir(parent, dir_name).map(Dir::from_handle);
+        let _ = sys_close(parent);
+        res.map_err(Error::from)
     }
 
-    pub fn remove(path: &str) -> Result<(), Error> {
-        let (parent_path, name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, AccessRights::REMOVE)?;
-        sys_unlink(parent_handle, name).map_err(Error::from)?;
-        let _ = sys_close(parent_handle);
-        Ok(())
+    pub fn remove(path: &Path<'_>) -> Result<(), Error> {
+        let (parent_path, name) = split_parent_name(path).map_err(Error::from)?;
+        let parent = resolve(&parent_path.as_path(), AccessRights::REMOVE)?;
+        let res = sys_unlink(parent, name);
+        let _ = sys_close(parent);
+        res.map_err(Error::from)
+    }
+}
+
+impl Drop for Dir {
+    fn drop(&mut self) {
+        let _ = sys_close(self.0);
     }
 }

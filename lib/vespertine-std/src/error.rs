@@ -1,6 +1,7 @@
 use vespertine_rt::syscall::SysError;
-extern crate alloc;
-use alloc::string::String;
+extern crate alloc; use alloc::string::String;
+
+use crate::fs::PathError;
 
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -24,6 +25,8 @@ pub enum ErrorKind {
     InvalidEncoding,
     NotMapped,
     UnsupportedOperation,
+    PathEmpty,
+    PathContainsNull,
     Unknown,
 }
 
@@ -44,6 +47,21 @@ impl From<SysError> for Error {
             SysError::InvalidEncoding => ErrorKind::InvalidEncoding,
             SysError::NotMapped => ErrorKind::NotMapped,
             _ => ErrorKind::Unknown,
+        };
+        Error {
+            kind,
+            message: "".into(),
+        }
+    }
+}
+
+impl From<PathError> for Error {
+    fn from(e: PathError) -> Self {
+        let kind = match e {
+            PathError::Empty        => ErrorKind::PathEmpty,
+            PathError::ContainsNull => ErrorKind::PathContainsNull,
+            PathError::NoFileName   => ErrorKind::InvalidArgument,
+            PathError::NameTooLong  => ErrorKind::NameTooLong,
         };
         Error {
             kind,

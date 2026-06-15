@@ -17,7 +17,8 @@ use vespertine_std::Write;
 use vespertine_std::env;
 use vespertine_std::fs::Dir;
 use vespertine_std::fs::File;
-use vespertine_std::fs::walk_path;
+use vespertine_std::fs::Path;
+use vespertine_std::fs::resolve;
 extern crate alloc;
 
 #[unsafe(no_mangle)]
@@ -50,9 +51,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     match opstr {
         "list" | "ls" => {
             let dir = if let Some(path) = optional_args {
-                Dir::open(path.as_str())?
+                Dir::open(&Path::new(path.as_str()))?
             } else {
-                Dir::open(".")?
+                Dir::open(&Path::new("."))?
             };
             let mut dir_iter = dir.list()?;
             while let Some(entry) = dir_iter.next() {
@@ -64,7 +65,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         "read" | "cat" => {
             let errmsg = String::from(format!("{} needs a directory path to create", opstr));
             if let Some(filepath) = optional_args {
-                let filestr = File::open(filepath.as_str())?;
+                let filestr = File::open(&Path::new(filepath.as_str()))?;
                 print_stream(&filestr)?;
             } else {
                 return Err(Error {
@@ -79,7 +80,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 kind: ErrorKind::InvalidArgument,
                 message: errmsg,
             })?;
-            Dir::create_dir(path.as_str())?;
+            Dir::create_dir(&Path::new(path.as_str()))?;
             println!("Directory created successfully");
         }
         "newfile" | "touch" => {
@@ -88,7 +89,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 kind: ErrorKind::InvalidArgument,
                 message: errmsg,
             })?;
-            File::create(path.as_str())?;
+            File::create(&Path::new(path.as_str()))?;
             println!("File created successfully");
         }
         "delete" | "rm" => {
@@ -97,7 +98,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                 kind: ErrorKind::InvalidArgument,
                 message: errmsg,
             })?;
-            Dir::remove(path.as_str())?;
+            Dir::remove(&Path::new(path.as_str()))?;
             println!("File created successfully");
         }
         "write" => {
@@ -122,7 +123,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                     &content
                 };
 
-            let file = File::open_with_rights(path.as_str(), AccessRights::WRITE)?;
+            let file = File::open_with_rights(&Path::new(path.as_str()), AccessRights::WRITE)?;
             file.write_all(trimmed_content.as_bytes())?;
             println!("File written successfully");
         }

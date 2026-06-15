@@ -1,35 +1,40 @@
-use crate::Error;
+use crate::{Error, fs::resolve};
 pub use crate::path::*;
 use crate::{
     ErrorKind,
-    fs::parse_parent_and_name,
     io::{Read, Write},
 };
-use core::cell::Cell;
 use core::ops::Drop;
 use vespertine_abi::{AccessRights, FileOp, HandleID, Invocation};
 use vespertine_rt::syscall::{sys_close, sys_create_file, sys_invoke, sys_read, sys_write};
 
 extern crate alloc;
 
+pub enum SeekFrom {
+    Start(usize),
+    Current(i64),
+    End(i64),
+}
+
 pub struct File {
-    pub handle: HandleID,
+    handle: HandleID,
 }
 
 impl File {
-    pub fn open(path: &str) -> Result<Self, Error> {
+    pub fn open(path: &Path<'_>) -> Result<Self, Error> {
         Self::open_with_rights(path, AccessRights::READ)
     }
 
-    pub fn open_with_rights(path: &str, rights: AccessRights) -> Result<Self, Error> {
-        walk_path(path, rights).map(File::from).map_err(Error::from)
+    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> {
+        resolve(path, rights).map(File::from_handle)
     }
 
-    pub fn from(handle: HandleID) -> Self {
-        Self {
-            handle,
-            cursor: Cell::new(0),
-        }
+    pub fn handle(&self) -> HandleID {
+        self.handle
+    }
+
+    pub fn from_handle(handle: HandleID) -> Self {
+        Self { handle }
     }
 
     pub fn stat(&self) -> Result<usize, Error> {
@@ -37,44 +42,44 @@ impl File {
         sys_invoke(self.handle, &Invocation::File(op)).map_err(Error::from)
     }
 
-    pub fn seek(&self, pos: usize) {
-        self.cursor.set(pos);
+    pub fn seek(&self, from: SeekFrom) -> Result<usize, Error> {
+        let (offset, whence) = match from {
+            SeekFrom::Start(offset) => {
+                (i64::try_from(offset).map_err(|_| Error { kind: ErrorKind::InvalidArgument, message: "".into() })?, 0)
+            },
+            SeekFrom::Current(offset) => (offset, 1),
+            SeekFrom::End(offset) => (offset, 2),
+        };
+
+        sys_invoke(self.handle, &Invocation::File(FileOp::Seek { offset, whence })).map_err(Error::from)
     }
 
-    pub fn create(path: &str) -> Result<Self, Error> {
-        let (parent_path, file_name) = parse_parent_and_name(path);
-        let parent_handle = walk_path(parent_path, AccessRights::CREATE)?;
-        let handle = sys_create_file(parent_handle, file_name).map_err(Error::from)?;
+    pub fn create(path: &Path<'_>) -> Result<Self, Error> {
+        let (parent_path, dir_name) = split_parent_name(path).map_err(Error::from)?;
+        let parent = resolve(&parent_path.as_path(), AccessRights::CREATE)?;
+        let res = sys_create_file(parent, dir_name).map(File::from_handle);
+        let _ = sys_close(parent);
+        res.map_err(Error::from)
+    }
 
-        let _ = sys_close(parent_handle);
-
-        Ok(File::from(handle))
+    pub fn read_at(&self, buf: &mut [u8], offset: usize) -> Result<usize, Error> {
+        sys_read(self.handle, buf.as_mut_ptr(), buf.len(), offset).map_err(Error::from)
+    }
+    
+    pub fn write_at(&self, buf: &[u8], offset: usize) -> Result<usize, Error> {
+        sys_write(self.handle, buf.as_ptr(), buf.len(), offset).map_err(Error::from)
     }
 }
 
 impl Read for File {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        let offset = self.cursor.get();
-        match sys_read(self.handle, buf.as_mut_ptr(), buf.len(), offset) {
-            Ok(n) => {
-                self.cursor.set(offset + n);
-                Ok(n)
-            }
-            Err(e) => Err(Error::from(e)),
-        }
+        sys_read(self.handle, buf.as_mut_ptr(), buf.len(), usize::MAX).map_err(Error::from)
     }
 }
 
 impl Write for File {
     fn write(&self, buf: &[u8]) -> Result<usize, Error> {
-        let offset = self.cursor.get();
-        match sys_write(self.handle, buf.as_ptr(), buf.len(), offset) {
-            Ok(n) => {
-                self.cursor.set(offset + n);
-                Ok(n)
-            }
-            Err(e) => Err(Error::from(e)),
-        }
+        sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from)
     }
 }
 

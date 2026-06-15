@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use vespertine_rt::{once::OnceCell, syscall::{sys_close, sys_invoke, sys_yield}};
 
 use crate::{
-    Error, ErrorKind, broker::Broker, env, fs::{Dir, walk_path}, socket::Socket
+    Error, ErrorKind, broker::Broker, env, fs::{Dir, Path, resolve}, socket::Socket
 };
 
 struct ProcManager {
@@ -17,7 +17,7 @@ struct ProcManager {
 
 impl ProcManager {
     pub fn request() -> Result<Self, Error> {
-        let broker_handle = walk_path("/System/Services/ProcManager", AccessRights::READ).map_err(Error::from)?;
+        let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_PROCMAN, AccessRights::CREATE | AccessRights::EXECUTE)?;
         Ok(Self { handle })
@@ -169,7 +169,7 @@ impl Exec {
 
     pub fn spawn(self) -> Result<Process, Error> {
         let exec_path = format!("/Programs/{}", self.exec_name);
-        let exec = walk_path(exec_path.as_str(), AccessRights::READ)?;
+        let exec = resolve(&Path::new(exec_path.as_str()), AccessRights::READ)?;
 
         // null terminated args buffer
         let mut args_buf = Vec::new();

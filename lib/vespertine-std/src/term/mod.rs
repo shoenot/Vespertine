@@ -2,7 +2,7 @@ use core::mem::forget;
 
 use vespertine_abi::{
     app::termios::*,
-    protocol::{PacketType, VESPER_MAGIC},
+    protocol::{PacketType},
     tag::CAP_APP_TERMCTRL,
 };
 
