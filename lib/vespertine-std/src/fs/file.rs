@@ -14,7 +14,6 @@ extern crate alloc;
 
 pub struct File {
     pub handle: HandleID,
-    cursor: Cell<usize>,
 }
 
 impl File {
