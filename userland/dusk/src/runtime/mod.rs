@@ -20,7 +20,7 @@ impl ShellRuntime {
         let mut tokenizer = Tokenizer;
         let tokens = tokenizer.tokenize_line(line)?;
         let mut parser = Parser::new(tokens);
-        let base = parser.parse_line()?;
+        let base = parser.parse_base()?;
 
         let res = match base {
             BaseNode::Cmd(cmd) => self.run_command(cmd),

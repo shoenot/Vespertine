@@ -2,7 +2,7 @@
 MAKEFLAGS += -rR --silent
 .SUFFIXES:
 
-USER_PROGS  := hesper ns terminal dt dusk con
+USER_PROGS  := hesper ns terminal dt dusk stream
 TARGET_NAME := x86_64-unknown-none
 DISK_DIR    := ../target/build_deps/disk/Programs
 

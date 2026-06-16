@@ -69,3 +69,47 @@ impl From<PathError> for Error {
         }
     }
 }
+
+impl Error {
+    pub fn new(kind: ErrorKind, message: String) -> Self {
+        Self { kind, message }
+    }
+}
+
+macro_rules! error_constructors {
+    (
+        $(
+            $fn_name:ident => $kind:ident
+        ),* $(,)?
+    ) => {
+        
+        impl Error {
+            $(
+
+                pub fn $fn_name(message: String) -> Self {
+                    Self { kind: ErrorKind::$kind, message }
+                }
+            )*
+        }
+    };
+}
+
+error_constructors! {
+    not_found => NotFound,
+    access_denied => AccessDenied,
+    invalid_argument => InvalidArgument,
+    invalid_handle => InvalidHandle,
+    invalid_pointer => InvalidPointer,
+    out_of_memory => OutOfMemory,
+    broken_socket => BrokenSocket,
+    would_block => WouldBlock,
+    buffer_full => BufferFull,
+    pool_exhausted => PoolExhausted,
+    name_too_long => NameTooLong,
+    invalid_encoding => InvalidEncoding,
+    not_mapped => NotMapped,
+    unsupported_operation => UnsupportedOperation,
+    path_empty => PathEmpty,
+    path_contains_null => PathContainsNull,
+    unknown => Unknown,
+}

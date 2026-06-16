@@ -146,14 +146,6 @@ async fn map_elf_segments(
         }
 
         if ph.p_type == P_Type::PT_LOAD as u32 {
-            klogln!(
-                "[INFO] Mapping Segment: file offset 0x{:X} -> virt addr 0x{:X} file size: {}, mem_size: {}",
-                ph.p_offset,
-                load_base + ph.p_vaddr as usize,
-                ph.p_filesz,
-                ph.p_memsz
-            );
-
             let aligned_vaddr = ((load_base + ph.p_vaddr as usize) & !0xFFF);
             let aligned_offset = (ph.p_offset & !0xFFF) as usize;
             let offset_in_page = ((load_base + ph.p_vaddr as usize) & 0xFFF);
@@ -274,8 +266,6 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadRe
     };
 
     if let Some(path) = interpreter_path {
-        klogln!("[INFO] ELF requires interpreter: {}", path);
-
         let interp_handle = kernel_walk(&path, HandleID(0), AccessRights::READ).await.map_err(|e| {
             klogln!("[ERROR] load_elf: Failed to resolve interpreter path {}: {:?}", path, e);
             LoaderError::FileReadError

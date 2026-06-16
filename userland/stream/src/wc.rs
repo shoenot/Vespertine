@@ -1,0 +1,8 @@
+use alloc::string::String;
+use vespertine_std::Error;
+
+static WC_OPTIONS: &[Opt] = &[
+    Opt::flag("lines-only", Some('l'), Some("lines-only")),
+];
+
+pub fn run(dummy: &[String]) -> Result<(), Error> { Ok(()) }

@@ -5,11 +5,12 @@ members = [
     "lib/vespertine-common",
     "lib/vespertine-rt", 
     "lib/vespertine-std", 
+    "lib/vespertine-cli",
     "userland/dt", 
     "userland/dusk", 
     "userland/hesper", 
     "userland/ns", 
-    "userland/terminal"
+    "userland/terminal", "userland/stream",
 ]
 
 resolver = "2"

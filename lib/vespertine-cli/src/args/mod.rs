@@ -4,11 +4,13 @@ use parse::*;
 
 use crate::CliError;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueMode {
     None,
     Required,
 }
 
+#[derive(Debug, Clone)]
 pub struct Opt<'a> {
     pub id: &'a str,
     pub short: Option<char>,
@@ -26,6 +28,7 @@ impl<'a> Opt<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Command<'a> {
     name: &'a str,
     options: &'a [Opt<'a>],
@@ -119,11 +122,13 @@ impl<'a> Command<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ParsedOpt<'a> {
     pub id: &'a str,
     pub value: Option<&'a str>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Matches<'a> {
     command: &'a str,
     options: Vec<ParsedOpt<'a>>,
@@ -135,11 +140,11 @@ impl<'a> Matches<'a> {
         self.options.iter().any(|opt| opt.id == id)
     }
 
-    pub fn value(&self, id: &str) -> Options<&'a str> {
+    pub fn value(&self, id: &str) -> Option<&'a str> {
         self.options.iter().find(|opt| opt.id == id).and_then(|opt| opt.value)
     }
 
-    pub fn values(&'a self, id: &'a str) -> impl Iterator<Item = &'a str> + '_ {
+    pub fn values(&'a self, id: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         self.options.iter().filter(move |opt| opt.id == id).filter_map(|opt| opt.value)
     }
 
