@@ -1,0 +1,14 @@
+[package]
+name = "con"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "con"
+test = false
+bench = false
+
+[dependencies]
+vespertine-rt = { path = "../../lib/vespertine-rt" }
+vespertine-abi = { path = "../../lib/vespertine-abi" }
+vespertine-std = { path = "../../lib/vespertine-std" }
