@@ -1,8 +1,8 @@
-use alloc::string::String;
+use alloc::{format, string::String, vec::Vec};
 use vespertine_abi::shell::{RECORD_PRESENTATION_DEFAULT, ValueType};
 use vespertine_cli::args::{Command, Opt};
 use vespertine_rt::println;
-use vespertine_std::{Error, HandleWriter, env, fs::{Dir, EntryKind, File, Path}, shell::TypedWriter};
+use vespertine_std::{Error, HandleWriter, env, fs::{Dir, EntryKind, File, Path, PathBuf, stat}, shell::{RecordStream, TypedWriter}};
 
 static LIST_OPTIONS: &[Opt] = &[
     Opt::flag("all", Some('a'), None),
@@ -26,27 +26,20 @@ pub fn list(args: &[String]) -> Result<(), Error> {
         return Err(Error::invalid_argument("usage: ns list [flags] [dir]".into()));
     }
 
-    let dir = if let Some(path) = matches.positional(0) {
-        Dir::open(&Path::new(path))?
+    let dir_path = if let Some(path) = matches.positional(0) {
+        Path::new(path)
     } else {
-        Dir::open(&Path::new("."))?
+        Path::new(".")
     };
 
-    let out = TypedWriter::new(HandleWriter::new(env::sink()));
+    let dir = Dir::open(&dir_path)?;
 
-    out.record_schema(
+    let mut out = RecordStream::default_out(
         NS_DIR_ENTRY_SCHEMA, 
-        &[
-            ("name", ValueType::String),
-            ("kind", ValueType::String),
-        ],
+        &["name", "kind", "size", "owner", "mode", "created", "modified"],
+        &["name"],
     )?;
-
-    out.record_presentation(
-        NS_DIR_ENTRY_SCHEMA, 
-        RECORD_PRESENTATION_DEFAULT, 
-        &[0],
-    )?;
+    out.table(&["name", "kind", "size", "owner", "mode", "created", "modified"])?;
 
     let mut dir_iter = dir.list()?;
 
@@ -61,20 +54,25 @@ pub fn list(args: &[String]) -> Result<(), Error> {
             }
         }
 
-        out.record(
-            NS_DIR_ENTRY_SCHEMA, 
-            &[
-                entry.name.as_str(), 
-                match entry.kind {
-                    EntryKind::File => "File",
-                    EntryKind::Directory => "Directory",
-                    EntryKind::Object => "Object",
-                }
-            ],
-        )?;
+        let kind_str = match entry.kind {
+            EntryKind::File => "File",
+            EntryKind::Directory => "Directory",
+            EntryKind::Object => "Object",
+        };
+
+        let entry_path = PathBuf::from(dir_path.as_str()).join(&Path::new(entry.name.as_str()));
+        let stat = stat(&entry_path.as_path())?;
+
+        let size = format!("{}", stat.size);
+        let owner = format!("{}", stat.user);
+        let mode = format!("{}", stat.mode);
+        let creation_time = format!("{}", stat.ctime_sec);
+        let modification_time = format!("{}", stat.mtime_sec);
+
+        out.row(&[ entry.name.as_str(), kind_str, size.as_str(), owner.as_str(), mode.as_str(), creation_time.as_str(), modification_time.as_str() ])?;
     }
 
-    out.record_end(NS_DIR_ENTRY_SCHEMA)?;
+    out.finish()?;
 
     Ok(())
 }

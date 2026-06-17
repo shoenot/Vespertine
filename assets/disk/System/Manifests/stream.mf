@@ -1,1 +1,2 @@
-io: typed
+input: any
+output: typed

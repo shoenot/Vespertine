@@ -4,6 +4,7 @@ use vespertine_abi::ProcessExitInfo;
 use vespertine_rt::{print, println};
 
 use crate::{error::ShellError, lexer::Tokenizer, parser::{Parser, ast::{BaseNode, CommandNode}}, runtime::env::ShellContext, sys::{ShellResult, launch_command}};
+use crate::sys::launch_base;
 
 pub struct ShellRuntime {
     pub context: ShellContext,
@@ -24,7 +25,7 @@ impl ShellRuntime {
 
         let res = match base {
             BaseNode::Cmd(cmd) => self.run_command(cmd),
-            BaseNode::Pipe(_, _) => unimplemented!(),
+            BaseNode::Pipe(_, _) => launch_base(base, &self.context),
         };
 
         self.context.last_result = res.clone();

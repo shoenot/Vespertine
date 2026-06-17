@@ -1,2 +1,2 @@
-input: any
+input: typed
 output: text

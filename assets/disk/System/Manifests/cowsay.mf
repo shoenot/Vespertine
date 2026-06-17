@@ -1,1 +1,2 @@
-io: text
+input: any
+output: text

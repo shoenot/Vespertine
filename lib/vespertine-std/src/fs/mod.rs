@@ -4,7 +4,7 @@ mod file;
 pub use dir::*;
 pub use file::*;
 use vespertine_rt::syscall::sys_invoke;
-use vespertine_abi::{AccessRights, HandleID, Invocation, DirectoryOp};
+use vespertine_abi::{AccessRights, DirectoryOp, FileStat, HandleID, Invocation};
 use crate::{Error, env};
 
 pub fn resolve(path: &Path<'_>, rights: AccessRights) -> Result<HandleID, Error> {
@@ -18,3 +18,8 @@ pub fn resolve_from(path: &Path<'_>, root: HandleID, cwd: HandleID, rights: Acce
     sys_invoke(root, &Invocation::Directory(op)).map(HandleID).map_err(Error::from)
 }
 
+pub fn stat(path: &Path<'_>) -> Result<FileStat, Error> {
+    let handle = resolve(path, AccessRights::new())?;
+    let file = File::from_handle(handle);
+    file.stat()
+}

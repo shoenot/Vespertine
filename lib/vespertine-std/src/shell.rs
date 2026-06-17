@@ -456,22 +456,73 @@ impl TypedWriter<HandleWriter> {
     }
 }
 
-pub struct TypedTable<W> {
+pub struct RecordStream<W> {
     writer: TypedWriter<W>,
     schema_id: u64,
+    fields: Vec<String>,
+    finished: bool,
 }
 
-impl <W: Write> TypedTable<W> {
-    pub fn new(writer: TypedWriter<W>, schema_id: u64, fields: &[(&str, ValueType)]) -> Result<Self, Error> {
-        writer.record_schema(schema_id, fields)?;
-        Ok(Self { writer, schema_id })
+impl RecordStream<HandleWriter> {
+    pub fn out(schema_id: u64, fields: &[&str]) -> Result<Self, Error> {
+        Self::new(TypedWriter::out(), schema_id, fields)
+    }
+
+    pub fn default_out(schema_id: u64, fields: &[&str], default_fields: &[&str]) -> Result<Self, Error> {
+        let stream = Self::out(schema_id, fields)?;
+        stream.default(default_fields)?;
+        Ok(stream)
+    }
+}
+
+impl<W: Write> RecordStream<W> {
+    pub fn new(writer: TypedWriter<W>, schema_id: u64, fields: &[&str]) -> Result<Self, Error> {
+        let mut specs = Vec::new();
+
+        for field in fields {
+            specs.push((*field, ValueType::String));
+        }
+
+        writer.record_schema(schema_id, &specs)?;
+
+        Ok(Self { 
+            writer, 
+            schema_id, 
+            fields: fields.iter().map(|s| String::from(*s)).collect(), 
+            finished: false 
+        })
+    }
+
+    pub fn default(&self, fields: &[&str]) -> Result<(), Error> {
+        self.presentation(RECORD_PRESENTATION_DEFAULT, fields)
+    }
+
+    pub fn table(&self, fields: &[&str]) -> Result<(), Error> {
+        self.presentation(RECORD_PRESENTATION_TABLE, fields)
     }
 
     pub fn row(&self, values: &[&str]) -> Result<(), Error> {
+        if values.len() != self.fields.len() {
+            return Err(Error::invalid_argument("record row has wrong field count".into()));
+        }
         self.writer.record(self.schema_id, values)
     }
 
-    pub fn finish(&self) -> Result<(), Error> {
+    pub fn finish(&mut self) -> Result<(), Error> {
+        if self.finished { return Ok(()); }
+        self.finished = true;
         self.writer.record_end(self.schema_id)
+    }
+
+    fn presentation(&self, presentation: u16, fields: &[&str]) -> Result<(), Error> {
+        let mut indices = Vec::new();
+
+        for field in fields {
+            let Some(idx) = self.fields.iter().position(|known| known == field) else {
+                return Err(Error::invalid_argument("unknown record presentation format".into()));
+            };
+            indices.push(idx as u16);
+        }
+        self.writer.record_presentation(self.schema_id, presentation, &indices)
     }
 }
