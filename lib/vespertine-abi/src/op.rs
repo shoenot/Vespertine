@@ -83,7 +83,9 @@ pub enum FileOp {
         buffer_ptr: usize,
         len: usize,
     },
-    Stat,
+    Stat {
+        stat_ptr: usize,
+    },
     GetVmo,
     Seek {
         offset: i64,

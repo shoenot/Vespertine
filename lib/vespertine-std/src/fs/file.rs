@@ -4,8 +4,9 @@ use crate::{
     ErrorKind,
     io::{Read, Write},
 };
+use core::mem::MaybeUninit;
 use core::ops::Drop;
-use vespertine_abi::{AccessRights, FileOp, HandleID, Invocation};
+use vespertine_abi::{AccessRights, FileOp, FileStat, HandleID, Invocation};
 use vespertine_rt::syscall::{sys_close, sys_create_file, sys_invoke, sys_read, sys_write};
 
 extern crate alloc;
@@ -37,9 +38,13 @@ impl File {
         Self { handle }
     }
 
-    pub fn stat(&self) -> Result<usize, Error> {
-        let op = FileOp::Stat;
-        sys_invoke(self.handle, &Invocation::File(op)).map_err(Error::from)
+    pub fn stat(&self) -> Result<FileStat, Error> {
+        let mut stat = MaybeUninit::<FileStat>::uninit();
+        let op = FileOp::Stat {
+            stat_ptr: stat.as_mut_ptr() as usize,
+        };
+        sys_invoke(self.handle, &Invocation::File(op)).map_err(Error::from)?;
+        Ok(unsafe { stat.assume_init() })
     }
 
     pub fn seek(&self, from: SeekFrom) -> Result<usize, Error> {

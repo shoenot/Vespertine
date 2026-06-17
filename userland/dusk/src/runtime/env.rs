@@ -1,7 +1,7 @@
 use alloc::{collections::btree_map::BTreeMap, format, string::{String, ToString}};
 use vespertine_abi::{AccessRights, HandleID, ProcessExitInfo};
 use vespertine_rt::syscall::sys_close;
-use vespertine_std::{Error, env, fs::{Path, PathBuf, resolve, resolve_from}};
+use vespertine_std::{Error, env, fs::{Path, PathBuf, resolve, resolve_from}, socket::Socket};
 
 use crate::sys::ShellResult;
 

@@ -1,3 +1,5 @@
+use core::fmt::Display;
+
 use vespertine_rt::syscall::SysError;
 extern crate alloc; use alloc::string::String;
 
@@ -70,6 +72,12 @@ impl From<PathError> for Error {
     }
 }
 
+impl Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 impl Error {
     pub fn new(kind: ErrorKind, message: String) -> Self {
         Self { kind, message }
@@ -113,3 +121,5 @@ error_constructors! {
     path_contains_null => PathContainsNull,
     unknown => Unknown,
 }
+
+

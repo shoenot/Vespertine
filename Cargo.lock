@@ -121,6 +121,7 @@ name = "ns"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
 ]

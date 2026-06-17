@@ -1,0 +1,75 @@
+use crate::access_rights::AccessRights;
+use crate::op::*;
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum Invocation {
+    Ping,
+    GetInfo,
+    Channel(ChannelOp),
+    Directory(DirectoryOp),
+    File(FileOp),
+    Vmo(VmoOp),
+    Proc(ProcOp),
+    Thread(ThreadOp),
+    ProcessManager(ProcManOp),
+    MemoryManager(MemManOp),
+    Broker(BrokerOp),
+    MemPool(MemPoolOp),
+    Clock(ClockOp),
+    Socket(SocketOp),
+    Wait(WaitOp),
+}
+
+impl Invocation {
+    pub fn required_rights(&self) -> AccessRights {
+        match self {
+            Invocation::Ping => AccessRights::READ,
+            Invocation::GetInfo => AccessRights::READ,
+            Invocation::Channel(ChannelOp::PushSmall { .. }) => AccessRights::WRITE,
+            Invocation::Channel(ChannelOp::PushLarge { .. }) => AccessRights::WRITE,
+            Invocation::Channel(ChannelOp::Pull { .. }) => AccessRights::READ,
+            Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::TRAVERSE,
+            Invocation::Directory(DirectoryOp::Resolve { .. }) => AccessRights::TRAVERSE,
+            Invocation::Directory(DirectoryOp::List { .. }) => AccessRights::LIST,
+            Invocation::Directory(DirectoryOp::Link { .. }) => AccessRights::CREATE,
+            Invocation::Directory(DirectoryOp::CreateFile { .. }) => AccessRights::CREATE,
+            Invocation::Directory(DirectoryOp::CreateDir { .. }) => AccessRights::CREATE,
+            Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::REMOVE,
+            Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
+            Invocation::File(FileOp::Write { .. }) => AccessRights::WRITE,
+            Invocation::File(FileOp::Stat { .. }) => AccessRights::new(),
+            Invocation::File(FileOp::GetVmo) => AccessRights::READ,
+            Invocation::File(FileOp::Seek { .. }) => AccessRights::new(),
+            Invocation::File(FileOp::Truncate { .. }) => AccessRights::WRITE,
+            Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
+            Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
+            Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
+            Invocation::Vmo(VmoOp::MapIntoProc { .. }) => AccessRights::MUTATE,
+            Invocation::Proc(ProcOp::Kill) => AccessRights::WRITE,
+            Invocation::Proc(ProcOp::GetStatus { .. }) => AccessRights::READ,
+            Invocation::Proc(ProcOp::GetExitInfo { .. }) => AccessRights::READ,
+            Invocation::Proc(ProcOp::Unmap { .. }) => AccessRights::MUTATE,
+            Invocation::Proc(ProcOp::SpawnThread { .. }) => AccessRights::CREATE,
+            Invocation::Proc(ProcOp::SetFsBase { .. }) => AccessRights::WRITE,
+            Invocation::Proc(ProcOp::InsertHandle { .. }) => AccessRights::MUTATE,
+            Invocation::Proc(ProcOp::Mprotect { .. }) => AccessRights::MUTATE,
+            Invocation::Thread(ThreadOp::Kill) => AccessRights::WRITE,
+            Invocation::Thread(ThreadOp::Join) => AccessRights::READ,
+            Invocation::Thread(ThreadOp::GetID) => AccessRights::READ,
+            Invocation::ProcessManager(ProcManOp::Spawn { .. }) => AccessRights::CREATE,
+            Invocation::MemoryManager(MemManOp::CreatePool { .. }) => AccessRights::CREATE,
+            Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
+            Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
+            Invocation::MemPool(MemPoolOp::RequestExpansion { .. }) => AccessRights::MUTATE,
+            Invocation::Clock(ClockOp::GetTimestamp { .. }) => AccessRights::READ,
+            Invocation::Clock(ClockOp::Sleep { .. }) => AccessRights::WRITE,
+            Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
+            Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
+            Invocation::Socket(SocketOp::SetReadPolicy { .. }) => AccessRights::WRITE,
+            Invocation::Wait(..) => AccessRights::READ,
+            Invocation::Broker(BrokerOp::Request { .. }) => AccessRights::READ,
+        }
+    }
+}
+

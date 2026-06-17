@@ -1,4 +1,5 @@
 use alloc::string::String;
+use vespertine_cli::args::Opt;
 use vespertine_std::Error;
 
 static WC_OPTIONS: &[Opt] = &[

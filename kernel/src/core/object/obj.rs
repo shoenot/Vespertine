@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use vespertine_abi::{
     AccessRights,
     Invocation,
+    ObjectType,
     Signal,
     UserID,
 };
@@ -19,13 +20,6 @@ use vespertine_abi::{
 use crate::core::asynchronous::waiter::AsyncWaiter;
 use crate::core::object::invoke::InvocationError;
 use crate::core::security::permissions::FilePermissions;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ObjectType {
-    Directory,
-    File,
-    Other,
-}
 
 #[async_trait]
 pub trait KernelDirectory: Send + Sync {

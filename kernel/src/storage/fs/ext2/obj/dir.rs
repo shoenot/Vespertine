@@ -17,14 +17,11 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights,
-    DirectoryOp,
-    FileOp,
-    Invocation,
-    UserID,
+    AccessRights, DirectoryOp, FileOp, FileStat, Invocation, ObjectType, UserID
 };
 
 use super::file::Ext2File;
+use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::{
@@ -35,7 +32,6 @@ use crate::core::object::models::directory::{
 use crate::core::object::obj::{
     KernelDirectory,
     KernelObject,
-    ObjectType,
 };
 use crate::core::object::vfs::FileDescription;
 use crate::core::security::permissions::{
@@ -88,6 +84,34 @@ impl KernelObject for Ext2Directory {
 
                 Ok(handle.0)
             }
+            Invocation::File(FileOp::Stat { stat_ptr }) => {
+                let inode = self.inode_data.read();
+
+                let stat = FileStat {
+                    object_type: ObjectType::Directory as u32,
+                    mode: inode.mode as u32,
+                    user: inode.uid as u32,
+                    _group: 0,
+                    inode: self.inode_num as u64,
+                    device: 1,
+                    size: inode.size as u64,
+                    block_size: self.fs.block_size as u32,
+                    blocks: inode.blocks as u64,
+                    nlink: inode.links_count as u32,
+                    atime_sec: inode.atime as i64,
+                    atime_nsec: 0,
+                    mtime_sec: inode.mtime as i64,
+                    mtime_nsec: 0,
+                    ctime_sec: inode.ctime as i64,
+                    ctime_nsec: 0,
+                };
+
+                if !safe_copy_to(stat_ptr as *mut u8, &stat as *const _ as *const u8, size_of::<FileStat>()) {
+                    return Err(InvocationError::InvalidPointer);
+                }
+
+                Ok(0)
+            },
             Invocation::Directory(DirectoryOp::List { offset: _, sink }) => {
                 let mut entries = alloc::vec::Vec::new();
 

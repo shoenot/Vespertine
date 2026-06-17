@@ -13,7 +13,7 @@ use vespertine_abi::{
     AccessRights,
     DirectoryOp,
     HandleID,
-    Invocation,
+    Invocation, ObjectType,
 };
 use vespertine_common::path::{
     Component,
@@ -22,7 +22,7 @@ use vespertine_common::path::{
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::{KernelObject, ObjectType};
+use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::{
     FilePermissions,
     allowed_rights,

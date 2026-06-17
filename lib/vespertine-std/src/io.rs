@@ -1,7 +1,10 @@
+use core::slice;
+
 use crate::{Error, ErrorKind};
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
+use vespertine_abi::protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC};
 
 pub trait Read {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error>;

@@ -3,9 +3,7 @@ use alloc::sync::Arc;
 
 use async_trait::async_trait;
 use vespertine_abi::{
-    AccessRights,
-    FileOp,
-    Invocation,
+    AccessRights, FileOp, FileStat, Invocation
 };
 
 use crate::arch::x86_64::task::syscall::{
@@ -15,7 +13,7 @@ use crate::arch::x86_64::task::syscall::{
 use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
-use crate::core::object::obj::{KernelObject, ObjectType};
+use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
@@ -35,6 +33,8 @@ use crate::storage::fs::{
     VfsNode,
     VfsNodeType,
 };
+
+use vespertine_abi::ObjectType;
 
 #[derive(Debug)]
 pub struct Ext2File {
@@ -60,7 +60,34 @@ impl KernelObject for Ext2File {
                 let bytes_read = self.read_bytes_async(offset, buffer_ptr, len).await?;
                 Ok(bytes_read)
             }
-            Invocation::File(FileOp::Stat) => Ok(self.inode_data.read().size as usize),
+            Invocation::File(FileOp::Stat { stat_ptr }) => {
+                let inode = self.inode_data.read();
+
+                let stat = FileStat {
+                    object_type: ObjectType::File as u32,
+                    mode: inode.mode as u32,
+                    user: inode.uid as u32,
+                    _group: 0,
+                    inode: self.inode_num as u64,
+                    device: 1,
+                    size: inode.size as u64,
+                    block_size: self.fs.block_size as u32,
+                    blocks: inode.blocks as u64,
+                    nlink: inode.links_count as u32,
+                    atime_sec: inode.atime as i64,
+                    atime_nsec: 0,
+                    mtime_sec: inode.mtime as i64,
+                    mtime_nsec: 0,
+                    ctime_sec: inode.ctime as i64,
+                    ctime_nsec: 0,
+                };
+
+                if !safe_copy_to(stat_ptr as *mut u8, &stat as *const _ as *const u8, size_of::<FileStat>()) {
+                    return Err(InvocationError::InvalidPointer);
+                }
+
+                Ok(0)
+            },
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;

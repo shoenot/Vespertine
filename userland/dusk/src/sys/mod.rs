@@ -1,9 +1,9 @@
 use core::fmt::Display;
 
-use alloc::string::{String, ToString};
+use alloc::{format, string::{String, ToString}, vec::Vec};
 use vespertine_abi::{AccessRights, ProcessExitInfo, tag::CAP_APP_TERMCTRL};
 use vespertine_rt::println;
-use vespertine_std::{Error, ErrorKind, Exec, env, term::{check_raw_mode, clear_term_screen, unset_raw_mode}};
+use vespertine_std::{Error, ErrorKind, Exec, env, fs::{File, Path, PathBuf}, Read, term::{check_raw_mode, clear_term_screen, unset_raw_mode}};
 
 use crate::{error::ShellError, runtime::env::ShellContext};
 
@@ -53,15 +53,72 @@ pub fn build_exec(name: &str, args: &[String], context: &ShellContext) -> Result
     let child_fs_rights = 
         AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE |
         AccessRights::TRAVERSE | AccessRights::REMOVE | AccessRights::LIST;
-    let exec = Exec::new(name.into())
+
+    let manifest_name = format!("{}.mf", name);
+    let manifest_dir = PathBuf::from_str("/System/Manifests/");
+    let manifest_path = manifest_dir.join(&Path::new(manifest_name.as_str()));
+
+    let mut exec = Exec::new(name.into())
         .source(env::source())
-        .sink(env::sink())
         .cwd(context.cwd_handle(), AccessRights::TRAVERSE)
         .args(args)
         .root_rights(child_fs_rights);
+
+    if let Some(manifest) = parse_manifest(&manifest_path.as_path()) {
+        if manifest.io == ProgramOutput::Typed {
+            exec = exec.sink(handle);
+        } else {
+            exec = exec.sink(env::sink());
+        }
+    }
 
     match name {
         "kilo" => exec.grant(CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE),
         _ => Ok(exec),
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramOutput {
+    Direct,
+    Typed,
+    Text,
+}
+
+pub struct ProgramManifest {
+    io: ProgramOutput,
+}
+
+impl ProgramManifest {
+    fn new() -> Self {
+        Self { io: ProgramOutput::Standard }
+    }
+}
+
+impl Default for ProgramManifest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub fn parse_manifest(p: &Path) -> Option<ProgramManifest> {
+    let mf = File::open(p).ok()?;
+    let contents = mf.read_to_string().ok()?;
+    let pairs: Vec<&str> = contents.split_whitespace().collect();
+
+    let mut manifest = ProgramManifest::default();
+    for pair in pairs {
+        while let Some((k, v)) = pair.split_once(":") {
+            match k.trim() {
+                "io" => match v.trim() {
+                    "standard" => manifest.io = ProgramOutput::Direct,
+                    "text" => manifest.io = ProgramOutput::Text,
+                    "typed" => manifest.io = ProgramOutput::Typed,
+                    _ => {},
+                },
+                _ => {},
+            }
+        }
+    }
+    Some(manifest)
 }

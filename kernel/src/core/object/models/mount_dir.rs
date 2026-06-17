@@ -18,13 +18,10 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights,
-    DirectoryOp,
-    FileOp,
-    Invocation,
-    UserID,
+    AccessRights, DirectoryOp, FileOp, FileStat, Invocation, ObjectType, UserID
 };
 
+use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::{
     Filename,
@@ -33,7 +30,6 @@ use crate::core::object::models::directory::{
 use crate::core::object::obj::{
     KernelDirectory,
     KernelObject,
-    ObjectType,
 };
 use crate::core::security::permissions::{
     FilePermissions,
@@ -41,6 +37,7 @@ use crate::core::security::permissions::{
 };
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
+use crate::memory::NORMAL_PAGE_SIZE;
 
 #[derive(Debug)]
 pub struct MountDirectory {
@@ -74,7 +71,7 @@ impl KernelObject for MountDirectory {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let handle = proc.proc_handles.write().insert(object, AccessRights::all());
                 Ok(handle.0)
-            }
+            },
 
             Invocation::Directory(DirectoryOp::Link { .. }) => Err(InvocationError::UnsupportedOperation),
 
@@ -82,7 +79,40 @@ impl KernelObject for MountDirectory {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 KernelDirectory::unlink_child(self, &filename.name).await?;
                 Ok(0)
-            }
+            },
+
+            Invocation::File(FileOp::Stat { stat_ptr }) => {
+                let underlying = self.underlying.read().clone();
+                match underlying.invoke(Invocation::File(FileOp::Stat { stat_ptr }), calling_rights).await {
+                    Ok(v) => Ok(v),
+                    Err(InvocationError::UnsupportedOperation) => {
+                        let stat = FileStat {
+                            object_type: ObjectType::Directory as u32,
+                            mode: 0x4000 | 0o755,
+                            user: 0,
+                            _group: 0,
+                            inode: self as *const _ as u64,
+                            device: 0,
+                            size: 0 as u64,
+                            block_size: NORMAL_PAGE_SIZE as u32,
+                            blocks: 0,
+                            nlink: 1,
+                            atime_sec: 0,
+                            atime_nsec: 0,
+                            mtime_sec: 0,
+                            mtime_nsec: 0,
+                            ctime_sec: 0,
+                            ctime_nsec: 0,
+                        };
+
+                        if !safe_copy_to(stat_ptr as *mut u8, &stat as *const _ as *const u8, size_of::<FileStat>()) {
+                            return Err(InvocationError::InvalidPointer);
+                        }
+                        Ok(0)
+                    },
+                    Err(e) => Err(e),
+                }
+            },
 
             Invocation::Directory(DirectoryOp::List { offset, sink }) => {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;

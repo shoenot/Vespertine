@@ -17,14 +17,12 @@ use core::slice::from_raw_parts;
 use core::{
     cmp,
     fmt,
+    mem::MaybeUninit,
 };
 
 use parser::*;
 use vespertine_abi::{
-    AccessRights,
-    FileOp,
-    HandleID,
-    Invocation,
+    AccessRights, FileOp, FileStat, HandleID, Invocation
 };
 
 use crate::core::object::models::process::Process;
@@ -86,10 +84,20 @@ pub struct ElfLoadResult {
 async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError> {
     // KernelObject file reads accept kernel destination pointers directly, so
     // loader I/O must not change the calling thread's process identity.
-    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ).await.map_err(|e| {
-        klogln!("[ERROR] read_elf_header: Stat failed: {:?}", e);
-        LoaderError::FileReadError
-    })?;
+    let mut stat = MaybeUninit::<FileStat>::uninit();
+    file_obj
+        .invoke(
+            Invocation::File(FileOp::Stat {
+                stat_ptr: stat.as_mut_ptr() as usize,
+            }),
+            AccessRights::READ,
+        )
+        .await
+        .map_err(|e| {
+            klogln!("[ERROR] read_elf_header: Stat failed: {:?}", e);
+            LoaderError::FileReadError
+        })?;
+    let file_size = unsafe { stat.assume_init().size as usize };
     let header_read_size = cmp::min(file_size, 4096);
 
     let (buf_addr, file_layout) = {

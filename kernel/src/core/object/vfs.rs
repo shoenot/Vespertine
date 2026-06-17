@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::mem::MaybeUninit;
 use core::sync::atomic::{
     AtomicUsize,
     Ordering,
@@ -11,6 +12,7 @@ use vespertine_abi::op::DirectoryOp;
 use vespertine_abi::{
     AccessRights,
     FileOp,
+    FileStat,
     HandleID,
     Invocation,
 };
@@ -135,7 +137,20 @@ impl KernelObject for FileDescription {
             }
             Invocation::File(FileOp::Seek { offset, whence }) => {
                 let current = self.cursor.load(Ordering::SeqCst) as i64;
-                let file_size = if *whence == 2 { self.inner.invoke(Invocation::File(FileOp::Stat), rights).await? as i64 } else { 0 };
+                let file_size = if *whence == 2 {
+                    let mut stat = MaybeUninit::<FileStat>::uninit();
+                    self.inner
+                        .invoke(
+                            Invocation::File(FileOp::Stat {
+                                stat_ptr: stat.as_mut_ptr() as usize,
+                            }),
+                            rights,
+                        )
+                        .await?;
+                    unsafe { stat.assume_init().size as i64 }
+                } else {
+                    0
+                };
 
                 let new_cursor = match *whence {
                     0 => *offset,             // SEEK_SET

@@ -15,7 +15,7 @@ use core::cmp;
 use core::ptr::copy_nonoverlapping;
 
 use async_trait::async_trait;
-use vespertine_abi::op::DirectoryOp;
+use vespertine_abi::op::{DirectoryOp, FileOp};
 use vespertine_abi::protocol::{
     AbiDirEntry,
     DirEntryType,
@@ -24,21 +24,18 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights,
-    FileOp,
-    HandleID,
-    Invocation,
+    AccessRights, FileStat, HandleID, Invocation, ObjectType
 };
 
-use crate::arch::x86_64::task::syscall::safe_copy_from;
+use crate::arch::x86_64::task::syscall::{safe_copy_from, safe_copy_to};
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::{
     KernelDirectory,
     KernelObject,
-    ObjectType,
 };
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
+use crate::memory::NORMAL_PAGE_SIZE;
 
 pub const FILENAME_LEN_MAX: usize = 254;
 
@@ -114,6 +111,31 @@ impl KernelObject for Directory {
                 register_lookup_result(object)
             }
             Invocation::Directory(DirectoryOp::List { offset, sink }) => self.list_contents(offset, sink).await,
+            Invocation::File(FileOp::Stat { stat_ptr }) => {
+                let stat = FileStat {
+                    object_type: ObjectType::Directory as u32,
+                    mode: 0x4000 | 0o755,
+                    user: 0,
+                    _group: 0,
+                    inode: self as *const _ as u64,
+                    device: 0,
+                    size: 0 as u64,
+                    block_size: NORMAL_PAGE_SIZE as u32,
+                    blocks: 0,
+                    nlink: 1,
+                    atime_sec: 0,
+                    atime_nsec: 0,
+                    mtime_sec: 0,
+                    mtime_nsec: 0,
+                    ctime_sec: 0,
+                    ctime_nsec: 0,
+                };
+
+                if !safe_copy_to(stat_ptr as *mut u8, &stat as *const _ as *const u8, size_of::<FileStat>()) {
+                    return Err(InvocationError::InvalidPointer);
+                }
+                Ok(0)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

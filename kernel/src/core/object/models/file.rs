@@ -5,14 +5,13 @@ use core::cmp::min;
 use async_trait::async_trait;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
-    AccessRights,
-    Invocation,
+    AccessRights, FileStat, Invocation, ObjectType
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
-use crate::core::object::obj::{KernelObject, ObjectType};
+use crate::core::object::obj::KernelObject;
 use crate::core::sync::TicketLock;
 use crate::core::thread::get_current_process;
 use crate::memory::vmo::{
@@ -56,7 +55,31 @@ impl KernelObject for FileObj {
 
                 Ok(bytes_read)
             }
-            Invocation::File(FileOp::Stat) => self.stat(),
+            Invocation::File(FileOp::Stat { stat_ptr }) => {
+                let stat = FileStat {
+                    object_type: ObjectType::File as u32,
+                    mode: 0x8000 | 0o444,
+                    user: 0,
+                    _group: 0,
+                    inode: self.addr as u64,
+                    device: 0,
+                    size: self.size as u64,
+                    block_size: NORMAL_PAGE_SIZE as u32,
+                    blocks: self.size.div_ceil(512) as u64,
+                    nlink: 1,
+                    atime_sec: 0,
+                    atime_nsec: 0,
+                    mtime_sec: 0,
+                    mtime_nsec: 0,
+                    ctime_sec: 0,
+                    ctime_nsec: 0,
+                };
+
+                if !safe_copy_to(stat_ptr as *mut u8, &stat as *const _ as *const u8, size_of::<FileStat>()) {
+                    return Err(InvocationError::InvalidPointer);
+                }
+                Ok(0)
+            },
             Invocation::File(FileOp::GetVmo) => {
                 let vmo = Vmo::new(self.size);
                 let num_pages = self.size.div_ceil(NORMAL_PAGE_SIZE);
@@ -122,6 +145,4 @@ impl FileObj {
         }
         Ok(read_len)
     }
-
-    fn stat(&self) -> Result<usize, InvocationError> { Ok(self.size) }
 }

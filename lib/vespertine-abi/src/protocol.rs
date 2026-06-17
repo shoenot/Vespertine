@@ -3,6 +3,7 @@ use crate::define_bitflags;
 pub static VESPER_MAGIC: u32 = 0xc001ca75; // cool cats
 
 #[repr(C, align(8))]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PacketHeader {
     pub magic: u32,
     pub version: u16,
@@ -39,6 +40,12 @@ pub enum PacketType {
     TermSize = 202,
     TermCommand = 203,
     TermCursorPos = 204,
+
+    // Shell types: 
+    String = 1000,
+    RecordSchema = 1001,
+    Record = 1002,
+    RecordEnd = 1003,
 }
 
 define_bitflags! {
