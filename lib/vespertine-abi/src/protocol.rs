@@ -44,8 +44,9 @@ pub enum PacketType {
     // Shell types: 
     String = 1000,
     RecordSchema = 1001,
-    Record = 1002,
-    RecordEnd = 1003,
+    RecordPresentation = 1002,
+    Record = 1003,
+    RecordEnd = 1004,
 }
 
 define_bitflags! {

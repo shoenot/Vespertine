@@ -77,23 +77,31 @@ impl Parser {
 
     pub fn collect_args(&mut self) -> Result<Vec<String>, ShellError> {
         let mut args = Vec::new();
-        while let Some(token) = self.advance() {
-            if token != Token::Pipe {
-                match token {
-                    Token::Word(word) => args.push(word),
-                    _ => return Err(ShellError::InvalidToken),
+    
+        while let Some(token) = self.peek() {
+            match token {
+                Token::Pipe => break,
+                Token::Word(_) => {
+                    let Some(Token::Word(word)) = self.advance() else {
+                        return Err(ShellError::InvalidToken);
+                    };
+                    args.push(word);
                 }
+                _ => return Err(ShellError::InvalidToken),
             }
         }
+    
         Ok(args)
     }
 
     pub fn parse_base(&mut self) -> Result<BaseNode, ShellError> {
-        let ret = BaseNode::Cmd(self.parse_command()?);
+        let left = BaseNode::Cmd(self.parse_command()?);
+
         if matches!(self.peek(), Some(Token::Pipe)) {
-            let second = self.parse_base()?;
-            return Ok(BaseNode::Pipe(Box::new(ret), Box::new(second)));
+            self.advance();
+            let right = self.parse_base()?;
+            return Ok(BaseNode::Pipe(Box::new(left), Box::new(right)));
         }
-        Ok(ret)
+        Ok(left)
     }
 }

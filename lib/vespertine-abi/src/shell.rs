@@ -7,6 +7,9 @@ pub enum ValueType {
 
 pub const RECORD_FIELD_NAME_MAX: usize = 128;
 
+pub const RECORD_PRESENTATION_DEFAULT: u16 = 1;
+pub const RECORD_PRESENTATION_TABLE: u16 = 2;
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordSchemaHeader {
@@ -31,4 +34,13 @@ pub struct RecordHeader {
     pub schema_id: u64,
     pub field_count: u16,
     pub reserved: u16,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordPresentationHeader {
+    pub schema_id: u64,
+    pub presentation: u16,
+    pub field_count: u16,
+    pub reserved: u32,
 }

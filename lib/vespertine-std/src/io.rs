@@ -4,7 +4,8 @@ use crate::{Error, ErrorKind};
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC};
+use vespertine_abi::{HandleID, protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC}};
+use vespertine_rt::syscall::{sys_read, sys_write};
 
 pub trait Read {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error>;
@@ -70,5 +71,39 @@ pub trait Write {
     fn write_string(&self, s: String) -> Result<(), Error> {
         let bytes = s.as_bytes();
         self.write_all(bytes)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct HandleReader {
+    handle: HandleID,
+}
+
+impl HandleReader {
+    pub fn new(handle: HandleID) -> Self {
+        Self { handle }
+    }
+}
+
+impl Read for HandleReader {
+    fn read(&self, buf: &mut [u8]) -> Result<usize, Error> {
+        sys_read(self.handle, buf.as_mut_ptr(), buf.len(), usize::MAX).map_err(Error::from)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct HandleWriter {
+    handle: HandleID,
+}
+
+impl HandleWriter {
+    pub fn new(handle: HandleID) -> Self {
+        Self { handle }
+    }
+}
+
+impl Write for HandleWriter {
+    fn write(&self, buf: &[u8]) -> Result<usize, Error> {
+        sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from)
     }
 }
