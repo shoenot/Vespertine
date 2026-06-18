@@ -1,11 +1,9 @@
 use core::fmt::Display;
 use core::ptr::copy_nonoverlapping;
 
-use vespertine_abi::{AccessRights, FileStat};
 use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
-use vespertine_abi::{
-    DirectoryOp, HandleID, Invocation, protocol::PacketHeader,
-};
+use vespertine_abi::{AccessRights, FileStat};
+use vespertine_abi::{DirectoryOp, HandleID, Invocation, protocol::PacketHeader};
 use vespertine_rt::syscall::{sys_close, sys_create_dir, sys_invoke, sys_stat, sys_unlink};
 
 use crate::Read;

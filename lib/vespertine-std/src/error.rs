@@ -1,7 +1,8 @@
 use core::fmt::Display;
 
 use vespertine_rt::syscall::SysError;
-extern crate alloc; use alloc::string::String;
+extern crate alloc;
+use alloc::string::String;
 
 use crate::fs::PathError;
 
@@ -60,10 +61,10 @@ impl From<SysError> for Error {
 impl From<PathError> for Error {
     fn from(e: PathError) -> Self {
         let kind = match e {
-            PathError::Empty        => ErrorKind::PathEmpty,
+            PathError::Empty => ErrorKind::PathEmpty,
             PathError::ContainsNull => ErrorKind::PathContainsNull,
-            PathError::NoFileName   => ErrorKind::InvalidArgument,
-            PathError::NameTooLong  => ErrorKind::NameTooLong,
+            PathError::NoFileName => ErrorKind::InvalidArgument,
+            PathError::NameTooLong => ErrorKind::NameTooLong,
         };
         Error {
             kind,
@@ -90,7 +91,7 @@ macro_rules! error_constructors {
             $fn_name:ident => $kind:ident
         ),* $(,)?
     ) => {
-        
+
         impl Error {
             $(
 
@@ -121,5 +122,3 @@ error_constructors! {
     path_contains_null => PathContainsNull,
     unknown => Unknown,
 }
-
-

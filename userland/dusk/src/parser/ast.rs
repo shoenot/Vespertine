@@ -12,4 +12,3 @@ pub enum CommandNode {
     ChangeDir { path: PathBuf },
     NoOp,
 }
-

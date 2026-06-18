@@ -1,4 +1,3 @@
-use alloc::slice;
 use alloc::sync::Arc;
 
 use vespertine_abi::AccessRights;
@@ -27,7 +26,6 @@ use crate::core::object::vfs::{
     mount_kernel_object,
 };
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::get_current_process;
 use crate::drivers::video::init_framebuffer;
 use crate::klogln;
 use crate::storage::blockdev::AsyncBlockDevice;

@@ -3,7 +3,7 @@ pub mod asynchronous;
 pub mod cpu;
 pub mod object;
 pub mod program;
+pub mod security;
 pub mod sync;
 pub mod thread;
 pub mod time;
-pub mod security;

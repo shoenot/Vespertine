@@ -11,4 +11,3 @@ pub struct CapabilityGrant {
     pub rights: AccessRights,
     pub capability: CapabilityID,
 }
-

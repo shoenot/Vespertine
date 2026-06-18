@@ -3,9 +3,16 @@ use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 
 use vespertine_abi::op::ProcManOp;
-use vespertine_abi::tag::{CAP_LOGGER, CAP_PROCMAN};
+use vespertine_abi::tag::{
+    CAP_LOGGER,
+    CAP_PROCMAN,
+};
 use vespertine_abi::{
-    AccessRights, BrokerOp, CapabilityGrant, HandleID, Invocation
+    AccessRights,
+    BrokerOp,
+    CapabilityGrant,
+    HandleID,
+    Invocation,
 };
 
 use crate::arch::{
@@ -18,7 +25,10 @@ use crate::core::asynchronous::{
 };
 use crate::core::object::models::socket::init_ipc_pipeline;
 use crate::core::object::vfs::{
-    kernel_close, kernel_invoke, kernel_register_obj, kernel_walk
+    kernel_close,
+    kernel_invoke,
+    kernel_register_obj,
+    kernel_walk,
 };
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
@@ -80,31 +90,23 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             .await
             .expect("[FATAL] Failed to request Process Manager capability"),
         );
-        
+
         let _ = kernel_close(pm_broker_handle);
-        
-        let log_handle = kernel_walk("/System/Services/Log", HandleID(0), AccessRights::WRITE)
-            .await
-            .expect("[FATAL] No Log Service found");
+
+        let log_handle = kernel_walk("/System/Services/Log", HandleID(0), AccessRights::WRITE).await.expect("[FATAL] No Log Service found");
 
         // userspace init proc
         let screen_writer = Arc::new(ScreenWriter {});
         let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
 
         // init package
-        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0), AccessRights::READ)
-            .await
-            .expect("[FATAL] No program found");
+        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0), AccessRights::READ).await.expect("[FATAL] No program found");
         let root_handle = HandleID(0);
         let root_rights = AccessRights::all();
         let source = kbd_source_handle;
         let sink = screen_handle;
 
-        let capabilities = [CapabilityGrant {
-            id: log_handle,
-            rights: AccessRights::WRITE,
-            capability: CAP_LOGGER,
-        }];
+        let capabilities = [CapabilityGrant { id: log_handle, rights: AccessRights::WRITE, capability: CAP_LOGGER }];
 
         let spawn_op = ProcManOp::Spawn {
             exec_handle,

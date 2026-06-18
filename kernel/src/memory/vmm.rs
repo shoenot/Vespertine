@@ -19,7 +19,6 @@ use super::pmm::*;
 use crate::arch::x86_64::interrupts::shootdown::shootdown;
 use crate::core::object::invoke::InvocationError;
 use crate::core::sync::TicketLock;
-use crate::klogln;
 use crate::memory::vmo::PagedBackingStore;
 use crate::memory::{
     GLOBAL_PMM,

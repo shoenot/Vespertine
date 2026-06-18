@@ -1,15 +1,13 @@
-use vespertine_abi::{AccessRights, UserID};
+use vespertine_abi::{
+    AccessRights,
+    UserID,
+};
 
 use crate::core::security::permissions::FilePermissions;
 
+fn owner_bits(mode: u16) -> u16 { (mode >> 6) & 0b111 }
 
-fn owner_bits(mode: u16) -> u16 {
-    (mode >> 6) & 0b111
-}
-
-fn other_bits(mode: u16) -> u16 {
-    mode & 0b111
-}
+fn other_bits(mode: u16) -> u16 { mode & 0b111 }
 
 fn file_rights(bits: u16) -> AccessRights {
     let mut rights = AccessRights::new();
@@ -42,11 +40,7 @@ fn directory_rights(bits: u16) -> AccessRights {
 }
 
 pub fn file_permissions(uid: u16, mode: u16) -> FilePermissions {
-    FilePermissions {
-        owner: UserID(uid as u32),
-        owner_rights: file_rights(owner_bits(mode)),
-        other_rights: file_rights(other_bits(mode)),
-    }
+    FilePermissions { owner: UserID(uid as u32), owner_rights: file_rights(owner_bits(mode)), other_rights: file_rights(other_bits(mode)) }
 }
 
 pub fn directory_permissions(uid: u16, mode: u16) -> FilePermissions {

@@ -17,7 +17,13 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights, DirectoryOp, FileOp, FileStat, Invocation, ObjectType, UserID
+    AccessRights,
+    DirectoryOp,
+    FileOp,
+    FileStat,
+    Invocation,
+    ObjectType,
+    UserID,
 };
 
 use super::file::Ext2File;
@@ -38,10 +44,7 @@ use crate::core::security::permissions::{
     FilePermissions,
     allowed_rights,
 };
-use crate::core::sync::{
-    RwLock,
-    TicketLock,
-};
+use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::core::time::get_realtime;
 use crate::memory::vmo::FileVmo;
@@ -111,7 +114,7 @@ impl KernelObject for Ext2Directory {
                 }
 
                 Ok(0)
-            },
+            }
             Invocation::Directory(DirectoryOp::List { offset: _, sink }) => {
                 let mut entries = alloc::vec::Vec::new();
 

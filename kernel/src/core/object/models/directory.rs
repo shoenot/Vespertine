@@ -15,7 +15,10 @@ use core::cmp;
 use core::ptr::copy_nonoverlapping;
 
 use async_trait::async_trait;
-use vespertine_abi::op::{DirectoryOp, FileOp};
+use vespertine_abi::op::{
+    DirectoryOp,
+    FileOp,
+};
 use vespertine_abi::protocol::{
     AbiDirEntry,
     DirEntryType,
@@ -24,10 +27,17 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights, FileStat, HandleID, Invocation, ObjectType
+    AccessRights,
+    FileStat,
+    HandleID,
+    Invocation,
+    ObjectType,
 };
 
-use crate::arch::x86_64::task::syscall::{safe_copy_from, safe_copy_to};
+use crate::arch::x86_64::task::syscall::{
+    safe_copy_from,
+    safe_copy_to,
+};
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::{
     KernelDirectory,
@@ -135,7 +145,7 @@ impl KernelObject for Directory {
                     return Err(InvocationError::InvalidPointer);
                 }
                 Ok(0)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

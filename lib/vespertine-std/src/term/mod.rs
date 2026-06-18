@@ -1,10 +1,6 @@
 use core::mem::forget;
 
-use vespertine_abi::{
-    app::termios::*,
-    protocol::{PacketType},
-    tag::CAP_APP_TERMCTRL,
-};
+use vespertine_abi::{app::termios::*, protocol::PacketType, tag::CAP_APP_TERMCTRL};
 
 use crate::{Error, ErrorKind, env, socket::Socket};
 
@@ -44,7 +40,10 @@ pub fn get_termsize() -> Result<(usize, usize), Error> {
 
 pub fn get_term_cursor_position() -> Result<(usize, usize), Error> {
     let sock = get_ctrl_sock()?;
-    sock.send_packet(PacketType::TermCommand as u32, &TermCommand::GetCursorPosition)?;
+    sock.send_packet(
+        PacketType::TermCommand as u32,
+        &TermCommand::GetCursorPosition,
+    )?;
     let (_, (row, column)) = sock.recv_packet::<(usize, usize)>()?;
     forget(sock);
     Ok((row, column))
@@ -69,7 +68,11 @@ pub fn set_raw_mode() -> Result<(), Error> {
 pub fn check_raw_mode() -> Result<bool, Error> {
     let def = Termios::default();
     let t = get_terminfo()?;
-    if t != def { return Ok(true) } else { return Ok(false) };
+    if t != def {
+        return Ok(true);
+    } else {
+        return Ok(false);
+    };
 }
 
 pub fn unset_raw_mode() -> Result<(), Error> {

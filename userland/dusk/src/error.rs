@@ -1,7 +1,5 @@
 use core::fmt::Display;
 
-use alloc::string::String;
-use vespertine_std::Error;
 
 #[derive(Debug)]
 pub enum ShellError {
@@ -21,4 +19,3 @@ impl Display for ShellError {
         }
     }
 }
-

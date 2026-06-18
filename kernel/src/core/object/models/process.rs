@@ -3,7 +3,6 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use vespertine_common::lock::TicketLock;
 use core::future::Future;
 use core::pin::Pin;
 use core::ptr::addr_of;
@@ -14,28 +13,43 @@ use core::sync::atomic::{
 };
 use core::task::{
     Context,
-    Poll, Waker,
+    Poll,
+    Waker,
 };
 
 use async_trait::async_trait;
 use vespertine_abi::op::ProcOp;
 use vespertine_abi::{
-    AccessRights, HandleID, Invocation, ProcStatus, ProcessExitInfo, ProcessExitKind, Signal, WaitItem, WaitOp
+    AccessRights,
+    HandleID,
+    Invocation,
+    ProcStatus,
+    ProcessExitInfo,
+    ProcessExitKind,
+    Signal,
+    WaitItem,
+    WaitOp,
 };
+use vespertine_common::lock::TicketLock;
 
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
 };
-use crate::core::asynchronous::waiter::{AsyncWaiter, WaiterList, wake_all};
+use crate::core::asynchronous::waiter::{
+    AsyncWaiter,
+    WaiterList,
+    wake_all,
+};
 use crate::core::object::handle::HandleTable;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::socket::{
-    SocketEndpoint,
-};
 use crate::core::object::models::thread::Thread;
-use crate::core::object::obj::{KernelObject, ObjectWaitFuture, matching_signals};
+use crate::core::object::obj::{
+    KernelObject,
+    ObjectWaitFuture,
+    matching_signals,
+};
 use crate::core::security::credentials::Credentials;
 use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::spawn_user_thread;
@@ -170,36 +184,30 @@ impl ProcessControlBlock {
         Ok(0)
     }
 
-
     pub fn complete(&self, exit_info: ProcessExitInfo) -> bool {
         {
             let mut stored = self.exit_info.write();
-    
+
             if stored.kind != ProcessExitKind::Running {
                 return false;
             }
-    
+
             *stored = exit_info;
         }
-    
+
         self.is_terminated.store(true, Ordering::Release);
         self.proc_handles.write().clear();
-    
+
         let wakers = self.completion_waiters.lock().take_wakers();
         wake_all(wakers);
-    
+
         true
     }
-
 
     pub fn get_exit_info(&self, ptr: *mut ProcessExitInfo) -> Result<usize, InvocationError> {
         let exit_info = *self.exit_info.read();
 
-        if !safe_copy_to(
-            ptr as *mut u8, 
-            &exit_info as *const ProcessExitInfo as *const u8, 
-            size_of::<ProcessExitInfo>()
-        ) {
+        if !safe_copy_to(ptr as *mut u8, &exit_info as *const ProcessExitInfo as *const u8, size_of::<ProcessExitInfo>()) {
             return Err(InvocationError::InvalidPointer);
         }
 
@@ -230,9 +238,7 @@ impl KernelObject for ProcessControlBlock {
                 let id = self.proc_handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
             }
-            Invocation::Wait(WaitOp::One(signal)) => {
-                ObjectWaitFuture::new(self, signal).await
-            },
+            Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
@@ -266,13 +272,10 @@ impl KernelObject for ProcessControlBlock {
         }
     }
 
-    fn current_signals(&self) -> Signal {
-        if self.is_terminated.load(Ordering::Acquire) { Signal::TERMINATED }
-        else { Signal(0) }
-    }
+    fn current_signals(&self) -> Signal { if self.is_terminated.load(Ordering::Acquire) { Signal::TERMINATED } else { Signal(0) } }
 
     fn register_waiter(&self, requested: Signal, waiter: &Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
-        if requested != Signal::TERMINATED { 
+        if requested != Signal::TERMINATED {
             return Err(InvocationError::UnsupportedOperation);
         }
 

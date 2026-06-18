@@ -3,7 +3,11 @@ use alloc::sync::Arc;
 
 use async_trait::async_trait;
 use vespertine_abi::{
-    AccessRights, FileOp, FileStat, Invocation
+    AccessRights,
+    FileOp,
+    FileStat,
+    Invocation,
+    ObjectType,
 };
 
 use crate::arch::x86_64::task::syscall::{
@@ -34,8 +38,6 @@ use crate::storage::fs::{
     VfsNodeType,
 };
 
-use vespertine_abi::ObjectType;
-
 #[derive(Debug)]
 pub struct Ext2File {
     pub fs: Arc<Ext2FileSystem>,
@@ -52,7 +54,7 @@ unsafe impl Sync for Ext2File {}
 impl KernelObject for Ext2File {
     fn type_name(&self) -> &'static str { "File" }
 
-    fn object_type(&self) -> ObjectType { ObjectType::File } 
+    fn object_type(&self) -> ObjectType { ObjectType::File }
 
     async fn invoke(&self, invocation: Invocation, _rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
@@ -87,7 +89,7 @@ impl KernelObject for Ext2File {
                 }
 
                 Ok(0)
-            },
+            }
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;

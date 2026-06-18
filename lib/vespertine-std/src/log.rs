@@ -7,7 +7,9 @@ pub struct SystemLog(HandleID);
 
 impl SystemLog {
     pub fn connect() -> Self {
-        let handle = env::capability(CAP_LOGGER).expect("Could not find logger").id;
+        let handle = env::capability(CAP_LOGGER)
+            .expect("Could not find logger")
+            .id;
         Self(handle)
     }
 }

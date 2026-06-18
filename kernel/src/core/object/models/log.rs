@@ -10,7 +10,6 @@ use vespertine_abi::{
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
-use crate::drivers::logger::LOGGER;
 use crate::klogln;
 
 #[derive(Debug)]

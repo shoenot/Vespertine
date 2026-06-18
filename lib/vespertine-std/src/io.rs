@@ -1,10 +1,9 @@
-use core::slice;
 
 use crate::{Error, ErrorKind};
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::{HandleID, protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC}};
+use vespertine_abi::HandleID;
 use vespertine_rt::syscall::{sys_read, sys_write};
 
 pub trait Read {

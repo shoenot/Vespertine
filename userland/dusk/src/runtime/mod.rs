@@ -1,10 +1,18 @@
 pub mod env;
 use alloc::string::{String, ToString};
-use vespertine_abi::ProcessExitInfo;
 use vespertine_rt::{print, println};
 
-use crate::{error::ShellError, lexer::Tokenizer, parser::{Parser, ast::{BaseNode, CommandNode}}, runtime::env::ShellContext, sys::{ShellResult, launch_command}};
 use crate::sys::launch_base;
+use crate::{
+    error::ShellError,
+    lexer::Tokenizer,
+    parser::{
+        Parser,
+        ast::{BaseNode, CommandNode},
+    },
+    runtime::env::ShellContext,
+    sys::{ShellResult, launch_command},
+};
 
 pub struct ShellRuntime {
     pub context: ShellContext,
@@ -12,7 +20,7 @@ pub struct ShellRuntime {
 
 impl ShellRuntime {
     pub fn new() -> Self {
-        Self { 
+        Self {
             context: ShellContext::new(),
         }
     }
@@ -36,21 +44,21 @@ impl ShellRuntime {
         match cmd {
             CommandNode::Run { exec, args } => {
                 return launch_command(exec.as_str(), &args, &self.context);
-            },
+            }
             CommandNode::Echo { args } => {
                 for arg in args {
                     print!("{}", arg);
                     println!("")
                 }
                 ShellResult::None
-            },
+            }
             CommandNode::ChangeDir { path } => {
                 let display = path.to_string();
                 match self.context.change_dir(path) {
                     Ok(_) => ShellResult::None,
-                    Err(error) => ShellResult::ChangeDirFail(display, error)
+                    Err(error) => ShellResult::ChangeDirFail(display, error),
                 }
-            },
+            }
             CommandNode::NoOp => ShellResult::None,
         }
     }

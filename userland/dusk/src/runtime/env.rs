@@ -1,7 +1,14 @@
-use alloc::{collections::btree_map::BTreeMap, format, string::{String, ToString}};
-use vespertine_abi::{AccessRights, HandleID, ProcessExitInfo};
+use alloc::{
+    collections::btree_map::BTreeMap,
+    format,
+    string::String,
+};
+use vespertine_abi::{AccessRights, HandleID};
 use vespertine_rt::syscall::sys_close;
-use vespertine_std::{Error, env, fs::{Path, PathBuf, resolve, resolve_from}, socket::Socket};
+use vespertine_std::{
+    Error, env,
+    fs::{PathBuf, resolve_from},
+};
 
 use crate::sys::ShellResult;
 
@@ -31,7 +38,12 @@ impl ShellContext {
     }
 
     pub fn change_dir(&mut self, path: PathBuf) -> Result<(), Error> {
-        let new_handle = resolve_from(&path.as_path(), env::root(), self.cwd_handle, AccessRights::TRAVERSE)?;
+        let new_handle = resolve_from(
+            &path.as_path(),
+            env::root(),
+            self.cwd_handle,
+            AccessRights::TRAVERSE,
+        )?;
         let new_display_path = self.cwd.join(&path.as_path());
 
         if self.cwd_handle != env::cwd() {
@@ -47,23 +59,31 @@ impl ShellContext {
         match self.last_result {
             ShellResult::Launched(info) => format!("({})", info.code),
             ShellResult::None => format!(""),
-            _ => format!("(err)")
+            _ => format!("(err)"),
         }
     }
 
     pub fn last_details(&self) -> String {
         match self.last_result {
-            ShellResult::Launched(info) => format!("{:?}, code: {}, details: {}", info.kind, info.code, info.detail),
+            ShellResult::Launched(info) => format!(
+                "{:?}, code: {}, details: {}",
+                info.kind, info.code, info.detail
+            ),
             _ => format!(""),
         }
     }
 
     pub fn last_success(&self) -> bool {
         match self.last_result {
-            ShellResult::Launched(info) => if info.code == 0 { true } else { false },
+            ShellResult::Launched(info) => {
+                if info.code == 0 {
+                    true
+                } else {
+                    false
+                }
+            }
             ShellResult::None => true,
             _ => false,
         }
     }
 }
-

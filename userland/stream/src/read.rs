@@ -16,7 +16,7 @@ static TRUNCATED_READ_OPTIONS: &[Opt] = &[
     Opt::flag("help", Some('h'), Some("help")),
 ];
 
-pub fn run(args: &[String]) -> Result<(), Error> { 
+pub fn run(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("read")
         .options(READ_OPTIONS)
         .parse(args)
@@ -35,12 +35,19 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    let output = Sink { handle: env::sink() };
+    let output = Sink {
+        handle: env::sink(),
+    };
 
-    copy_special(&input, &output, matches.flag("number"), matches.flag("squeeze-blank"))
+    copy_special(
+        &input,
+        &output,
+        matches.flag("number"),
+        matches.flag("squeeze-blank"),
+    )
 }
 
-pub fn head(args: &[String]) -> Result<(), Error> { 
+pub fn head(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("head")
         .options(TRUNCATED_READ_OPTIONS)
         .parse(args)
@@ -59,13 +66,15 @@ pub fn head(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    let output = Sink { handle: env::sink() };
+    let output = Sink {
+        handle: env::sink(),
+    };
     let num_lines = matches.value("lines");
 
     copy_head(&input, &output, num_lines, matches.flag("number"))
 }
 
-pub fn tail(args: &[String]) -> Result<(), Error> { 
+pub fn tail(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("head")
         .options(TRUNCATED_READ_OPTIONS)
         .parse(args)
@@ -84,23 +93,32 @@ pub fn tail(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    let output = Sink { handle: env::sink() };
+    let output = Sink {
+        handle: env::sink(),
+    };
     let num_lines = matches.value("lines");
 
     copy_tail(&input, &output, num_lines, matches.flag("number"))
- }
+}
 
 fn copy_raw<R: Read, W: Write>(input: &R, output: &W) -> Result<(), Error> {
     let mut buf = [0u8; 4096];
 
     loop {
         let n = input.read(&mut buf)?;
-        if n == 0 { return Ok(()) };
+        if n == 0 {
+            return Ok(());
+        };
         output.write_all(&buf[..n])?;
     }
 }
 
-fn copy_special<R: Read, W: Write>(input: &R, output: &W, numbers: bool, squeeze: bool) -> Result<(), Error> {
+fn copy_special<R: Read, W: Write>(
+    input: &R,
+    output: &W,
+    numbers: bool,
+    squeeze: bool,
+) -> Result<(), Error> {
     let mut buf = [0u8; 4096];
     let mut line = 1usize;
     let mut last_line_blank = false;
@@ -108,10 +126,12 @@ fn copy_special<R: Read, W: Write>(input: &R, output: &W, numbers: bool, squeeze
 
     loop {
         let n = input.read(&mut buf)?;
-        if n == 0 { return Ok(()) };
+        if n == 0 {
+            return Ok(());
+        };
         for &b in &buf[..n] {
             let current_line_blank = at_line_start && b == b'\n';
-            
+
             if squeeze && current_line_blank && last_line_blank {
                 continue;
             }
@@ -138,7 +158,12 @@ fn copy_special<R: Read, W: Write>(input: &R, output: &W, numbers: bool, squeeze
     }
 }
 
-fn copy_head<R: Read, W: Write>(input: &R, output: &W, num_lines: Option<&str>, numbers: bool) -> Result<(), Error> {
+fn copy_head<R: Read, W: Write>(
+    input: &R,
+    output: &W,
+    num_lines: Option<&str>,
+    numbers: bool,
+) -> Result<(), Error> {
     let mut buf = [0u8; 4096];
     let mut line = 1usize;
     let mut at_line_start = true;
@@ -150,11 +175,15 @@ fn copy_head<R: Read, W: Write>(input: &R, output: &W, num_lines: Option<&str>, 
         None => 10,
     };
 
-    if limit == 0 { return Ok(()) };
+    if limit == 0 {
+        return Ok(());
+    };
 
     while line <= limit {
         let n = input.read(&mut buf)?;
-        if n == 0 { return Ok(()) };
+        if n == 0 {
+            return Ok(());
+        };
         for &b in &buf[..n] {
             if at_line_start {
                 if line > limit {
@@ -180,7 +209,12 @@ fn copy_head<R: Read, W: Write>(input: &R, output: &W, num_lines: Option<&str>, 
     Ok(())
 }
 
-fn copy_tail<R: Read, W: Write>(input: &R, output: &W, num_lines: Option<&str>, numbers: bool) -> Result<(), Error> {
+fn copy_tail<R: Read, W: Write>(
+    input: &R,
+    output: &W,
+    num_lines: Option<&str>,
+    numbers: bool,
+) -> Result<(), Error> {
     let mut buf = [0u8; 4096];
     let mut line = 1usize;
     let mut at_line_start = true;
@@ -192,13 +226,17 @@ fn copy_tail<R: Read, W: Write>(input: &R, output: &W, num_lines: Option<&str>, 
         None => 10,
     };
 
-    if limit == 0 { return Ok(()) };
+    if limit == 0 {
+        return Ok(());
+    };
 
     let mut output_buffer = Vec::new();
 
     loop {
         let n = input.read(&mut buf)?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         let mut cur = String::new();
         for &b in &buf[..n] {
             if at_line_start {

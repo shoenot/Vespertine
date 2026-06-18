@@ -4,8 +4,8 @@ pub mod app;
 mod bitwise;
 pub mod op;
 pub mod protocol;
-pub mod tag;
 pub mod shell;
+pub mod tag;
 
 pub use op::*;
 

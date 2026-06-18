@@ -8,14 +8,12 @@ use alloc::vec::Vec;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
 use vespertine_abi::tag::CAP_APP_TERMCTRL;
-use vespertine_abi::{
-    AccessRights, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
-};
+use vespertine_abi::{AccessRights, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp};
 use vespertine_rt::syscall::{
-    sys_invoke, sys_read, sys_set_read_policy, sys_sleep, sys_write_bytes,
+    sys_invoke, sys_read, sys_set_read_policy, sys_write_bytes,
 };
 use vespertine_rt::thread as rt_thread;
-use vespertine_std::clock::{Clock, Time};
+use vespertine_std::clock::Time;
 use vespertine_std::log::SystemLog;
 use vespertine_std::socket::Socket;
 use vespertine_std::{Error, fb::Framebuffer};
@@ -43,8 +41,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let fb = Framebuffer::open()?;
     let info = fb.info();
 
-    let width_cols = (info.width - 2 * PADDING_X);
-    let height_rows = (info.height - 2 * PADDING_Y);
+    let width_cols = info.width - 2 * PADDING_X;
+    let height_rows = info.height - 2 * PADDING_Y;
     let width_chars = width_cols / 8;
     let height_chars = height_rows / 16;
 
@@ -92,8 +90,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
         .grant_new(
-            app_ctrl.handle(), 
-            CAP_APP_TERMCTRL, 
+            app_ctrl.handle(),
+            CAP_APP_TERMCTRL,
             AccessRights::READ | AccessRights::WRITE,
         )?
         .inherit_capabilities()
@@ -303,7 +301,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
         if wait_items[3].pending.contains(Signal::READABLE) {
             match ctrl_term.recv_packet::<TermCommand>() {
-                Ok((header, cmd)) => match cmd {
+                Ok((_header, cmd)) => match cmd {
                     TermCommand::SetTermios(t) => {
                         let canonical = check_flag(t.c_lflag, ICANON);
 
@@ -332,14 +330,17 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         };
                         let _ =
                             ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
-                    },
+                    }
                     TermCommand::GetCursorPosition => {
                         let cursor = (grid.cursor_y, grid.cursor_x);
-                        let _ = ctrl_term.send_packet::<(usize, usize)>(PacketType::TermCursorPos as u32, &cursor);
-                    },
+                        let _ = ctrl_term.send_packet::<(usize, usize)>(
+                            PacketType::TermCursorPos as u32,
+                            &cursor,
+                        );
+                    }
                     TermCommand::Clear => {
                         grid.clear_screen();
-                    },
+                    }
                 },
                 Err(_) => {}
             }

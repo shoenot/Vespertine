@@ -1,7 +1,8 @@
 use core::arch::asm;
 
 use vespertine_abi::{
-    ClockOp, DirectoryOp, FileOp, FileStat, HandleID, Invocation, MemPoolOp, ProcOp, Signal, SocketOp, VmoOp, WaitOp
+    ClockOp, DirectoryOp, FileOp, FileStat, HandleID, Invocation, MemPoolOp, ProcOp, Signal,
+    SocketOp, VmoOp, WaitOp,
 };
 
 #[derive(Debug)]
@@ -273,7 +274,9 @@ pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError>
 }
 
 pub fn sys_stat(handle: HandleID, stat: &mut FileStat) -> Result<usize, SysError> {
-    let op = FileOp::Stat { stat_ptr: stat as *mut _ as usize  };
+    let op = FileOp::Stat {
+        stat_ptr: stat as *mut _ as usize,
+    };
     sys_invoke(handle, &Invocation::File(op))
 }
 

@@ -1,13 +1,14 @@
-use crate::{Error, fs::resolve};
 pub use crate::path::*;
+use crate::{Error, fs::resolve};
 use crate::{
     ErrorKind,
     io::{Read, Write},
 };
-use core::mem::MaybeUninit;
 use core::ops::Drop;
 use vespertine_abi::{AccessRights, FileOp, FileStat, HandleID, Invocation};
-use vespertine_rt::syscall::{sys_close, sys_create_file, sys_invoke, sys_read, sys_stat, sys_write};
+use vespertine_rt::syscall::{
+    sys_close, sys_create_file, sys_invoke, sys_read, sys_stat, sys_write,
+};
 
 extern crate alloc;
 
@@ -46,14 +47,22 @@ impl File {
 
     pub fn seek(&self, from: SeekFrom) -> Result<usize, Error> {
         let (offset, whence) = match from {
-            SeekFrom::Start(offset) => {
-                (i64::try_from(offset).map_err(|_| Error { kind: ErrorKind::InvalidArgument, message: "".into() })?, 0)
-            },
+            SeekFrom::Start(offset) => (
+                i64::try_from(offset).map_err(|_| Error {
+                    kind: ErrorKind::InvalidArgument,
+                    message: "".into(),
+                })?,
+                0,
+            ),
             SeekFrom::Current(offset) => (offset, 1),
             SeekFrom::End(offset) => (offset, 2),
         };
 
-        sys_invoke(self.handle, &Invocation::File(FileOp::Seek { offset, whence })).map_err(Error::from)
+        sys_invoke(
+            self.handle,
+            &Invocation::File(FileOp::Seek { offset, whence }),
+        )
+        .map_err(Error::from)
     }
 
     pub fn create(path: &Path<'_>) -> Result<Self, Error> {
@@ -67,7 +76,7 @@ impl File {
     pub fn read_at(&self, buf: &mut [u8], offset: usize) -> Result<usize, Error> {
         sys_read(self.handle, buf.as_mut_ptr(), buf.len(), offset).map_err(Error::from)
     }
-    
+
     pub fn write_at(&self, buf: &[u8], offset: usize) -> Result<usize, Error> {
         sys_write(self.handle, buf.as_ptr(), buf.len(), offset).map_err(Error::from)
     }

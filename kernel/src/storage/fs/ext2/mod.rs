@@ -38,8 +38,8 @@ use crate::storage::fs::ext2::structs::{
 
 pub mod init;
 pub mod obj;
-pub mod structs;
 pub mod permissions;
+pub mod structs;
 
 #[derive(Debug)]
 pub struct Ext2FileSystem {

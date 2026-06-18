@@ -1,10 +1,7 @@
 #![no_std]
 #![no_main]
 
-use vespertine_abi::{
-    AccessRights, ProcessInitPackage,
-    tag::CAP_LOGGER,
-};
+use vespertine_abi::{AccessRights, ProcessInitPackage, tag::CAP_LOGGER};
 use vespertine_rt::{println, syscall::sys_close};
 use vespertine_std::{Error, Exec, Write, env, log::SystemLog};
 
@@ -36,4 +33,3 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     println!("[INFO] Hesper initialization complete");
     Ok(())
 }
-

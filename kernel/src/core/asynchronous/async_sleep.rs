@@ -39,10 +39,7 @@ impl Future for AsyncSleep {
 
             // AsyncSleep callouts are armed on the polling CPU.
             // Futures using AsyncSleep must not migrate between executors.
-            let callout = Callout {
-                wake_time: self.target_ticks,
-                payload: CalloutPayload::WakeTimer(self.registration.clone()),
-            };
+            let callout = Callout { wake_time: self.target_ticks, payload: CalloutPayload::WakeTimer(self.registration.clone()) };
 
             get_core_data().callout_queue.lock().push(callout);
             update_hardware_timer();
@@ -55,11 +52,7 @@ impl Future for AsyncSleep {
 pub fn sleep_async(ms: usize) -> AsyncSleep {
     let ticks = ns_to_ticks(ms.saturating_mul(1_000_000));
 
-    AsyncSleep {
-        target_ticks: get_time().saturating_add(ticks),
-        armed: false,
-        registration: TimerRegistration::new(),
-    }
+    AsyncSleep { target_ticks: get_time().saturating_add(ticks), armed: false, registration: TimerRegistration::new() }
 }
 
 impl Drop for AsyncSleep {

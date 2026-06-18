@@ -84,12 +84,7 @@ impl MemPool {
     pub fn new_expandable(initial_limit: usize, maximum_limit: usize, parent: Option<Arc<PoolState>>) -> Self {
         assert!(initial_limit <= maximum_limit);
         Self {
-            state: Arc::new(PoolState {
-                limit: AtomicUsize::new(initial_limit),
-                maximum_limit,
-                allocated: AtomicUsize::new(0),
-                parent,
-            }),
+            state: Arc::new(PoolState { limit: AtomicUsize::new(initial_limit), maximum_limit, allocated: AtomicUsize::new(0), parent }),
         }
     }
 }

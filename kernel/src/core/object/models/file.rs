@@ -5,7 +5,10 @@ use core::cmp::min;
 use async_trait::async_trait;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
-    AccessRights, FileStat, Invocation, ObjectType
+    AccessRights,
+    FileStat,
+    Invocation,
+    ObjectType,
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
@@ -36,7 +39,7 @@ unsafe impl Sync for FileObj {}
 
 #[async_trait]
 impl KernelObject for FileObj {
-    fn object_type(&self) -> ObjectType { ObjectType::File } 
+    fn object_type(&self) -> ObjectType { ObjectType::File }
 
     async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
@@ -79,7 +82,7 @@ impl KernelObject for FileObj {
                     return Err(InvocationError::InvalidPointer);
                 }
                 Ok(0)
-            },
+            }
             Invocation::File(FileOp::GetVmo) => {
                 let vmo = Vmo::new(self.size);
                 let num_pages = self.size.div_ceil(NORMAL_PAGE_SIZE);

@@ -12,4 +12,3 @@ define_bitflags! {
         REMOVE          = 1 << 7;
     }
 }
-

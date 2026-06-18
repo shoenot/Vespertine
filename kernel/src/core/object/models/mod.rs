@@ -1,3 +1,4 @@
+pub mod broker;
 pub mod clock;
 pub mod directory;
 pub mod file;
@@ -6,10 +7,9 @@ pub mod log;
 pub mod memman;
 pub mod mempool;
 pub mod mount_dir;
+pub mod namespace;
 pub mod process;
 pub mod procman;
 pub mod socket;
 pub mod thread;
 pub mod vmo;
-pub mod broker;
-pub mod namespace;

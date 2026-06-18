@@ -57,7 +57,7 @@ pub fn capabilities() -> &'static [CapabilityGrant] {
 
 pub fn capability(capability: CapabilityID) -> Option<CapabilityGrant> {
     capabilities()
-    .iter()
-    .copied()
-    .find(|g| g.capability == capability)
+        .iter()
+        .copied()
+        .find(|g| g.capability == capability)
 }

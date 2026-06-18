@@ -5,13 +5,13 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::{
     disable_interrupts,
     enable_interrupts,
     get_core_data,
     interrupts_enabled,
 };
-use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::core::cpu::{
     NO_STEAL_REQUEST,
     NUM_CORES,

@@ -1,9 +1,7 @@
 use core::{ptr::null_mut, sync::atomic::AtomicUsize};
 
 use crate::syscall::{SysError, sys_close, sys_invoke};
-use vespertine_abi::{
-    HandleID, Invocation, MemPoolOp, ProcOp, VmoOp,
-};
+use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcOp, VmoOp};
 use vespertine_common::slab::PageProvider;
 
 pub struct UserPageProvider {

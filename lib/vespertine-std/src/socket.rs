@@ -1,17 +1,21 @@
 use core::{mem::zeroed, slice};
 
 use vespertine_abi::{
-    AccessRights, HandleID, Signal, protocol::{PacketFlags, PacketHeader, VESPER_MAGIC}, tag::{CAP_SOCKFAC}
+    AccessRights, HandleID, Signal,
+    protocol::{PacketFlags, PacketHeader, VESPER_MAGIC},
+    tag::CAP_SOCKFAC,
 };
-use vespertine_rt::{once::OnceCell, syscall::{
-    sys_close, sys_create_socket, sys_read, sys_set_nb, sys_wait, sys_write,
-}};
+use vespertine_rt::{
+    once::OnceCell,
+    syscall::{sys_close, sys_create_socket, sys_read, sys_set_nb, sys_wait, sys_write},
+};
 
 use crate::{
-    Error, ErrorKind, broker::Broker, env, fs::{Path, resolve}, io::{Read, Write}
+    Error, ErrorKind,
+    broker::Broker,
+    fs::{Path, resolve},
+    io::{Read, Write},
 };
-
-
 
 pub struct SocketFactory {
     handle: HandleID,
@@ -19,7 +23,8 @@ pub struct SocketFactory {
 
 impl SocketFactory {
     pub fn request() -> Result<Self, Error> {
-        let broker_handle = resolve(&Path::new("/System/Services/Socket"), AccessRights::READ).map_err(Error::from)?;
+        let broker_handle = resolve(&Path::new("/System/Services/Socket"), AccessRights::READ)
+            .map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_SOCKFAC, AccessRights::CREATE)?;
         Ok(Self { handle })

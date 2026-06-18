@@ -41,12 +41,11 @@ pub enum PacketType {
     TermCommand = 203,
     TermCursorPos = 204,
 
-    // Shell types: 
-    String = 1000,
+    // Shell types:
+    Value = 1000,
     RecordSchema = 1001,
     RecordPresentation = 1002,
-    Record = 1003,
-    RecordEnd = 1004,
+    StreamEnd = 1003,
 }
 
 define_bitflags! {

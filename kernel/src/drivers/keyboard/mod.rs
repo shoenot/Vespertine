@@ -142,8 +142,7 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
 
                         if !sequence.is_empty() {
                             if output_len + sequence.len() <= output.len() {
-                                output[output_len..output_len + sequence.len()]
-                                    .copy_from_slice(sequence);
+                                output[output_len..output_len + sequence.len()].copy_from_slice(sequence);
                                 output_len += sequence.len();
                             }
                             handled_sequence = true;

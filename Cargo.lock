@@ -65,6 +65,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "vespertine-abi",
+ "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
 ]
@@ -244,6 +245,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "table"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-rt",
+ "vespertine-std",
 ]
 
 [[package]]

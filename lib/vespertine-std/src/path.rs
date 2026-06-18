@@ -63,16 +63,22 @@ impl<'a> Path<'a> {
         let mut last = None;
         for component in self.components() {
             match component {
-                Component::Root | Component::Current => {},
-                Component::Parent => { last = None; },
-                Component::Normal(name) => { last = Some(name); },
+                Component::Root | Component::Current => {}
+                Component::Parent => {
+                    last = None;
+                }
+                Component::Normal(name) => {
+                    last = Some(name);
+                }
             }
         }
         last
     }
 
     pub fn to_path_buf(&self) -> PathBuf {
-        PathBuf { inner: self.raw.to_string() }
+        PathBuf {
+            inner: self.raw.to_string(),
+        }
     }
 
     pub fn normalize_lexical(&self) -> PathBuf {
@@ -100,11 +106,18 @@ impl<'a> Path<'a> {
         let (self_abs, self_parts) = normalized_parts(self);
         let (base_abs, base_parts) = normalized_parts(base);
 
-        if self_abs != base_abs { return false; }
+        if self_abs != base_abs {
+            return false;
+        }
 
-        if base_parts.len() > self_parts.len() { return false; }
+        if base_parts.len() > self_parts.len() {
+            return false;
+        }
 
-        self_parts.iter().zip(base_parts.iter()).all(|(a, b)| a == b)
+        self_parts
+            .iter()
+            .zip(base_parts.iter())
+            .all(|(a, b)| a == b)
     }
 
     pub fn strip_prefix(&self, base: &Path<'_>) -> Option<PathBuf> {
@@ -155,15 +168,21 @@ impl PathBuf {
     }
 
     pub fn empty() -> Self {
-        Self { inner: String::new() }
+        Self {
+            inner: String::new(),
+        }
     }
 
     pub fn root() -> Self {
-        Self { inner: "/".to_string() }
+        Self {
+            inner: "/".to_string(),
+        }
     }
 
     pub fn current() -> Self {
-        Self { inner: ".".to_string() }
+        Self {
+            inner: ".".to_string(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -191,7 +210,9 @@ impl PathBuf {
     }
 
     pub fn from_str(s: &str) -> Self {
-        Self { inner: s.to_string() }
+        Self {
+            inner: s.to_string(),
+        }
     }
 
     pub fn as_path(&self) -> Path<'_> {
@@ -235,30 +256,32 @@ impl PathBuf {
                 Component::Root => {
                     absolute = true;
                     stack.clear();
-                },
-                Component::Current => {},
+                }
+                Component::Current => {}
                 Component::Parent => {
                     if !stack.is_empty() {
                         stack.pop();
                     } else if !absolute {
                         stack.push("..".to_string());
                     }
-                },
+                }
                 Component::Normal(name) => {
                     stack.push(name.to_string());
-                },
+                }
             }
         }
 
         let mut inner = String::new();
 
-        if absolute { inner.push('/'); }
+        if absolute {
+            inner.push('/');
+        }
 
         inner.push_str(&stack.join("/"));
 
-        if inner.is_empty() { 
+        if inner.is_empty() {
             if absolute {
-                inner.push('/'); 
+                inner.push('/');
             } else {
                 inner.push('.');
             }
@@ -307,23 +330,23 @@ impl PathBuf {
 
         for component in path.components() {
             match component {
-                Component::Root | Component::Current => {},
+                Component::Root | Component::Current => {}
                 Component::Parent => {
                     if !components.is_empty() {
                         components.pop();
                     } else if !absolute {
                         components.push("..".to_string());
                     }
-                },
+                }
                 Component::Normal(name) => {
                     components.push(name.to_string());
-                },
+                }
             }
         }
 
         if components.is_empty() {
             if absolute {
-                // "/" has no parent 
+                // "/" has no parent
                 return None;
             } else {
                 // "foo" -> "."
@@ -341,8 +364,10 @@ impl PathBuf {
             }
         } else {
             let mut inner = String::new();
-            if absolute { inner.push('/'); }
-            inner .push_str(&components.join("/"));
+            if absolute {
+                inner.push('/');
+            }
+            inner.push_str(&components.join("/"));
             Some(PathBuf { inner })
         }
     }
@@ -351,7 +376,9 @@ impl PathBuf {
         validate_file_name(name)?;
         self.pop();
 
-        if self.inner == "." { self.inner.clear(); }
+        if self.inner == "." {
+            self.inner.clear();
+        }
 
         if !self.inner.is_empty() && !self.inner.ends_with('/') {
             self.inner.push('/');
@@ -387,22 +414,22 @@ impl Display for PathBuf {
 }
 
 pub fn split_parent_name<'a>(path: &'a Path<'a>) -> Result<(PathBuf, &'a str), PathError> {
-  path.validate()?;
+    path.validate()?;
 
-  let raw = path.as_str().trim_end_matches('/');
+    let raw = path.as_str().trim_end_matches('/');
 
-  if raw.is_empty() {
-      return Err(PathError::NoFileName);
-  }
+    if raw.is_empty() {
+        return Err(PathError::NoFileName);
+    }
 
-  let (parent, name) = match raw.rfind('/') {
-      Some(0) => (PathBuf::root(), &raw[1..]),
-      Some(index) => (PathBuf::from_str(&raw[..index]), &raw[index + 1..]),
-      None => (PathBuf::current(), raw),
-  };
+    let (parent, name) = match raw.rfind('/') {
+        Some(0) => (PathBuf::root(), &raw[1..]),
+        Some(index) => (PathBuf::from_str(&raw[..index]), &raw[index + 1..]),
+        None => (PathBuf::current(), raw),
+    };
 
-  validate_file_name(name)?;
-  Ok((parent, name))
+    validate_file_name(name)?;
+    Ok((parent, name))
 }
 
 pub fn validate_file_name(name: &str) -> Result<(), PathError> {
@@ -423,19 +450,19 @@ fn normalized_parts(path: &Path<'_>) -> (bool, Vec<String>) {
     let mut components = Vec::new();
 
     for component in path.components() {
-        match component { 
+        match component {
             Component::Root => {
                 absolute = true;
                 components.clear();
-            },
-            Component::Current => {},
+            }
+            Component::Current => {}
             Component::Parent => {
                 if !components.is_empty() {
                     components.pop();
                 } else if !absolute {
                     components.push("..".to_string());
                 }
-            },
+            }
             Component::Normal(name) => {
                 components.push(name.to_string());
             }
@@ -454,9 +481,18 @@ fn normalize_root() {
 
 #[test]
 fn join_paths() {
-    assert_eq!(PathBuf::from_str("/a/b").join(&Path::new("c")).as_str(), "/a/b/c");
-    assert_eq!(PathBuf::from_str("/a/b").join(&Path::new("../c")).as_str(), "/a/c");
-    assert_eq!(PathBuf::from_str("/a/b").join(&Path::new("/x")).as_str(), "/x");
+    assert_eq!(
+        PathBuf::from_str("/a/b").join(&Path::new("c")).as_str(),
+        "/a/b/c"
+    );
+    assert_eq!(
+        PathBuf::from_str("/a/b").join(&Path::new("../c")).as_str(),
+        "/a/c"
+    );
+    assert_eq!(
+        PathBuf::from_str("/a/b").join(&Path::new("/x")).as_str(),
+        "/x"
+    );
 }
 
 #[test]
@@ -476,9 +512,8 @@ fn split_parent_and_name() {
 
 #[test]
 fn split_preserves_parent_traversal() {
-  let (parent, name) =
-      split_parent_name(&Path::new("missing/../file")).unwrap();
+    let (parent, name) = split_parent_name(&Path::new("missing/../file")).unwrap();
 
-  assert_eq!(parent.as_str(), "missing/..");
-  assert_eq!(name, "file");
+    assert_eq!(parent.as_str(), "missing/..");
+    assert_eq!(name, "file");
 }

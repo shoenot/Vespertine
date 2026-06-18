@@ -37,9 +37,7 @@ pub trait KernelDirectory: Send + Sync {
         Err(InvocationError::UnsupportedOperation)
     }
 
-    async fn unlink_child(&self, _name: &str) -> Result<(), InvocationError> {
-        Err(InvocationError::UnsupportedOperation)
-    }
+    async fn unlink_child(&self, _name: &str) -> Result<(), InvocationError> { Err(InvocationError::UnsupportedOperation) }
 }
 
 #[async_trait]

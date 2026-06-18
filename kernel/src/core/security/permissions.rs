@@ -1,7 +1,13 @@
 use alloc::sync::Arc;
-use vespertine_abi::{AccessRights, UserID};
 
-use crate::core::{object::{invoke::InvocationError, obj::KernelObject}, thread::get_current_process};
+use vespertine_abi::{
+    AccessRights,
+    UserID,
+};
+
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::obj::KernelObject;
+use crate::core::thread::get_current_process;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FilePermissions {
@@ -11,13 +17,7 @@ pub struct FilePermissions {
 }
 
 impl FilePermissions {
-    pub fn allowed_for(self, user: UserID) -> AccessRights {
-        if user == self.owner {
-            self.owner_rights
-        } else {
-            self.other_rights
-        }
-    }
+    pub fn allowed_for(self, user: UserID) -> AccessRights { if user == self.owner { self.owner_rights } else { self.other_rights } }
 }
 
 pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, InvocationError> {
@@ -25,7 +25,7 @@ pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, In
 
     let ret = match object.permissions() {
         Some(perms) => perms.allowed_for(proc.credentials.user()),
-        None => AccessRights::all(),  // virtual objects remain capability-controlled
+        None => AccessRights::all(), // virtual objects remain capability-controlled
     };
 
     Ok(ret)

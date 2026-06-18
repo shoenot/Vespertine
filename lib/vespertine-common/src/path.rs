@@ -1,4 +1,3 @@
-
 pub enum Component<'a> {
     Root,
     Current,
@@ -13,7 +12,10 @@ pub struct Components<'a> {
 
 impl<'a> Components<'a> {
     pub fn new(path: &'a str) -> Self {
-        Self { path, emitted_root: false }
+        Self {
+            path,
+            emitted_root: false,
+        }
     }
 }
 
@@ -34,7 +36,7 @@ impl<'a> Iterator for Components<'a> {
         }
 
         if self.path.is_empty() {
-            return None
+            return None;
         }
 
         let end = self.path.find('/').unwrap_or(self.path.len());

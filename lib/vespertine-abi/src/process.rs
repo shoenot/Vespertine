@@ -28,7 +28,6 @@ impl ProcessInitPackage {
     }
 }
 
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ProcStatus {
@@ -58,16 +57,26 @@ pub struct ProcessExitInfo {
 
 impl ProcessExitInfo {
     pub const fn running() -> Self {
-        Self { kind: ProcessExitKind::Running, code: 0, detail: 0 }
+        Self {
+            kind: ProcessExitKind::Running,
+            code: 0,
+            detail: 0,
+        }
     }
 
     pub const fn exited(code: u32) -> Self {
-        Self { kind: ProcessExitKind::Exited, code, detail: 0 }
+        Self {
+            kind: ProcessExitKind::Exited,
+            code,
+            detail: 0,
+        }
     }
 
     pub const fn killed(reason: u32) -> Self {
-        Self { kind: ProcessExitKind::Killed, code: reason, detail: 0 }
+        Self {
+            kind: ProcessExitKind::Killed,
+            code: reason,
+            detail: 0,
+        }
     }
-    
 }
-

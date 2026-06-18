@@ -1,14 +1,21 @@
-use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp, ProcStatus, ProcessExitInfo, ProcessExitKind, Signal, WaitOp, tag::CAP_PROCMAN
-};
 use alloc::format;
+use vespertine_abi::{
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp, ProcessExitInfo, Signal, WaitOp, tag::CAP_PROCMAN,
+};
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_rt::{once::OnceCell, syscall::{sys_close, sys_invoke, sys_yield}};
+use vespertine_rt::{
+    once::OnceCell,
+    syscall::{sys_close, sys_invoke},
+};
 
 use crate::{
-    Error, ErrorKind, broker::Broker, env, fs::{Dir, Path, resolve}, socket::Socket
+    Error, ErrorKind,
+    broker::Broker,
+    env,
+    fs::{Path, resolve},
+    socket::Socket,
 };
 
 struct ProcManager {
@@ -17,14 +24,19 @@ struct ProcManager {
 
 impl ProcManager {
     pub fn request() -> Result<Self, Error> {
-        let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ).map_err(Error::from)?;
+        let broker_handle = resolve(
+            &Path::new("/System/Services/ProcManager"),
+            AccessRights::READ,
+        )
+        .map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_PROCMAN, AccessRights::CREATE | AccessRights::EXECUTE)?;
         Ok(Self { handle })
     }
 
     pub fn spawn(&self, op: ProcManOp) -> Result<HandleID, Error> {
-        let result = sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
+        let result =
+            sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
         Ok(HandleID(result))
     }
 }
@@ -53,9 +65,9 @@ impl Process {
             &Invocation::Wait(WaitOp::One(Signal::TERMINATED)),
         )
         .map_err(Error::from)?;
-    
+
         let mut info = ProcessExitInfo::running();
-    
+
         sys_invoke(
             self.handle,
             &Invocation::Proc(ProcOp::GetExitInfo {
@@ -63,7 +75,7 @@ impl Process {
             }),
         )
         .map_err(Error::from)?;
-    
+
         Ok(info)
     }
 }
@@ -152,7 +164,11 @@ impl Exec {
         capability: CapabilityID,
         rights: AccessRights,
     ) -> Result<Self, Error> {
-        let grant = CapabilityGrant { id, capability, rights };
+        let grant = CapabilityGrant {
+            id,
+            capability,
+            rights,
+        };
         self.capabilities.push(grant);
         Ok(self)
     }

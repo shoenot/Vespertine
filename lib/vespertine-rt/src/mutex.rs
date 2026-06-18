@@ -1,10 +1,10 @@
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::syscall::{sys_futex_wait, sys_futex_wake, sys_yield};
+use crate::syscall::{sys_futex_wait, sys_futex_wake};
 
 // 0 - unlocked
 // 1 - locked (no waiters)

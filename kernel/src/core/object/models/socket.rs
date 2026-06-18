@@ -11,7 +11,8 @@ use core::sync::atomic::{
 };
 use core::task::{
     Context,
-    Poll, Waker,
+    Poll,
+    Waker,
 };
 
 use async_trait::async_trait;
@@ -41,7 +42,11 @@ use crate::core::asynchronous::waiter::{
     wake_all,
 };
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::{KernelObject, ObjectWaitFuture, matching_signals};
+use crate::core::object::obj::{
+    KernelObject,
+    ObjectWaitFuture,
+    matching_signals,
+};
 use crate::core::sync::Mutex;
 
 #[path = "socket_tests.rs"]
@@ -411,9 +416,7 @@ impl KernelObject for SocketEndpoint {
                 self.write_bus.notify_readers();
                 Ok(0)
             }
-            Invocation::Wait(WaitOp::One(signal)) => {
-                ObjectWaitFuture::new(self, signal).await
-            }
+            Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
             Invocation::Wait(WaitOp::Many { items_ptr: _, count: _ }) => {
                 // invoke through ProcessControlBlock::invoke, not here manually
                 Err(InvocationError::UnsupportedOperation)
@@ -427,7 +430,7 @@ impl KernelObject for SocketEndpoint {
     fn register_waiter(&self, requested: Signal, waiter: &Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
         let supported = Signal::READABLE | Signal::WRITABLE | Signal::PEER_CLOSED;
         if requested != (requested & supported) {
-            return Err(InvocationError::UnsupportedOperation)
+            return Err(InvocationError::UnsupportedOperation);
         }
 
         if requested.contains(Signal::READABLE) || requested.contains(Signal::PEER_CLOSED) {

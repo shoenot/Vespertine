@@ -13,7 +13,8 @@ use vespertine_abi::{
     AccessRights,
     DirectoryOp,
     HandleID,
-    Invocation, ObjectType,
+    Invocation,
+    ObjectType,
 };
 use vespertine_common::path::{
     Component,

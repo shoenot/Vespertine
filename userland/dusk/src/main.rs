@@ -1,16 +1,14 @@
 #![no_std]
 #![no_main]
 
+mod error;
 mod lexer;
 mod parser;
 mod runtime;
 mod sys;
-mod error;
 use error::ShellError;
 
-use alloc::{
-    string::{String, ToString},
-};
+use alloc::string::{String, ToString};
 use vespertine_abi::ProcessInitPackage;
 use vespertine_rt::{print, println, source::read_line};
 use vespertine_std::term::get_term_cursor_position;
@@ -39,7 +37,11 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), ShellError> {
             println!("");
         }
 
-        print!("{} \x1b[35m{} >> \x1b[0m", runtime.context.cwd().to_string(), runtime.context.status());
+        print!(
+            "{} \x1b[35m{} >> \x1b[0m",
+            runtime.context.cwd().to_string(),
+            runtime.context.status()
+        );
         let mut buf = [0u8; 128];
         let n = read_line(&mut buf);
 
@@ -51,14 +53,11 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), ShellError> {
         let res = runtime.eval(String::from(line));
 
         match res {
-            Ok(res) => {
-                match res {
-                    ShellResult::None | ShellResult::Launched(_) => {},
-                    other => println!("EVAL: {}", other),
-                }
+            Ok(res) => match res {
+                ShellResult::None | ShellResult::Launched(_) => {}
+                other => println!("EVAL: {}", other),
             },
             Err(e) => println!("{}", e),
         }
     }
 }
-

@@ -9,20 +9,23 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::mem::MaybeUninit;
 use core::ptr::{
     copy_nonoverlapping,
     write_bytes,
 };
-use core::slice::from_raw_parts;
 use core::{
     cmp,
     fmt,
-    mem::MaybeUninit,
 };
 
 use parser::*;
 use vespertine_abi::{
-    AccessRights, FileOp, FileStat, HandleID, Invocation
+    AccessRights,
+    FileOp,
+    FileStat,
+    HandleID,
+    Invocation,
 };
 
 use crate::core::object::models::process::Process;
@@ -85,18 +88,10 @@ async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, E
     // KernelObject file reads accept kernel destination pointers directly, so
     // loader I/O must not change the calling thread's process identity.
     let mut stat = MaybeUninit::<FileStat>::uninit();
-    file_obj
-        .invoke(
-            Invocation::File(FileOp::Stat {
-                stat_ptr: stat.as_mut_ptr() as usize,
-            }),
-            AccessRights::READ,
-        )
-        .await
-        .map_err(|e| {
-            klogln!("[ERROR] read_elf_header: Stat failed: {:?}", e);
-            LoaderError::FileReadError
-        })?;
+    file_obj.invoke(Invocation::File(FileOp::Stat { stat_ptr: stat.as_mut_ptr() as usize }), AccessRights::READ).await.map_err(|e| {
+        klogln!("[ERROR] read_elf_header: Stat failed: {:?}", e);
+        LoaderError::FileReadError
+    })?;
     let file_size = unsafe { stat.assume_init().size as usize };
     let header_read_size = cmp::min(file_size, 4096);
 
@@ -154,9 +149,9 @@ async fn map_elf_segments(
         }
 
         if ph.p_type == P_Type::PT_LOAD as u32 {
-            let aligned_vaddr = ((load_base + ph.p_vaddr as usize) & !0xFFF);
+            let aligned_vaddr = (load_base + ph.p_vaddr as usize) & !0xFFF ;
             let aligned_offset = (ph.p_offset & !0xFFF) as usize;
-            let offset_in_page = ((load_base + ph.p_vaddr as usize) & 0xFFF);
+            let offset_in_page = (load_base + ph.p_vaddr as usize) & 0xFFF ;
             let total_map_size = align_up(offset_in_page + ph.p_memsz as usize);
 
             let mut vm_flags = VM_FLAG_USER;

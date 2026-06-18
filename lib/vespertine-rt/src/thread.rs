@@ -2,7 +2,6 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use vespertine_abi::{HandleID, Invocation, ProcOp};

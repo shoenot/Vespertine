@@ -46,7 +46,7 @@ pub trait PagedBackingStore: Send + Sync + Debug {
     fn is_dirty(&self, offset: usize) -> bool;
     fn clear_dirty(&self, offset: usize);
     fn get_node(&self) -> Option<Arc<dyn VfsNode>> { None }
-    fn peek_page(&self, offset: usize) -> Option<usize> { None }
+    fn peek_page(&self, _offset: usize) -> Option<usize> { None }
 }
 
 impl PagedBackingStore for Vmo {

@@ -4,11 +4,14 @@ use core::iter::Peekable;
 
 use ast::*;
 
-use alloc::{boxed::Box, string::String, vec::{IntoIter, Vec}};
+use alloc::{
+    boxed::Box,
+    string::String,
+    vec::{IntoIter, Vec},
+};
 use vespertine_std::fs::PathBuf;
 
 use crate::{error::ShellError, lexer::Token};
-
 
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
@@ -77,7 +80,7 @@ impl Parser {
 
     pub fn collect_args(&mut self) -> Result<Vec<String>, ShellError> {
         let mut args = Vec::new();
-    
+
         while let Some(token) = self.peek() {
             match token {
                 Token::Pipe => break,
@@ -90,7 +93,7 @@ impl Parser {
                 _ => return Err(ShellError::InvalidToken),
             }
         }
-    
+
         Ok(args)
     }
 

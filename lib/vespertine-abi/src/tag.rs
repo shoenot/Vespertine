@@ -9,5 +9,4 @@ pub const CAP_CLOCK: CapabilityID = CapabilityID(0x2001);
 pub const CAP_PROCMAN: CapabilityID = CapabilityID(0x2002);
 pub const CAP_SOCKFAC: CapabilityID = CapabilityID(0x2003);
 
-
 pub const CAP_APP_TERMCTRL: CapabilityID = CapabilityID(0x3000);

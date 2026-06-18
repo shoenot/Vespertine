@@ -1,9 +1,9 @@
 use vespertine_abi::{AccessRights, HandleID, tag::CAP_CLOCK};
-use vespertine_rt::syscall::{sys_close, sys_get_time, sys_sleep};
 use vespertine_rt::once::OnceCell;
+use vespertine_rt::syscall::{sys_close, sys_get_time, sys_sleep};
 
 use crate::fs::Path;
-use crate::{Error, broker::Broker, env, fs::resolve};
+use crate::{Error, broker::Broker, fs::resolve};
 
 // Low level clock capability API
 pub struct Clock {
@@ -12,7 +12,8 @@ pub struct Clock {
 
 impl Clock {
     pub fn request(rights: AccessRights) -> Result<Self, Error> {
-        let broker_handle = resolve(&Path::new("/System/Services/Clock"), AccessRights::READ).map_err(Error::from)?;
+        let broker_handle = resolve(&Path::new("/System/Services/Clock"), AccessRights::READ)
+            .map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_CLOCK, rights)?;
         Ok(Self { handle })
@@ -33,7 +34,7 @@ impl Drop for Clock {
     }
 }
 
-// High level clock functions abstraction 
+// High level clock functions abstraction
 pub struct Time;
 
 static READ_CLOCK: OnceCell<Clock> = OnceCell::new();

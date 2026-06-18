@@ -65,7 +65,8 @@ impl<T> OnceCell<T> {
                 Ok(_) => {
                     let result = initialize
                         .take()
-                        .expect("initializer called more than once")();
+                        .expect("initializer called more than once")(
+                    );
 
                     match result {
                         Ok(value) => {
@@ -75,9 +76,7 @@ impl<T> OnceCell<T> {
 
                             self.state.store(INITIALIZED, Ordering::Release);
                             Self::wake_waiters(&self.state);
-                            return Ok(unsafe {
-                                (*self.value.get()).assume_init_ref()
-                            });
+                            return Ok(unsafe { (*self.value.get()).assume_init_ref() });
                         }
 
                         Err(error) => {
@@ -89,9 +88,7 @@ impl<T> OnceCell<T> {
                 }
 
                 Err(INITIALIZED) => {
-                    return Ok(unsafe {
-                        (*self.value.get()).assume_init_ref()
-                    });
+                    return Ok(unsafe { (*self.value.get()).assume_init_ref() });
                 }
 
                 Err(INITIALIZING) => {
@@ -115,7 +112,6 @@ impl<T> OnceCell<T> {
         sys_futex_wake(address, usize::MAX);
     }
 }
-
 
 impl<T> Drop for OnceCell<T> {
     fn drop(&mut self) {

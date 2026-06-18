@@ -1,4 +1,3 @@
-
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectType {
@@ -10,7 +9,7 @@ pub enum ObjectType {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct FileStat {
-    pub object_type: u32, 
+    pub object_type: u32,
     pub mode: u32,
     pub user: u32,
     pub _group: u32,
@@ -30,9 +29,23 @@ pub struct FileStat {
 
 impl FileStat {
     pub fn zeroed() -> FileStat {
-        FileStat { 
-            object_type: 0, mode: 0, user: 0, _group: 0, inode: 0, 
-            device: 0, size: 0, block_size: 0, blocks: 0, nlink: 0, 
-            atime_sec: 0, atime_nsec: 0, mtime_sec: 0, mtime_nsec: 0, ctime_sec: 0, ctime_nsec: 0 }
+        FileStat {
+            object_type: 0,
+            mode: 0,
+            user: 0,
+            _group: 0,
+            inode: 0,
+            device: 0,
+            size: 0,
+            block_size: 0,
+            blocks: 0,
+            nlink: 0,
+            atime_sec: 0,
+            atime_nsec: 0,
+            mtime_sec: 0,
+            mtime_nsec: 0,
+            ctime_sec: 0,
+            ctime_nsec: 0,
+        }
     }
 }

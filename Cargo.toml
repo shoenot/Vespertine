@@ -10,7 +10,7 @@ members = [
     "userland/dusk", 
     "userland/hesper", 
     "userland/ns", 
-    "userland/terminal", "userland/stream",
+    "userland/terminal", "userland/stream", "userland/table",
 ]
 
 resolver = "2"

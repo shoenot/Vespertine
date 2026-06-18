@@ -12,15 +12,15 @@ use core::task::{
 };
 
 use super::{
-    BlockRequest,
     BlockCompletion,
+    BlockRequest,
     BlockTransferFuture,
     RESULT_OK,
+    Virtqueue,
     VqAvailableRing,
     VqDescriptor,
     VqUsedElem,
     VqUsedRing,
-    Virtqueue,
     alloc_request_descs,
     complete_request,
     poll_block_request,
@@ -67,11 +67,7 @@ fn counting_context() -> (Arc<CountingWaker>, core::task::Waker) {
 }
 
 fn observer_context(request: Arc<BlockRequest>) -> (Arc<ResultObserver>, core::task::Waker) {
-    let observer = Arc::new(ResultObserver {
-        request,
-        saw_ready: AtomicBool::new(false),
-        wakes: AtomicUsize::new(0),
-    });
+    let observer = Arc::new(ResultObserver { request, saw_ready: AtomicBool::new(false), wakes: AtomicUsize::new(0) });
     let waker = observer.clone().into();
     (observer, waker)
 }
@@ -287,10 +283,8 @@ fn test_read_completion_copies_dma_back_to_destination() {
     let request = BlockRequest::new(0, 1, 2, page_phys, dma);
     mark_request_complete(&request, true);
     let (_, waker) = counting_context();
-    let mut future = BlockTransferFuture {
-        request: request.clone(),
-        completion: Some(BlockCompletion::CopyToPhys { dst_phys: page_phys }),
-    };
+    let mut future =
+        BlockTransferFuture { request: request.clone(), completion: Some(BlockCompletion::CopyToPhys { dst_phys: page_phys }) };
 
     assert_eq!(poll_future(&mut future, &mut Context::from_waker(&waker)), Poll::Ready(Ok(())));
     unsafe {

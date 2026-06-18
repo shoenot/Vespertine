@@ -15,12 +15,17 @@ pub struct Arguments<'a> {
     args: &'a [String],
     index: usize,
     end_options: bool,
-    short_chars: Option<IntoIter<char>>
+    short_chars: Option<IntoIter<char>>,
 }
 
 impl<'a> Arguments<'a> {
     pub fn new(args: &'a [String]) -> Self {
-        Self { args, index: 0, end_options: false, short_chars: None }
+        Self {
+            args,
+            index: 0,
+            end_options: false,
+            short_chars: None,
+        }
     }
 
     pub fn next_arg(&mut self) -> Result<Option<Arg<'a>>, CliError> {
@@ -60,7 +65,9 @@ impl<'a> Arguments<'a> {
                 let name = &rest[..eq];
                 let value = &rest[eq + 1..];
 
-                if name.is_empty() { return Err(CliError::InvalidOption(raw.to_string())) };
+                if name.is_empty() {
+                    return Err(CliError::InvalidOption(raw.to_string()));
+                };
 
                 return Ok(Some(Arg::LongValue(name, value)));
             }
@@ -69,7 +76,7 @@ impl<'a> Arguments<'a> {
         }
 
         if let Some(rest) = raw.strip_prefix('-') {
-            if rest.is_empty() { 
+            if rest.is_empty() {
                 return Ok(Some(Arg::Positional(raw)));
             }
 

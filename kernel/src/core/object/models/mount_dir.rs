@@ -18,7 +18,13 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights, DirectoryOp, FileOp, FileStat, Invocation, ObjectType, UserID
+    AccessRights,
+    DirectoryOp,
+    FileOp,
+    FileStat,
+    Invocation,
+    ObjectType,
+    UserID,
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
@@ -71,7 +77,7 @@ impl KernelObject for MountDirectory {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let handle = proc.proc_handles.write().insert(object, AccessRights::all());
                 Ok(handle.0)
-            },
+            }
 
             Invocation::Directory(DirectoryOp::Link { .. }) => Err(InvocationError::UnsupportedOperation),
 
@@ -79,7 +85,7 @@ impl KernelObject for MountDirectory {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 KernelDirectory::unlink_child(self, &filename.name).await?;
                 Ok(0)
-            },
+            }
 
             Invocation::File(FileOp::Stat { stat_ptr }) => {
                 let underlying = self.underlying.read().clone();
@@ -109,10 +115,10 @@ impl KernelObject for MountDirectory {
                             return Err(InvocationError::InvalidPointer);
                         }
                         Ok(0)
-                    },
+                    }
                     Err(e) => Err(e),
                 }
-            },
+            }
 
             Invocation::Directory(DirectoryOp::List { offset, sink }) => {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;

@@ -7,7 +7,12 @@ use core::ptr::null;
 use async_trait::async_trait;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcessInitPackage
+    AccessRights,
+    CapabilityGrant,
+    CapabilityID,
+    HandleID,
+    Invocation,
+    ProcessInitPackage,
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
@@ -18,11 +23,9 @@ use crate::core::object::models::process::ProcessControlBlock;
 use crate::core::object::obj::KernelObject;
 use crate::core::program::env::ProcessEnvironment;
 use crate::core::program::load_elf;
-use crate::core::security::credentials::Credentials;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
-use crate::klogln;
 use crate::memory::vmm::{
     VM_FLAG_USER,
     VM_FLAG_WRITE,
@@ -78,16 +81,8 @@ impl KernelObject for ProcessManager {
                 }
 
                 // memory pool handle at 4
-                let mem_pool_obj = Arc::new(MemPool::new_expandable(
-                    DEFAULT_PROCESS_MEMORY_LIMIT,
-                    DEFAULT_PROCESS_MEMORY_MAXIMUM,
-                    None,
-                ));
-                new_proc_table.insert_at(
-                    HandleID(4),
-                    mem_pool_obj,
-                    AccessRights::WRITE | AccessRights::CREATE | AccessRights::MUTATE,
-                );
+                let mem_pool_obj = Arc::new(MemPool::new_expandable(DEFAULT_PROCESS_MEMORY_LIMIT, DEFAULT_PROCESS_MEMORY_MAXIMUM, None));
+                new_proc_table.insert_at(HandleID(4), mem_pool_obj, AccessRights::WRITE | AccessRights::CREATE | AccessRights::MUTATE);
 
                 // cwd handle at 5
                 new_proc_table.insert_at(HandleID(5), new_proc_cwd, cwd_rights);
@@ -102,11 +97,10 @@ impl KernelObject for ProcessManager {
 
                 if capabilities_len > 0 {
                     let mut parent_grants =
-                        vec![CapabilityGrant { 
-                            id: HandleID(0), 
-                            rights: AccessRights::new(), 
-                            capability: CapabilityID(0) }; 
-                    capabilities_len];
+                        vec![
+                            CapabilityGrant { id: HandleID(0), rights: AccessRights::new(), capability: CapabilityID(0) };
+                            capabilities_len
+                        ];
 
                     let success = safe_copy_from(
                         parent_grants.as_mut_ptr() as *mut u8,
@@ -120,8 +114,8 @@ impl KernelObject for ProcessManager {
 
                     for grant in parent_grants {
                         // ensure parent itself has the rights its trying to grant
-                        let obj = parent_proc.proc_handles.read().resolve(grant.id, grant.rights)?; 
-                            // insert into child with attenuated rights
+                        let obj = parent_proc.proc_handles.read().resolve(grant.id, grant.rights)?;
+                        // insert into child with attenuated rights
                         let chd = new_proc_table.insert(obj, grant.rights);
                         child_capabilities.push(CapabilityGrant { id: chd, rights: grant.rights, capability: grant.capability });
                     }

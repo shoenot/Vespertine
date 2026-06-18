@@ -2,17 +2,16 @@ use alloc::sync::Arc;
 use core::ptr::{
     self,
     copy_nonoverlapping,
-    null,
-    write,
 };
 
 use vespertine_abi::{
-    AT_VESPERTINE_INITPKG, CapabilityGrant, ProcessInitPackage
+    AT_VESPERTINE_INITPKG,
+    CapabilityGrant,
+    ProcessInitPackage,
 };
 use vespertine_common::slab::NORMAL_PAGE_SIZE;
 
 use crate::core::object::invoke::InvocationError;
-use crate::klogln;
 use crate::memory::HHDMOFFSET;
 use crate::memory::vmo::{
     PagedBackingStore,
@@ -40,7 +39,7 @@ impl ProcessEnvironment {
         // calculate sizes
         let initpkg_size = size_of::<ProcessInitPackage>();
         let capabilities_array_size = capabilities.len() * size_of::<CapabilityGrant>();
-        let argv_array_size = (argc + 1) * size_of::<*const u8>();
+        let _argv_array_size = (argc + 1) * size_of::<*const u8>();
         let strings_size = args_buffer.len();
 
         // System V stack structure: argc (usize) + argv (pointers) + null + envp (pointers, none) + null + 7 aux entries

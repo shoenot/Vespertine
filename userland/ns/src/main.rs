@@ -36,9 +36,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let command_args = &args[2..];
 
     match command.as_str() {
-        "list"   => command::list(command_args)?,
-        "mkdir"  => command::mkdir(command_args)?,
-        "touch"  => command::touch(command_args)?,
+        "list" => command::list(command_args)?,
+        "mkdir" => command::mkdir(command_args)?,
+        "touch" => command::touch(command_args)?,
         "delete" => command::delete(command_args)?,
         _ => return Err(Error::invalid_argument(HELP_TEXT.into())),
     }

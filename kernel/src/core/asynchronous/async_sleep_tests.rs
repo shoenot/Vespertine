@@ -36,13 +36,7 @@ fn context() -> (Arc<CountingWaker>, core::task::Waker) {
 
 fn poll_sleep(sleep: &mut AsyncSleep, context: &mut Context<'_>) -> Poll<()> { Pin::new(sleep).poll(context) }
 
-fn armed_sleep() -> AsyncSleep {
-    AsyncSleep {
-        target_ticks: usize::MAX,
-        armed: true,
-        registration: TimerRegistration::new(),
-    }
-}
+fn armed_sleep() -> AsyncSleep { AsyncSleep { target_ticks: usize::MAX, armed: true, registration: TimerRegistration::new() } }
 
 fn test_dropping_armed_sleep_prevents_wake() {
     let mut sleep = armed_sleep();

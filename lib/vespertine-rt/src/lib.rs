@@ -2,15 +2,14 @@
 #![no_main]
 pub mod memory;
 pub mod mutex;
+pub mod once;
 pub mod sink;
 pub mod source;
 pub mod syscall;
 pub mod thread;
-pub mod once;
 
 use core::{
     alloc::{GlobalAlloc, Layout},
-    arch::asm,
     panic::PanicInfo,
     ptr::{null, null_mut},
     sync::atomic::AtomicUsize,
@@ -60,7 +59,9 @@ pub static mut MAIN_MEM_POOL: HandleID = HandleID(0);
 
 pub fn init_heap() {
     let pkg = get_init_pkg();
-    if pkg.is_null() { panic!("Missing process init package") };
+    if pkg.is_null() {
+        panic!("Missing process init package")
+    };
     let pool = unsafe { (*pkg).memory_pool_handle };
 
     unsafe {

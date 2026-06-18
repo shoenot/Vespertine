@@ -1,6 +1,5 @@
 use crate::{HandleID, define_bitflags};
 
-
 define_bitflags! {
     pub struct Signal(u32) {
         READABLE    = 1 << 0;
@@ -17,4 +16,3 @@ pub struct WaitItem {
     pub signal: Signal,
     pub pending: Signal,
 }
-

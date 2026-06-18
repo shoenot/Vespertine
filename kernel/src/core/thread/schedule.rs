@@ -11,6 +11,8 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use vespertine_abi::ProcessExitInfo;
+
 use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::fpu::*;
@@ -41,7 +43,6 @@ use crate::{
     KERNEL_PROCESS,
     impl_queue_methods,
 };
-use vespertine_abi::ProcessExitInfo;
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
 
