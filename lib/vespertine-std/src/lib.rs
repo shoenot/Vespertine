@@ -15,6 +15,5 @@ pub mod broker;
 pub mod clock;
 pub mod fb;
 pub mod log;
-pub mod shell;
 pub mod term;
-pub mod value;
+pub mod typed;

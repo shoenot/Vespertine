@@ -12,7 +12,7 @@ use vespertine_abi::{
 use vespertine_std::{
     Error, ErrorKind, Exec, HandleWriter, Process, Read, env,
     fs::{File, Path, PathBuf},
-    shell::render_typed_stream,
+    typed::render_typed_stream,
     socket::Socket,
     term::unset_raw_mode,
 };
@@ -29,7 +29,7 @@ pub enum ShellResult {
     ChangeDirFail(String, Error),
     FailedToLaunch(String, Error),
     FailedToRender(String, Error),
-    AccessDenied(String),
+    _AccessDenied(String),
     NotFound(String),
 }
 
@@ -47,7 +47,7 @@ impl Display for ShellResult {
             ShellResult::FailedToRender(name, err) => {
                 write!(f, "failed to render {}: {:?}", name, err)
             }
-            ShellResult::AccessDenied(name) => write!(f, "access denied: {}", name),
+            ShellResult::_AccessDenied(name) => write!(f, "access denied: {}", name),
             ShellResult::NotFound(name) => write!(f, "not found: {}", name),
         }
     }

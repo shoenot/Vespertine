@@ -4,13 +4,14 @@ extern crate alloc;
 
 mod echo;
 mod read;
-mod wc;
+mod write;
 
+use alloc::format;
 use vespertine_abi::{HandleID, ProcessInitPackage};
-use vespertine_rt::println;
 use vespertine_rt::syscall::{sys_close, sys_read, sys_write};
 use vespertine_std::env;
 use vespertine_std::fs::{File, Path};
+use vespertine_std::typed::{TypedValue, TypedWriter};
 use vespertine_std::{Error, Read, Write};
 
 pub enum Input {
@@ -60,7 +61,9 @@ pub fn input_from_path(path: Option<&str>) -> Result<Input, Error> {
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let pkg = unsafe { &*pkg_ptr };
     if let Err(e) = run(pkg) {
-        println!("[ERROR] ns error: {:?}", e);
+        let out = TypedWriter::out();
+        let _ = out.error(&*format!("stream error: {:?}", e));
+        let _ = out.stream_end();
     }
     let _ = sys_close(env::sink());
 }
@@ -79,7 +82,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         "read" => read::run(command_args)?,
         "head" => read::head(command_args)?,
         "tail" => read::tail(command_args)?,
-        "wc" => wc::run(command_args)?,
+        "write" => write::run(command_args)?,
         _ => Err(Error::invalid_argument(
             "not a valid `stream` command".into(),
         ))?,

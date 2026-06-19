@@ -35,13 +35,7 @@ mlibc/meson.build:
 	fi
 
 .PHONY: ports
-ports: cat cowsay kilo
-
-.PHONY: cat
-cat:
-	echo "[INFO] Building port: cat"
-	mkdir -p $(PROGRAMS_DIR)
-	clang --config $(abspath x86_64-vespertine.cfg) -o $(PROGRAMS_DIR)/cat cat/cat.c
+ports: cowsay kilo
 
 .PHONY: cowsay
 cowsay:

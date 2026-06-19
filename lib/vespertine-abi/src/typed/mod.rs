@@ -1,3 +1,6 @@
+mod dt;
+pub use dt::*;
+
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {
@@ -5,10 +8,12 @@ pub enum ValueType {
     Integer = 2,
     Float = 3,
     Bool = 4,
-    DateTime = 5,
-    FileSize = 6,
-    Record = 7,
-    List = 8,
+    Date = 5,
+    Time = 6,
+    DateTime = 7,
+    FileSize = 8,
+    Record = 9,
+    List = 10,
 }
 
 impl ValueType {
@@ -22,10 +27,12 @@ impl ValueType {
             2 => Some(Self::Integer),
             3 => Some(Self::Float),
             4 => Some(Self::Bool),
-            5 => Some(Self::DateTime),
-            6 => Some(Self::FileSize),
-            7 => Some(Self::Record),
-            8 => Some(Self::List),
+            5 => Some(Self::Date),
+            6 => Some(Self::Time),
+            7 => Some(Self::DateTime),
+            8 => Some(Self::FileSize),
+            9 => Some(Self::Record),
+            10 => Some(Self::List),
             _ => None,
         }
     }
@@ -36,17 +43,12 @@ pub const RECORD_FIELD_NAME_MAX: usize = 128;
 pub const RECORD_PRESENTATION_DEFAULT: u16 = 1;
 pub const RECORD_PRESENTATION_TABLE: u16 = 2;
 
-pub const DATETIME_HAS_OFFSET: u32 = 1 << 0;
-pub const DATETIME_DATE_ONLY: u32 = 1 << 1;
-pub const DATETIME_TIME_ONLY: u32 = 1 << 2;
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordSchemaHeader {
     pub schema_id: u64,
     pub field_count: u16,
     pub reserved: u16,
-    pub payload_len: u32,
 }
 
 #[repr(C)]
@@ -82,17 +84,6 @@ pub struct ValueHeader {
     pub value_type: u16,
     pub flags: u16,
     pub payload_len: u32,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DateTimeValue {
-    pub unix_seconds: i128,
-    pub nanos: u32,
-    pub offset_minutes: i32,
-    pub flags: u32,
-    pub calendar: u16,
-    pub reserved: u16,
 }
 
 #[repr(C)]

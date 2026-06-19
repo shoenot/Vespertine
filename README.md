@@ -1,22 +1,39 @@
 # Vespertine
 
-Vespertine is an experimental operating system being developed to explore the possibilities of a capability based, object-oriented operating system. 
-The end goal is to provide modern semantics that allow for an ergonomic user experience, with proper permissions management, sandboxing, and all that jazz.  
+Vespertine is an experimental operating system being developed to explore the 
+possibilities of a capability based, object-oriented operating system. The end 
+goal is to provide modern semantics that allow for an ergonomic user experience, 
+with proper permissions management, sandboxing, and all that jazz.    
+   
+A core idea is to avoid 'stringly typed' semantics wherever possible, and as such
+the native `dusk` shell is fully typed/object oriented, being able to emit and
+pipe objects between applications. The number of types supported currently are
+minimal, but the number will grow with future development.    
+    
+As far as application compatibility goes, Vespertine should be a first-class 
+POSIX-ish source target targeting unpatched BSD-source compaibility eventually. 
+Binary compatibility is neither planned nor something I really want to support,
+but never say never i guess. 
   
-The kernel is hybrid in nature. Drivers currently all run in ring 0, but the plan is to move everything except the performance critical drivers into userspace eventually. 
-The ABI and everything is still very volatile so there is no documentation just yet, but that is a definite priority as soon as some things are solidified. 
+The kernel is hybrid in nature. Drivers currently all run in ring 0, but the 
+plan is to move everything except the performance critical drivers into userspace 
+eventually. The ABI and everything is still very volatile so there is no documentation 
+just yet, but that is a definite priority as soon as some things are solidified. 
 
 ## Compiling and running
-Vespertine currently only has a virtio block driver, and relies on QEMU to run. If you want to try it out, simply clone the repository and run: 
+Vespertine currently only has a virtio block driver, and relies on QEMU to run. 
+If you want to try it out, simply clone the repository and run: 
 
 ```bash
 make update-disk && make run 
 ```
 
-to build the disk image and launch it in QEMU. You can adjust the makefile for cores and memory and other options if necessary. 
+to build the disk image and launch it in QEMU. You can adjust the makefile for 
+cores and memory and other options if necessary. 
 
 ## Credits
-Managarm team: for providing [mlibc](https://github.com/managarm/mlibc) and also for the fact that my ext2 driver started off based on their code.  
+Managarm team: for providing [mlibc](https://github.com/managarm/mlibc) and 
+also for the fact that my ext2 driver started off based on their code.  
 
 ## Third-Party Licenses
 

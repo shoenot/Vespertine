@@ -1,10 +1,9 @@
 use alloc::string::String;
 use vespertine_cli::args::{Command, Opt};
-use vespertine_rt::{print, println};
-use vespertine_std::Error;
+use vespertine_rt::{println};
+use vespertine_std::{Error, typed::{TypedValue, TypedWriter}};
 
 static ECHO_OPTIONS: &[Opt] = &[
-    Opt::flag("no-newline", Some('n'), Some("no-newline")),
     Opt::flag("help", Some('h'), Some("help")),
 ];
 
@@ -19,17 +18,16 @@ pub fn run(args: &[String]) -> Result<(), Error> {
         return Ok(());
     }
 
+    let mut s = String::new();
     for (i, word) in matches.positionals().iter().enumerate() {
         if i > 0 {
-            print!(" ");
+            s.push_str(" ");
         }
 
-        print!("{}", word);
+        s.push_str(word);
     }
 
-    if !matches.flag("no-newline") {
-        println!("");
-    }
-
-    Ok(())
+    let out = TypedWriter::out();
+    out.value(&TypedValue::String(s))?;
+    out.stream_end()
 }

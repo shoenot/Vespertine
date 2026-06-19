@@ -50,9 +50,6 @@ impl Parser {
                         args: self.collect_args()?,
                     }
                 }
-                "echo" => CommandNode::Echo {
-                    args: self.collect_args()?,
-                },
                 "cd" => match self.advance() {
                     None => CommandNode::ChangeDir {
                         path: PathBuf::root(),

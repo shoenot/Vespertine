@@ -4,11 +4,12 @@ mod command;
 
 extern crate alloc;
 
+use alloc::format;
 use vespertine_abi::ProcessInitPackage;
-use vespertine_rt::println;
 use vespertine_rt::syscall::sys_close;
 use vespertine_std::Error;
 use vespertine_std::env;
+use vespertine_std::typed::TypedWriter;
 
 static HELP_TEXT: &'static str = "usage: ns [command] [flags] [args]\n
                                   commands:
@@ -21,7 +22,9 @@ static HELP_TEXT: &'static str = "usage: ns [command] [flags] [args]\n
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let pkg = unsafe { &*pkg_ptr };
     if let Err(e) = run(pkg) {
-        println!("[ERROR] ns error: {:?}", e);
+        let out = TypedWriter::out();
+        let _ = out.error(&*format!("ns error: {:?}", e));
+        let _ = out.stream_end();
     }
     let _ = sys_close(env::sink());
 }

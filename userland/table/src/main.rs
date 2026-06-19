@@ -2,12 +2,12 @@
 #![no_std]
 
 use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
-use vespertine_abi::{ProcessInitPackage, shell::RECORD_PRESENTATION_TABLE};
+use vespertine_abi::{ProcessInitPackage, typed::RECORD_PRESENTATION_TABLE};
 use vespertine_rt::{println, syscall::sys_close};
 use vespertine_std::{
     Error, HandleReader, HandleWriter, Write, env,
-    shell::{RecordFieldInfo, ShellValue, TypedReader},
-    value::{DisplayOptions, TypedValue},
+    typed::{RecordFieldInfo, ShellValue, TypedReader},
+    typed::{DisplayOptions, TypedValue},
 };
 
 extern crate alloc;
@@ -16,7 +16,7 @@ extern crate alloc;
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let _pkg = unsafe { &*pkg_ptr };
     if let Err(e) = run() {
-        println!("[ERROR] table error: {:?}", e);
+        println!("table error: {:?}", e);
     }
     let _ = sys_close(env::sink());
 }
@@ -39,23 +39,19 @@ fn run() -> Result<(), Error> {
             ShellValue::RecordSchema { schema_id, fields } => {
                 active_schema = Some(schema_id);
                 schemas.insert(schema_id, fields);
-            }
-            ShellValue::RecordPresentation {
-                schema_id,
-                presentation,
-                fields,
-            } => {
+            },
+            ShellValue::RecordPresentation { schema_id, presentation, fields } => {
                 presentations.insert((schema_id, presentation), fields);
-            }
+            },
             ShellValue::Value(TypedValue::Record { schema_id, fields }) => {
                 active_schema = Some(schema_id);
                 rows.push(fields);
-            }
+            },
             ShellValue::Value(value) => {
                 let text = value.display_with(Default::default());
                 out.write_all(text.as_bytes())?;
                 out.write_all(b"\n")?;
-            }
+            },
             ShellValue::StreamEnd => {
                 if let Some(schema_id) = active_schema {
                     render_table(
@@ -67,6 +63,9 @@ fn run() -> Result<(), Error> {
                     )?;
                     rows.clear();
                 }
+            },
+            ShellValue::Error(msg) => {
+                return Err(Error::invalid_argument(msg));
             }
         }
     }

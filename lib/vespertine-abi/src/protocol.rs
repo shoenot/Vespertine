@@ -46,6 +46,7 @@ pub enum PacketType {
     RecordSchema = 1001,
     RecordPresentation = 1002,
     StreamEnd = 1003,
+    ShellError = 1004,
 }
 
 define_bitflags! {

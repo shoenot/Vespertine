@@ -1,5 +1,5 @@
 use alloc::string::String;
-use vespertine_abi::shell::{
+use vespertine_abi::typed::{
     DATETIME_HAS_OFFSET, DateTimeValue, FileSizeValue, ValueType,
 };
 use vespertine_cli::args::{Command, Opt};
@@ -7,8 +7,8 @@ use vespertine_rt::println;
 use vespertine_std::{
     Error,
     fs::{Dir, EntryKind, File, Path, PathBuf, stat},
-    shell::RecordStream,
-    value::TypedValue,
+    typed::RecordStream,
+    typed::TypedValue,
 };
 
 static LIST_OPTIONS: &[Opt] = &[
@@ -96,7 +96,7 @@ pub fn list(args: &[String]) -> Result<(), Error> {
             TypedValue::Integer(stat.user as i128),
             TypedValue::Integer(stat.mode as i128),
             TypedValue::DateTime(DateTimeValue {
-                unix_seconds: stat.ctime_sec as i128,
+                unix_seconds: stat.ctime_sec,
                 nanos: stat.ctime_nsec as u32,
                 offset_minutes: 0,
                 flags: DATETIME_HAS_OFFSET,
@@ -104,7 +104,7 @@ pub fn list(args: &[String]) -> Result<(), Error> {
                 reserved: 0,
             }),
             TypedValue::DateTime(DateTimeValue {
-                unix_seconds: stat.mtime_sec as i128,
+                unix_seconds: stat.mtime_sec,
                 nanos: stat.mtime_nsec as u32,
                 offset_minutes: 0,
                 flags: DATETIME_HAS_OFFSET,

@@ -1,6 +1,7 @@
 use alloc::{format, string::String, vec::Vec};
+use vespertine_abi::typed::ValueType;
 use vespertine_cli::args::{Command, Opt};
-use vespertine_std::{Error, Read, Write, env};
+use vespertine_std::{Error, HandleWriter, Read, Write, env, typed::{RecordStream, TypedValue, TypedWriter}};
 
 use crate::{Sink, input_from_path};
 
@@ -15,6 +16,56 @@ static TRUNCATED_READ_OPTIONS: &[Opt] = &[
     Opt::flag("number", Some('N'), Some("number")),
     Opt::flag("help", Some('h'), Some("help")),
 ];
+
+enum LineOutput {
+    Plain(TypedWriter<HandleWriter>),
+    Numbered(RecordStream<HandleWriter>),
+}
+
+const STREAM_LINE_SCHEMA: u64 = 2;
+
+impl LineOutput {
+    fn new(numbered: bool) -> Result<Self, Error> {
+        if numbered {
+            let out = RecordStream::typed_default_out(
+                STREAM_LINE_SCHEMA,
+                &[
+                    ("number", ValueType::Integer),
+                    ("line", ValueType::String),
+                ],
+                &["number", "line"],
+            )?;
+            out.table(&["number", "line"])?;
+            Ok(Self::Numbered(out))
+        } else {
+            Ok(Self::Plain(TypedWriter::out()))
+        }
+    }
+
+    fn line(&mut self, number: usize, bytes: &[u8]) -> Result<(), Error> {
+        let text = str::from_utf8(bytes)
+            .map_err(|_| Error::invalid_encoding("input contains invalid UTF-8".into()))?;
+
+        match self {
+            Self::Plain(out) => {
+                out.value(&TypedValue::String(String::from(text)))
+            }
+            Self::Numbered(out) => {
+                out.row_values(&[
+                    TypedValue::Integer(number as i128),
+                    TypedValue::String(String::from(text)),
+                ])
+            }
+        }
+    }
+
+    fn finish(&mut self) -> Result<(), Error> {
+        match self {
+            Self::Plain(out) => out.stream_end(),
+            Self::Numbered(out) => out.finish(),
+        }
+    }
+}
 
 pub fn run(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("read")
@@ -35,16 +86,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    let output = Sink {
-        handle: env::sink(),
-    };
-
-    copy_special(
-        &input,
-        &output,
-        matches.flag("number"),
-        matches.flag("squeeze-blank"),
-    )
+    copy_lines(&input, matches.flag("number"), matches.flag("squeeze-blank"))
 }
 
 pub fn head(args: &[String]) -> Result<(), Error> {
@@ -66,16 +108,11 @@ pub fn head(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    let output = Sink {
-        handle: env::sink(),
-    };
-    let num_lines = matches.value("lines");
-
-    copy_head(&input, &output, num_lines, matches.flag("number"))
+    copy_head(&input, matches.value("lines"), matches.flag("number"))
 }
 
 pub fn tail(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("head")
+    let matches = Command::new("tail")
         .options(TRUNCATED_READ_OPTIONS)
         .parse(args)
         .map_err(Error::from)?;
@@ -93,179 +130,149 @@ pub fn tail(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    let output = Sink {
-        handle: env::sink(),
-    };
-    let num_lines = matches.value("lines");
-
-    copy_tail(&input, &output, num_lines, matches.flag("number"))
+    copy_tail(&input, matches.value("lines"), matches.flag("number"))
 }
 
-fn copy_raw<R: Read, W: Write>(input: &R, output: &W) -> Result<(), Error> {
-    let mut buf = [0u8; 4096];
-
-    loop {
-        let n = input.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
-        };
-        output.write_all(&buf[..n])?;
-    }
-}
-
-fn copy_special<R: Read, W: Write>(
-    input: &R,
-    output: &W,
-    numbers: bool,
-    squeeze: bool,
-) -> Result<(), Error> {
-    let mut buf = [0u8; 4096];
-    let mut line = 1usize;
-    let mut last_line_blank = false;
-    let mut at_line_start = true;
-
-    loop {
-        let n = input.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
-        };
-        for &b in &buf[..n] {
-            let current_line_blank = at_line_start && b == b'\n';
-
-            if squeeze && current_line_blank && last_line_blank {
-                continue;
-            }
-
-            if at_line_start {
-                if numbers {
-                    let prefix = format!("{} ", line);
-                    output.write_all(prefix.as_bytes())?;
-                }
-
-                at_line_start = false;
-            }
-
-            output.write_all(&[b])?;
-
-            if b == b'\n' {
-                line += 1;
-                at_line_start = true;
-                last_line_blank = current_line_blank;
-            } else {
-                last_line_blank = false;
-            }
-        }
-    }
-}
-
-fn copy_head<R: Read, W: Write>(
-    input: &R,
-    output: &W,
-    num_lines: Option<&str>,
-    numbers: bool,
-) -> Result<(), Error> {
-    let mut buf = [0u8; 4096];
-    let mut line = 1usize;
-    let mut at_line_start = true;
-
-    let limit = match num_lines {
+fn parse_line_limit(raw: Option<&str>) -> Result<usize, Error> {
+    match raw {
         Some(nstr) => nstr
             .parse::<usize>()
-            .map_err(|_| Error::invalid_argument("-n argument must be a number".into()))?,
-        None => 10,
-    };
-
-    if limit == 0 {
-        return Ok(());
-    };
-
-    while line <= limit {
-        let n = input.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
-        };
-        for &b in &buf[..n] {
-            if at_line_start {
-                if line > limit {
-                    return Ok(());
-                }
-
-                if numbers {
-                    let prefix = format!("{} ", line);
-                    output.write_all(prefix.as_bytes())?;
-                }
-
-                at_line_start = false;
-            }
-
-            output.write_all(&[b])?;
-
-            if b == b'\n' {
-                line += 1;
-                at_line_start = true;
-            }
-        }
+            .map_err(|_| Error::invalid_argument("-n argument must be a number".into())),
+        None => Ok(10),
     }
-    Ok(())
 }
 
-fn copy_tail<R: Read, W: Write>(
-    input: &R,
-    output: &W,
-    num_lines: Option<&str>,
-    numbers: bool,
-) -> Result<(), Error> {
+fn trim_cr(line: &mut Vec<u8>) {
+    if line.ends_with(b"\r") {
+        line.pop();
+    }
+}
+
+fn copy_lines<R: Read>(input: &R, numbered: bool, squeeze: bool) -> Result<(), Error> {
+    let mut out = LineOutput::new(numbered)?;
     let mut buf = [0u8; 4096];
-    let mut line = 1usize;
-    let mut at_line_start = true;
-
-    let limit = match num_lines {
-        Some(nstr) => nstr
-            .parse::<usize>()
-            .map_err(|_| Error::invalid_argument("-n argument must be a number".into()))?,
-        None => 10,
-    };
-
-    if limit == 0 {
-        return Ok(());
-    };
-
-    let mut output_buffer = Vec::new();
+    let mut line = Vec::new();
+    let mut line_no = 1usize;
+    let mut last_blank = false;
 
     loop {
         let n = input.read(&mut buf)?;
         if n == 0 {
             break;
         }
-        let mut cur = String::new();
+
         for &b in &buf[..n] {
-            if at_line_start {
-                if numbers {
-                    let prefix = format!("{} ", line);
-                    output.write_all(prefix.as_bytes())?;
+            if b == b'\n' {
+                if line.ends_with(b"\r") {
+                    line.pop();
                 }
 
-                at_line_start = false;
-            }
+                let blank = line.is_empty();
+                if !(squeeze && blank && last_blank) {
+                    out.line(line_no, &line)?;
+                    line_no += 1;
+                }
 
-            let cb = &[b].clone();
-            let s = str::from_utf8(cb)
-                .map_err(|_| Error::invalid_encoding("File contains invalid UTF-8".into()))?;
-            cur.push_str(s);
-
-            if b == b'\n' {
-                line += 1;
-                output_buffer.push(cur);
-                cur = String::new();
-                at_line_start = true;
+                last_blank = blank;
+                line.clear();
+            } else {
+                line.push(b);
             }
         }
     }
 
-    let start_idx = output_buffer.len().saturating_sub(limit);
-    let last_n = &output_buffer[start_idx..];
-    for line in last_n {
-        output.write_string(line.clone())?
+    if !line.is_empty() {
+        out.line(line_no, &line)?;
     }
-    Ok(())
+
+    out.finish()
+}
+
+fn copy_head<R: Read>(input: &R, num_lines: Option<&str>, numbered: bool) -> Result<(), Error> {
+    let limit = parse_line_limit(num_lines)?;
+    let mut out = LineOutput::new(numbered)?;
+
+    if limit == 0 {
+        return out.finish();
+    }
+
+    let mut buf = [0u8; 4096];
+    let mut line = Vec::new();
+    let mut line_no = 1usize;
+    let mut emitted = 0usize;
+
+    while emitted < limit {
+        let n = input.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+
+        for &b in &buf[..n] {
+            if b == b'\n' {
+                trim_cr(&mut line);
+                out.line(line_no, &line)?;
+
+                line.clear();
+                line_no += 1;
+                emitted += 1;
+
+                if emitted >= limit {
+                    return out.finish();
+                }
+            } else {
+                line.push(b);
+            }
+        }
+    }
+
+    if emitted < limit && !line.is_empty() {
+        trim_cr(&mut line);
+        out.line(line_no, &line)?;
+    }
+
+    out.finish()
+}
+
+fn copy_tail<R: Read>(input: &R, num_lines: Option<&str>, numbered: bool) -> Result<(), Error> {
+    let limit = parse_line_limit(num_lines)?;
+    let mut out = LineOutput::new(numbered)?;
+
+    if limit == 0 {
+        return out.finish();
+    }
+
+    let mut buf = [0u8; 4096];
+    let mut line = Vec::new();
+    let mut lines: Vec<(usize, Vec<u8>)> = Vec::new();
+    let mut line_no = 1usize;
+
+    loop {
+        let n = input.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+
+        for &b in &buf[..n] {
+            if b == b'\n' {
+                trim_cr(&mut line);
+                lines.push((line_no, core::mem::take(&mut line)));
+                line_no += 1;
+            } else {
+                line.push(b);
+            }
+        }
+    }
+
+    if !line.is_empty() {
+        trim_cr(&mut line);
+        lines.push((line_no, line));
+    }
+
+    let start = lines.len().saturating_sub(limit);
+
+    for (number, line) in &lines[start..] {
+        out.line(*number, line)?;
+    }
+
+    out.finish()
 }

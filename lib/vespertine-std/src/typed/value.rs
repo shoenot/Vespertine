@@ -5,62 +5,16 @@ use core::fmt::Display;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::shell::{DATETIME_HAS_OFFSET, DateTimeValue, FileSizeValue, ValueType};
+use vespertine_abi::typed::{DATETIME_HAS_OFFSET, DateTimeValue, DateValue, FileSizeValue, TimeValue, ValueType};
 use vespertine_common::datetime::epoch_to_datetime;
+
+use crate::typed::{DateTimeStyle, datetime_display};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileSizeStyle {
     Bytes,
     Iec,
     Si,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DateTimeStyle {
-    Iso,
-    Unix,
-    Date,
-    Time,
-}
-
-pub struct DateTimeDisplay {
-    value: DateTimeValue,
-    options: DisplayOptions,
-}
-
-impl DateTimeDisplay {
-    pub fn new(value: DateTimeValue) -> Self {
-        Self {
-            value,
-            options: DisplayOptions::default(),
-        }
-    }
-
-    pub fn style(mut self, style: DateTimeStyle) -> Self {
-        self.options.datetime_style = style;
-        self
-    }
-
-    pub fn show_tz(mut self, tz: bool) -> Self {
-        self.options.datetime_show_tz = tz;
-        self
-    }
-
-    pub fn show_subsec(mut self, subsec: bool) -> Self {
-        self.options.datetime_show_subsec = subsec;
-        self
-    }
-
-    pub fn options(mut self, options: DisplayOptions) -> Self {
-        self.options = options;
-        self
-    }
-}
-
-impl Display for DateTimeDisplay {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&format_datetime(self.value, self.options))
-    }
 }
 
 pub struct FileSizeDisplay {
@@ -112,7 +66,7 @@ impl Default for DisplayOptions {
         Self {
             filesize_style: FileSizeStyle::Iec,
             filesize_precision: 1,
-            datetime_style: DateTimeStyle::Iso,
+            datetime_style: DateTimeStyle::Iso, 
             datetime_show_tz: true,
             datetime_show_subsec: false,
         }
@@ -125,6 +79,8 @@ pub enum TypedValue {
     Integer(i128),
     Float(f64),
     Bool(bool),
+    Date(DateValue),
+    Time(TimeValue),
     DateTime(DateTimeValue),
     FileSize(FileSizeValue),
     List {
@@ -144,6 +100,8 @@ impl TypedValue {
             TypedValue::Integer(v) => format!("{}", v),
             TypedValue::Float(v) => format!("{}", v),
             TypedValue::Bool(v) => format!("{}", v),
+            TypedValue::Date(v) => format!("{}-{}-{}", v.year, v.month, v.day),
+            TypedValue::Time(v) => format!("{}:{}:{}", v.hour, v.minute, v.second),
             TypedValue::DateTime(v) => format!("{}", datetime_display(*v).options(opts)),
             TypedValue::FileSize(v) => format!("{}", filesize_display(*v).options(opts)),
             TypedValue::List { items, .. } => format!("[{} items]", items.len()),
@@ -221,71 +179,6 @@ fn pow10(n: usize) -> u128 {
         out *= 10;
     }
     out
-}
-
-pub fn format_datetime(v: DateTimeValue, opts: DisplayOptions) -> String {
-    let offset_seconds = (v.offset_minutes as i128) * 60;
-    let adjusted = v.unix_seconds + offset_seconds;
-
-    let clamped = if adjusted > i64::MAX as i128 {
-        i64::MAX
-    } else if adjusted < i64::MIN as i128 {
-        i64::MIN
-    } else {
-        adjusted as i64
-    };
-
-    let dt = epoch_to_datetime(clamped);
-
-    match opts.datetime_style {
-        DateTimeStyle::Unix => format!("{}", v.unix_seconds),
-        DateTimeStyle::Date => format!("{:04}-{:02}-{:02}", dt.year, dt.month, dt.day),
-        DateTimeStyle::Time => format_time(&dt, v.nanos, opts),
-        DateTimeStyle::Iso => {
-            let tz = if opts.datetime_show_tz && (v.flags & DATETIME_HAS_OFFSET) != 0 {
-                format_tz(v.offset_minutes)
-            } else {
-                String::new()
-            };
-            format!(
-                "{:04}-{:02}-{:02}T{}{}",
-                dt.year,
-                dt.month,
-                dt.day,
-                format_time(&dt, v.nanos, opts),
-                tz
-            )
-        }
-    }
-}
-
-fn format_time(
-    dt: &vespertine_common::datetime::DateTime,
-    nanos: u32,
-    opts: DisplayOptions,
-) -> String {
-    if opts.datetime_show_subsec && nanos != 0 {
-        format!(
-            "{:02}:{:02}:{:02}.{:09}",
-            dt.hour, dt.minute, dt.second, nanos
-        )
-    } else {
-        format!("{:02}:{:02}:{:02}", dt.hour, dt.minute, dt.second)
-    }
-}
-
-fn format_tz(offset_minutes: i32) -> String {
-    if offset_minutes == 0 {
-        return String::from("Z");
-    }
-
-    let sign = if offset_minutes < 0 { '-' } else { '+' };
-    let abs = offset_minutes.abs();
-    format!("{}{:02}:{:02}", sign, abs / 60, abs % 60)
-}
-
-pub fn datetime_display(value: DateTimeValue) -> DateTimeDisplay {
-    DateTimeDisplay::new(value)
 }
 
 pub fn filesize_display(value: FileSizeValue) -> FileSizeDisplay {
