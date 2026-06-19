@@ -119,6 +119,82 @@ pub fn list(args: &[String]) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn ns_stat(args: &[String]) -> Result<(), Error> {
+    let matches = Command::new("stat").parse(args).map_err(Error::from)?;
+    if matches.flag("help") {
+        println!("usage: ns stat [path]");
+    }
+
+    if matches.positional_count() == 0 {
+        println!("usage: ns stat [path]");
+    }
+
+    if matches.positional_count() > 1 {
+        println!("usage: ns stat [path]");
+    }
+
+    let stat_path = Path::new(matches.positionals()[0]);
+    let stat_info = stat(&stat_path)?;
+
+    let mut out = RecordStream::typed_default_out(
+        NS_DIR_ENTRY_SCHEMA,
+        &[
+            ("name", ValueType::String),
+            ("kind", ValueType::String),
+            ("size", ValueType::FileSize),
+            ("owner", ValueType::Integer),
+            ("mode", ValueType::Integer),
+            ("created", ValueType::DateTime),
+            ("modified", ValueType::DateTime),
+        ],
+        &["name"],
+    )?;
+
+    out.table(&[
+        "kind", "size", "owner", "mode", "created", "modified",
+    ])?;
+
+    let kind_str = match stat_info.object_type {
+        0 => "File",
+        1 => "Directory",
+        2 => "Object",
+        _ => "",
+    };
+
+    out.row_values(&[
+        TypedValue::String(String::from(kind_str)),
+        TypedValue::FileSize(FileSizeValue {
+            bytes: stat_info.size as i128,
+            block_size: stat_info.block_size as u64,
+            blocks: stat_info.blocks as i128,
+            flags: 0,
+            reserved: 0,
+        }),
+        TypedValue::Integer(stat_info.user as i128),
+        TypedValue::Integer(stat_info.mode as i128),
+        TypedValue::DateTime(DateTimeValue {
+            unix_seconds: stat_info.ctime_sec,
+            nanos: stat_info.ctime_nsec as u32,
+            offset_minutes: 0,
+            flags: DATETIME_HAS_OFFSET,
+            calendar: 0,
+            reserved: 0,
+        }),
+        TypedValue::DateTime(DateTimeValue {
+            unix_seconds: stat_info.mtime_sec,
+            nanos: stat_info.mtime_nsec as u32,
+            offset_minutes: 0,
+            flags: DATETIME_HAS_OFFSET,
+            calendar: 0,
+            reserved: 0,
+        }),
+    ])?;
+
+    out.finish()?;
+
+    Ok(())
+}
+
 pub fn mkdir(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("mkdir").parse(args).map_err(Error::from)?;
 
