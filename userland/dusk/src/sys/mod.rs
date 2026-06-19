@@ -9,6 +9,9 @@ use alloc::{
 use vespertine_abi::{
     AccessRights, CapabilityID, HandleID, ProcessExitInfo, tag::CAP_APP_TERMCTRL,
 };
+
+use vespertine_rt::thread as rt_thread;
+
 use vespertine_std::{
     Error, ErrorKind, Exec, HandleWriter, Process, Read, env,
     fs::{File, Path, PathBuf},
@@ -281,6 +284,8 @@ pub fn spawn_command(
 struct PipelineRun {
     processes: Vec<(String, Process)>,
     output: SpawnedOutput,
+    adapter_sockets: Vec<Socket>,
+    adapter_threads: Vec<rt_thread::JoinHandle>,
 }
 
 pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
@@ -342,14 +347,43 @@ fn spawn_base(
 
             check_pipe_compat(left_kind, right)?;
 
-            let right_run = spawn_base(right, context, pipe_source.handle(), sink)?;
-
+            let right_input = first_input_mode(right);
+            
+            let mut adapter_sockets = left_run.adapter_sockets;
+            let mut adapter_threads = left_run.adapter_threads;
+            
+            let right_source = if left_kind == ProgramOutput::Typed
+                && right_input == Some(ProgramInput::Text)
+            {
+                let (text_rx, text_tx) = Socket::new_pair()
+                    .map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), e))?;
+            
+                let source_socket = pipe_source;
+                let thread = rt_thread::spawn(move || {
+                    let _ = render_typed_stream(source_socket, HandleWriter::new(text_tx.handle()));
+                })
+                .map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), Error::from(e)))?;
+            
+                let handle = text_rx.handle();
+                adapter_sockets.push(text_rx);
+                adapter_threads.push(thread);
+                handle
+            } else {
+                pipe_source.handle()
+            };
+            
+            let right_run = spawn_base(right, context, right_source, sink)?;
+            
             let mut processes = left_run.processes;
             processes.extend(right_run.processes);
-
+            adapter_sockets.extend(right_run.adapter_sockets);
+            adapter_threads.extend(right_run.adapter_threads);
+            
             Ok(PipelineRun {
                 processes,
                 output: right_run.output,
+                adapter_sockets,
+                adapter_threads,
             })
         }
     }
@@ -383,6 +417,8 @@ fn spawn_command_node(
     Ok(PipelineRun {
         processes: vec![(exec.clone(), spawned.process)],
         output: spawned.output,
+        adapter_sockets: Vec::new(),
+        adapter_threads: Vec::new(),
     })
 }
 
@@ -394,7 +430,9 @@ fn check_pipe_compat(left_output: ProgramOutput, right: &BaseNode) -> Result<(),
     let accepted = match input {
         ProgramInput::Any => true,
         ProgramInput::Typed => left_output == ProgramOutput::Typed,
-        ProgramInput::Text => left_output == ProgramOutput::Text,
+        ProgramInput::Text => {
+            left_output == ProgramOutput::Text || left_output == ProgramOutput::Typed
+        }
     };
 
     if accepted {

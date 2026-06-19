@@ -6,6 +6,7 @@ MLIBC_URL    := https://github.com/shoenot/mlibc.git
 MLIBC_BRANCH := vespertine
 PREFIX       := $(abspath ../target/build_deps/disk/System)
 PROGRAMS_DIR := $(abspath ../target/build_deps/disk/Programs)
+CLANG_CONFIG := $(abspath x86_64-vespertine.cfg)
 
 .PHONY: all
 all: mlibc ports
@@ -35,7 +36,29 @@ mlibc/meson.build:
 	fi
 
 .PHONY: ports
-ports: cowsay kilo
+ports: cowsay kilo wc ls grep
+
+.PHONY: grep
+grep: zlib
+	echo "[INFO] Building port: grep"
+	mkdir -p $(PROGRAMS_DIR)
+	$(MAKE) -C grep \
+		CC='clang --config $(CLANG_CONFIG)'
+	cp grep/grep $(PROGRAMS_DIR)/grep
+
+.PHONY: ls
+ls:
+	echo "[INFO] Building port: ls"
+	mkdir -p $(PROGRAMS_DIR)
+	$(MAKE) -C ls \
+		CC='clang --config $(CLANG_CONFIG)'
+	cp ls/ls $(PROGRAMS_DIR)/ls
+
+.PHONY: wc
+wc:
+	echo "[INFO] Building port: wc"
+	mkdir -p $(PROGRAMS_DIR)
+	clang --config $(abspath x86_64-vespertine.cfg) -o $(PROGRAMS_DIR)/wc wc/wc.c
 
 .PHONY: cowsay
 cowsay:
@@ -48,6 +71,17 @@ kilo:
 	echo "[INFO] Building port: kilo"
 	mkdir -p $(PROGRAMS_DIR)
 	clang --config $(abspath x86_64-vespertine.cfg) -o $(PROGRAMS_DIR)/kilo kilo/kilo.c
+
+.PHONY: zlib
+zlib:
+	echo "[INFO] Building port: zlib"
+	$(MAKE) -C zlib \
+		CC='clang --config $(CLANG_CONFIG)'
+	mkdir -p $(PREFIX)/Libraries
+	mkdir -p $(PREFIX)/Headers
+	cp zlib/libz.a $(PREFIX)/Libraries/libz.a
+	cp zlib/zlib.h $(PREFIX)/Headers/zlib.h
+	cp zlib/zconf.h $(PREFIX)/Headers/zconf.h
 
 .PHONY: clean
 clean:

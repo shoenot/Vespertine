@@ -1,0 +1,211 @@
+diff -ruN ls/ls/GNUmakefile ls_patched/GNUmakefile
+--- ls/ls/GNUmakefile	2026-06-19 14:17:41.000000000 +0000
++++ ls_patched/GNUmakefile	2026-06-19 14:22:43.686416122 +0000
+@@ -1,5 +1,5 @@
+ PROG := ls
+-SRCS := cmp.c ls.c main.c print.c util.c utf8.c
++SRCS := cmp.c ls.c main.c print.c util.c utf8.c vesp_compat.c
+ OBJS := $(SRCS:.c=.o)
+ 
+ .PHONY: all clean
+diff -ruN ls/ls/ls.c ls_patched/ls.c
+--- ls/ls/ls.c	2026-06-19 08:13:26.000000000 +0000
++++ ls_patched/ls.c	2026-06-19 14:22:43.685634969 +0000
+@@ -36,6 +36,7 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <sys/ioctl.h>
++#include <termios.h>
+ 
+ #include <dirent.h>
+ #include <err.h>
+@@ -53,9 +54,10 @@
+ 
+ #include "ls.h"
+ #include "extern.h"
++#include "vesp_compat.h"
+ 
+ static void	 display(FTSENT *, FTSENT *);
+-static int	 mastercmp(const FTSENT **, const FTSENT **);
++static int	 mastercmp(const FTSENT * const *, const FTSENT * const *);
+ static void	 traverse(int, char **, int);
+ 
+ static void (*printfcn)(DISPLAY *);
+@@ -506,9 +508,7 @@
+ 				if ((glen = strlen(group)) > maxgroup)
+ 					maxgroup = glen;
+ 				if (f_flags) {
+-					flags = fflagstostr(sp->st_flags);
+-					if (*flags == '\0')
+-						flags = "-";
++					flags = "-";
+ 					if ((flen = strlen(flags)) > maxflags)
+ 						maxflags = flen;
+ 				} else
+@@ -534,8 +534,6 @@
+ 				if (f_flags) {
+ 					np->flags = &np->data[ulen + 1 + glen + 1];
+ 					(void)strlcpy(np->flags, flags, flen + 1);
+-					if (*flags != '-')
+-						free(flags);
+ 				}
+ 				cur->fts_pointer = np;
+ 			}
+@@ -597,7 +595,7 @@
+  * All other levels use the sort function.  Error entries remain unsorted.
+  */
+ static int
+-mastercmp(const FTSENT **a, const FTSENT **b)
++mastercmp(const FTSENT * const *a, const FTSENT * const *b)
+ {
+ 	int a_info, b_info;
+ 
+diff -ruN ls/ls/print.c ls_patched/print.c
+--- ls/ls/print.c	2026-06-19 08:13:26.000000000 +0000
++++ ls_patched/print.c	2026-06-19 14:22:43.686082031 +0000
+@@ -51,6 +51,7 @@
+ 
+ #include "ls.h"
+ #include "extern.h"
++#include "vesp_compat.h"
+ 
+ static int	printaname(FTSENT *, int, int);
+ static void	printlink(FTSENT *);
+diff -ruN ls/ls/vesp_compat.c ls_patched/vesp_compat.c
+--- ls/ls/vesp_compat.c	1970-01-01 00:00:00.000000000 +0000
++++ ls_patched/vesp_compat.c	2026-06-19 14:22:42.443877066 +0000
+@@ -0,0 +1,101 @@
++#include "vesp_compat.h"
++
++#include <errno.h>
++#include <grp.h>
++#include <pwd.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++long long
++strtonum(const char *nptr, long long minval, long long maxval,
++    const char **errstrp)
++{
++    char *end;
++    long long value;
++    const char *err = NULL;
++
++    if (minval > maxval) {
++        if (errstrp)
++            *errstrp = "invalid";
++        errno = EINVAL;
++        return 0;
++    }
++
++    errno = 0;
++    value = strtoll(nptr, &end, 10);
++    if (nptr == end || *end != '\0')
++        err = "invalid";
++    else if ((value == LLONG_MIN && errno == ERANGE) || value < minval)
++        err = "too small";
++    else if ((value == LLONG_MAX && errno == ERANGE) || value > maxval)
++        err = "too large";
++
++    if (err) {
++        if (errstrp)
++            *errstrp = err;
++        errno = ERANGE;
++        return 0;
++    }
++
++    if (errstrp)
++        *errstrp = NULL;
++    return value;
++}
++
++char *
++user_from_uid(uid_t uid, int nouser)
++{
++    static char buf[32];
++    struct passwd *pw;
++
++    if (!nouser && (pw = getpwuid(uid)) != NULL)
++        return pw->pw_name;
++    snprintf(buf, sizeof(buf), "%u", (unsigned)uid);
++    return buf;
++}
++
++char *
++group_from_gid(gid_t gid, int nogroup)
++{
++    static char buf[32];
++    struct group *gr;
++
++    if (!nogroup && (gr = getgrgid(gid)) != NULL)
++        return gr->gr_name;
++    snprintf(buf, sizeof(buf), "%u", (unsigned)gid);
++    return buf;
++}
++
++char *
++fflagstostr(unsigned long flags)
++{
++    (void)flags;
++    char *s = malloc(1);
++    if (s)
++        s[0] = '\0';
++    return s;
++}
++
++char *
++getbsize(int *headerlenp, long *blocksizep)
++{
++    static char header[] = "512-blocks";
++    char *env;
++    long size = 512;
++
++    env = getenv("BLOCKSIZE");
++    if (env && *env) {
++        char *end;
++        long parsed = strtol(env, &end, 10);
++        if (parsed > 0 && *end == '\0')
++            size = parsed;
++    }
++
++    if (headerlenp)
++        *headerlenp = 10;
++    if (blocksizep)
++        *blocksizep = size;
++    return header;
++}
+diff -ruN ls/ls/vesp_compat.h ls_patched/vesp_compat.h
+--- ls/ls/vesp_compat.h	1970-01-01 00:00:00.000000000 +0000
++++ ls_patched/vesp_compat.h	2026-06-19 14:22:42.435012016 +0000
+@@ -0,0 +1,29 @@
++#ifndef VESP_COMPAT_H
++#define VESP_COMPAT_H
++
++#include <sys/types.h>
++#include <limits.h>
++
++#ifndef major
++#define major(dev) ((unsigned int)(((dev) >> 8) & 0xfff))
++#endif
++#ifndef minor
++#define minor(dev) ((unsigned int)((dev) & 0xff))
++#endif
++
++long long strtonum(const char *nptr, long long minval, long long maxval,
++    const char **errstrp);
++char *user_from_uid(uid_t uid, int nouser);
++char *group_from_gid(gid_t gid, int nogroup);
++char *fflagstostr(unsigned long flags);
++char *getbsize(int *headerlenp, long *blocksizep);
++
++#ifndef HAVE_PLEDGE
++static inline int pledge(const char *promises, const char *execpromises) {
++    (void)promises;
++    (void)execpromises;
++    return 0;
++}
++#endif
++
++#endif

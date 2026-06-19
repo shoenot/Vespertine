@@ -1,0 +1,75 @@
+diff -ru ls/ls/GNUmakefile ls_patched/GNUmakefile
+--- ls/ls/GNUmakefile	2026-06-19 14:17:41.000000000 +0000
++++ ls_patched/GNUmakefile	2026-06-19 14:22:43.686416122 +0000
+@@ -1,5 +1,5 @@
+ PROG := ls
+-SRCS := cmp.c ls.c main.c print.c util.c utf8.c
++SRCS := cmp.c ls.c main.c print.c util.c utf8.c vesp_compat.c
+ OBJS := $(SRCS:.c=.o)
+ 
+ .PHONY: all clean
+diff -ru ls/ls/ls.c ls_patched/ls.c
+--- ls/ls/ls.c	2026-06-19 08:13:26.000000000 +0000
++++ ls_patched/ls.c	2026-06-19 14:22:43.685634969 +0000
+@@ -36,6 +36,7 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <sys/ioctl.h>
++#include <termios.h>
+ 
+ #include <dirent.h>
+ #include <err.h>
+@@ -53,9 +54,10 @@
+ 
+ #include "ls.h"
+ #include "extern.h"
++#include "vesp_compat.h"
+ 
+ static void	 display(FTSENT *, FTSENT *);
+-static int	 mastercmp(const FTSENT **, const FTSENT **);
++static int	 mastercmp(const FTSENT * const *, const FTSENT * const *);
+ static void	 traverse(int, char **, int);
+ 
+ static void (*printfcn)(DISPLAY *);
+@@ -506,9 +508,7 @@
+ 				if ((glen = strlen(group)) > maxgroup)
+ 					maxgroup = glen;
+ 				if (f_flags) {
+-					flags = fflagstostr(sp->st_flags);
+-					if (*flags == '\0')
+-						flags = "-";
++					flags = "-";
+ 					if ((flen = strlen(flags)) > maxflags)
+ 						maxflags = flen;
+ 				} else
+@@ -534,8 +534,6 @@
+ 				if (f_flags) {
+ 					np->flags = &np->data[ulen + 1 + glen + 1];
+ 					(void)strlcpy(np->flags, flags, flen + 1);
+-					if (*flags != '-')
+-						free(flags);
+ 				}
+ 				cur->fts_pointer = np;
+ 			}
+@@ -597,7 +595,7 @@
+  * All other levels use the sort function.  Error entries remain unsorted.
+  */
+ static int
+-mastercmp(const FTSENT **a, const FTSENT **b)
++mastercmp(const FTSENT * const *a, const FTSENT * const *b)
+ {
+ 	int a_info, b_info;
+ 
+diff -ru ls/ls/print.c ls_patched/print.c
+--- ls/ls/print.c	2026-06-19 08:13:26.000000000 +0000
++++ ls_patched/print.c	2026-06-19 14:22:43.686082031 +0000
+@@ -51,6 +51,7 @@
+ 
+ #include "ls.h"
+ #include "extern.h"
++#include "vesp_compat.h"
+ 
+ static int	printaname(FTSENT *, int, int);
+ static void	printlink(FTSENT *);
+Only in ls_patched: vesp_compat.c
+Only in ls_patched: vesp_compat.h
