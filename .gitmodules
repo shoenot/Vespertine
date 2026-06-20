@@ -4,3 +4,6 @@
 [submodule "ports/zlib"]
 	path = ports/zlib
 	url = https://github.com/madler/zlib
+[submodule "ports"]
+	path = ports
+	url = https://github.com/shoenot/vespertine-ports.git
