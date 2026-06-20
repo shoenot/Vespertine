@@ -12,3 +12,5 @@ bench = false
 vespertine-rt = { path = "../../lib/vespertine-rt" }
 vespertine-abi = { path = "../../lib/vespertine-abi" }
 vespertine-std = { path = "../../lib/vespertine-std" }
+serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
+toml = { version = "1.1.2", default-features = false, features = ["serde", "parse"] }

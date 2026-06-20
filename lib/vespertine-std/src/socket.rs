@@ -1,4 +1,6 @@
 use core::{mem::zeroed, slice};
+extern crate alloc;
+use alloc::vec::Vec;
 
 use vespertine_abi::{
     AccessRights, HandleID, Signal,
@@ -73,59 +75,49 @@ impl Socket {
         Ok(())
     }
 
-    pub fn send_packet<T: Copy>(&self, packet_type: u32, payload: &T) -> Result<(), Error> {
-        let payload_size = size_of::<T>();
-
+    pub fn send_packet<P: PacketPayload + ?Sized>(&self, packet_type: u32, payload: &P) -> Result<(), Error> {
         let header = PacketHeader {
             magic: VESPER_MAGIC,
             version: 1,
             packet_flags: PacketFlags::IS_BUFFER,
             packet_type,
-            payload_len: payload_size as u32,
+            payload_len: payload.payload_len() as u32,
             reserved: 0,
         };
 
         let header_bytes = unsafe {
             slice::from_raw_parts(&header as *const _ as *const u8, size_of::<PacketHeader>())
         };
+
         self.write_all(header_bytes)?;
-
-        let payload_bytes =
-            unsafe { slice::from_raw_parts(payload as *const _ as *const u8, payload_size) };
-        self.write_all(payload_bytes)?;
-
+        payload.write_payload(self)?;
         Ok(())
     }
 
-    pub fn recv_packet<T: Copy>(&self) -> Result<(PacketHeader, T), Error> {
+    pub fn recv_packet<P: DecodePacketPayload>(&self) -> Result<(PacketHeader, P), Error> {
         let mut header = PacketHeader::default();
-        let header_size = size_of::<PacketHeader>();
 
-        let header_bytes =
-            unsafe { slice::from_raw_parts_mut(&mut header as *mut _ as *mut u8, header_size) };
+        let header_bytes = unsafe { 
+            slice::from_raw_parts_mut(
+                &mut header as *mut _ as *mut u8, 
+                size_of::<PacketHeader>(),
+            ) 
+        };
 
         self.read_exact(header_bytes)?;
 
         if header.magic != VESPER_MAGIC {
-            return Err(Error {
-                kind: ErrorKind::InvalidArgument,
-                message: "Invalid packet magic number".into(),
-            });
+            return Err(
+                Error::invalid_argument("malformed packet (invalid magic number)".into())
+            );
         }
 
-        if header.payload_len as usize != size_of::<T>() {
-            return Err(Error {
-                kind: ErrorKind::InvalidArgument,
-                message: "Packet payload size mismatch".into(),
-            });
-        }
+        let mut payload = Vec::new();
+        payload.resize(header.payload_len as usize, 0);
+        self.read_exact(&mut payload)?;
 
-        let mut payload = unsafe { zeroed::<T>() };
-        let payload_bytes =
-            unsafe { slice::from_raw_parts_mut(&mut payload as *mut T as *mut u8, size_of::<T>()) };
-        self.read_exact(payload_bytes)?;
-
-        Ok((header, payload))
+        let decoded = P::decode_packet_payload(&payload)?;
+        Ok((header, decoded))
     }
 
     pub fn close(mut self) {
@@ -152,5 +144,56 @@ impl Drop for Socket {
         if let Some(handle) = self.0.take() {
             let _ = sys_close(handle);
         }
+    }
+}
+
+pub trait PacketPayload {
+    fn payload_len(&self) -> usize;
+    fn write_payload(&self, socket: &Socket) -> Result<(), Error>;
+}
+
+impl<T: Copy> PacketPayload for T {
+    fn payload_len(&self) -> usize {
+        size_of::<T>()
+    }
+
+    fn write_payload(&self, socket: &Socket) -> Result<(), Error> {
+        let bytes = unsafe {
+            core::slice::from_raw_parts(self as *const T as *const u8, size_of::<T>())
+        };
+        socket.write_all(bytes)
+    }
+}
+
+impl PacketPayload for str {
+    fn payload_len(&self) -> usize {
+        self.as_bytes().len()
+    }
+
+    fn write_payload(&self, socket: &Socket) -> Result<(), Error> {
+        socket.write_all(self.as_bytes())
+    }
+}
+
+pub trait DecodePacketPayload: Sized {
+    fn decode_packet_payload(payload: &[u8]) -> Result<Self, Error>;
+}
+
+impl<T: Copy> DecodePacketPayload for T {
+    fn decode_packet_payload(payload: &[u8]) -> Result<Self, Error> {
+        if payload.len() != size_of::<T>() {
+            return Err(Error::invalid_argument("packet payload size mismatch".into()));
+        }
+
+        let mut value = unsafe { core::mem::zeroed::<T>() };
+        let value_bytes = unsafe {
+            core::slice::from_raw_parts_mut(
+                &mut value as *mut T as *mut u8,
+                size_of::<T>(),
+            )
+        };
+
+        value_bytes.copy_from_slice(payload);
+        Ok(value)
     }
 }

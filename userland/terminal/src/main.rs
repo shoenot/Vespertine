@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::CAP_APP_TERMCTRL;
+use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_LAUNCHER_EXEC, CAP_LAUNCHER_GRANT};
 use vespertine_abi::{AccessRights, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp};
 use vespertine_rt::syscall::{
     sys_invoke, sys_read, sys_set_read_policy, sys_write_bytes,
@@ -15,6 +15,7 @@ use vespertine_rt::syscall::{
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::clock::Time;
 use vespertine_std::log::SystemLog;
+use vespertine_std::proc::Waiter;
 use vespertine_std::socket::Socket;
 use vespertine_std::{Error, fb::Framebuffer};
 use vespertine_std::{ErrorKind, Exec, Write, env};
@@ -46,14 +47,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let width_chars = width_cols / 8;
     let height_chars = height_rows / 16;
 
-    log.write_string("Creating sockets".into())?;
-
     let (term_stdin, app_stdin) = Socket::new_pair()?;
     let (term_stdout, app_stdout) = Socket::new_pair()?;
     let (ctrl_term, app_ctrl) = Socket::new_pair()?;
     let (blink_read, blink_write) = Socket::new_pair()?;
-
-    log.write_string("Created sockets".into())?;
 
     let mut grid = TerminalGrid {
         width_chars,
@@ -89,6 +86,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .sink(app_stdout.handle())
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
+        .grant(CAP_LAUNCHER_EXEC, AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE)?
+        .grant(CAP_LAUNCHER_GRANT, AccessRights::MUTATE)?
         .grant_new(
             app_ctrl.handle(),
             CAP_APP_TERMCTRL,
@@ -114,28 +113,11 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         message: "Failed to spawn blink thread".into(),
     })?;
 
-    let mut wait_items = [
-        WaitItem {
-            handle: kbd_handle,
-            signal: Signal::READABLE,
-            pending: Signal(0),
-        },
-        WaitItem {
-            handle: term_stdout.handle(),
-            signal: Signal::READABLE,
-            pending: Signal(0),
-        },
-        WaitItem {
-            handle: blink_read.handle(),
-            signal: Signal::READABLE,
-            pending: Signal(0),
-        },
-        WaitItem {
-            handle: ctrl_term.handle(),
-            signal: Signal::READABLE,
-            pending: Signal(0),
-        },
-    ];
+    let mut waiter = Waiter::new()
+        .readable(kbd_handle)
+        .readable(term_stdout.handle())
+        .readable(blink_read.handle())
+        .readable(ctrl_term.handle());
 
     let mut vte_parser = vte::Parser::new();
     let mut buf = [0u8; 256];
@@ -144,23 +126,18 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         grid.draw_cursor(grid.cursor_blink_on);
 
         // block until either kbd or stdout is readable
-        let wait_op = WaitOp::Many {
-            items_ptr: wait_items.as_mut_ptr() as usize,
-            count: wait_items.len(),
-        };
-        sys_invoke(env::self_handle(), &Invocation::Wait(wait_op))?;
-
+        waiter.wait()?;
         grid.draw_cursor(false);
 
         // blink cursor
-        if wait_items[2].pending.contains(Signal::READABLE) {
+        if waiter.ready(2) {
             let mut dummy = [0u8; 1];
             let _ = sys_read(blink_read.handle(), dummy.as_mut_ptr(), 1, 0);
             grid.cursor_blink_on = !grid.cursor_blink_on;
         }
 
         // kbd input - fwd to app, also echo locally
-        if wait_items[0].pending.contains(Signal::READABLE) {
+        if waiter.ready(0) {
             grid.cursor_blink_on = true; // make it solid while typing
 
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
@@ -256,7 +233,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         }
 
         // application output
-        if wait_items[1].pending.contains(Signal::READABLE) {
+        if waiter.ready(1) {
             let mut app_buf = [0u8; 256];
             match sys_read(term_stdout.handle(), app_buf.as_mut_ptr(), app_buf.len(), 0) {
                 Ok(n) if n > 0 => {
@@ -299,7 +276,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             }
         }
 
-        if wait_items[3].pending.contains(Signal::READABLE) {
+        if waiter.ready(3) {
             match ctrl_term.recv_packet::<TermCommand>() {
                 Ok((_header, cmd)) => match cmd {
                     TermCommand::SetTermios(t) => {
@@ -346,10 +323,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             }
         }
 
-        wait_items[0].pending = Signal(0);
-        wait_items[1].pending = Signal(0);
-        wait_items[2].pending = Signal(0);
-        wait_items[3].pending = Signal(0);
+        waiter.clear();
     }
     Ok(())
 }
