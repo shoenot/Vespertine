@@ -1,6 +1,7 @@
 use alloc::format;
 use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp, ProcessExitInfo, Signal, WaitOp, tag::CAP_PROCMAN,
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp,
+    ProcessExitInfo, Signal, WaitOp, tag::CAP_PROCMAN,
 };
 extern crate alloc;
 use alloc::string::String;

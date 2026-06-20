@@ -1,4 +1,3 @@
-
 pub const DATETIME_HAS_OFFSET: u32 = 1 << 0;
 pub const DATETIME_DATE_ONLY: u32 = 1 << 1;
 pub const DATETIME_TIME_ONLY: u32 = 1 << 2;
@@ -35,4 +34,3 @@ pub struct DateTimeValue {
     pub calendar: u16,
     pub reserved: u16,
 }
-

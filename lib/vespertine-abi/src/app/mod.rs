@@ -1,2 +1,2 @@
-pub mod termios;
 pub mod hesper;
+pub mod termios;

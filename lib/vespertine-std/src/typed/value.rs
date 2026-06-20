@@ -5,8 +5,9 @@ use core::fmt::Display;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::typed::{DATETIME_HAS_OFFSET, DateTimeValue, DateValue, FileSizeValue, TimeValue, ValueType};
-use vespertine_common::datetime::epoch_to_datetime;
+use vespertine_abi::typed::{
+    DateTimeValue, DateValue, FileSizeValue, TimeValue, ValueType,
+};
 
 use crate::typed::{DateTimeStyle, datetime_display};
 
@@ -66,7 +67,7 @@ impl Default for DisplayOptions {
         Self {
             filesize_style: FileSizeStyle::Iec,
             filesize_precision: 1,
-            datetime_style: DateTimeStyle::Iso, 
+            datetime_style: DateTimeStyle::Iso,
             datetime_show_tz: true,
             datetime_show_subsec: false,
         }

@@ -6,8 +6,8 @@ use vespertine_abi::{ProcessInitPackage, typed::RECORD_PRESENTATION_TABLE};
 use vespertine_rt::{println, syscall::sys_close};
 use vespertine_std::{
     Error, HandleReader, HandleWriter, Write, env,
-    typed::{RecordFieldInfo, ShellValue, TypedReader},
     typed::{DisplayOptions, TypedValue},
+    typed::{RecordFieldInfo, ShellValue, TypedReader},
 };
 
 extern crate alloc;
@@ -39,19 +39,23 @@ fn run() -> Result<(), Error> {
             ShellValue::RecordSchema { schema_id, fields } => {
                 active_schema = Some(schema_id);
                 schemas.insert(schema_id, fields);
-            },
-            ShellValue::RecordPresentation { schema_id, presentation, fields } => {
+            }
+            ShellValue::RecordPresentation {
+                schema_id,
+                presentation,
+                fields,
+            } => {
                 presentations.insert((schema_id, presentation), fields);
-            },
+            }
             ShellValue::Value(TypedValue::Record { schema_id, fields }) => {
                 active_schema = Some(schema_id);
                 rows.push(fields);
-            },
+            }
             ShellValue::Value(value) => {
                 let text = value.display_with(Default::default());
                 out.write_all(text.as_bytes())?;
                 out.write_all(b"\n")?;
-            },
+            }
             ShellValue::StreamEnd => {
                 if let Some(schema_id) = active_schema {
                     render_table(
@@ -63,7 +67,7 @@ fn run() -> Result<(), Error> {
                     )?;
                     rows.clear();
                 }
-            },
+            }
             ShellValue::Error(msg) => {
                 return Err(Error::invalid_argument(msg));
             }

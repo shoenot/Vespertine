@@ -8,7 +8,8 @@ pub enum BaseNode {
 
 pub enum CommandNode {
     Run { exec: String, args: Vec<String> },
-    Echo { args: Vec<String> },
     ChangeDir { path: PathBuf },
+    ClearScreen,
+    GetMetadata { app: String },
     NoOp,
 }

@@ -7,7 +7,10 @@ use alloc::vec::Vec;
 use vespertine_abi::{
     protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC},
     typed::{
-        DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX, RECORD_PRESENTATION_DEFAULT, RECORD_PRESENTATION_TABLE, RecordField, RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, TimeValue, ValueHeader, ValueType
+        DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX,
+        RECORD_PRESENTATION_DEFAULT, RECORD_PRESENTATION_TABLE, RecordField,
+        RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, TimeValue, ValueHeader,
+        ValueType,
     },
 };
 
@@ -63,7 +66,12 @@ impl<W: Write> TypedWriter<W> {
         self.write_struct(&packet)
     }
 
-    pub fn record_presentation(&self, schema_id: u64, presentation: u16, fields: &[u16]) -> Result<(), Error> {
+    pub fn record_presentation(
+        &self,
+        schema_id: u64,
+        presentation: u16,
+        fields: &[u16],
+    ) -> Result<(), Error> {
         if fields.len() > u16::MAX as usize {
             return Err(Error::invalid_argument(
                 "too many presentation fields".into(),
@@ -296,7 +304,7 @@ impl<R: Read> TypedReader<R> {
             x if x == PacketType::RecordSchema as u32 => Ok(Some(self.read_record_schema()?)),
             x if x == PacketType::RecordPresentation as u32 => {
                 Ok(Some(self.read_record_presentation()?))
-            },
+            }
             x if x == PacketType::Value as u32 => {
                 let mut payload = Vec::new();
                 payload.resize(header.payload_len as usize, 0);
@@ -306,7 +314,7 @@ impl<R: Read> TypedReader<R> {
                     return Err(Error::invalid_argument("trailing typed value bytes".into()));
                 }
                 Ok(Some(ShellValue::Value(value)))
-            },
+            }
             x if x == PacketType::StreamEnd as u32 => {
                 if header.payload_len != 0 {
                     return Err(Error::invalid_argument(
@@ -314,11 +322,11 @@ impl<R: Read> TypedReader<R> {
                     ));
                 }
                 Ok(Some(ShellValue::StreamEnd))
-            },
+            }
             x if x == PacketType::StreamEnd as u32 => {
                 let message = self.read_string(header.payload_len)?;
                 Ok(Some(ShellValue::Error(message)))
-            },
+            }
             _ => Err(Error::invalid_argument("unknown typed packet type".into())),
         }
     }
@@ -441,7 +449,7 @@ fn decode_value(buf: &[u8]) -> Result<(TypedValue, usize), Error> {
             }
             TypedValue::Bool(payload[0] != 0)
         }
-        ValueType::Date=> read_copy::<DateValue>(payload).map(TypedValue::Date)?,
+        ValueType::Date => read_copy::<DateValue>(payload).map(TypedValue::Date)?,
         ValueType::Time => read_copy::<TimeValue>(payload).map(TypedValue::Time)?,
         ValueType::DateTime => read_copy::<DateTimeValue>(payload).map(TypedValue::DateTime)?,
         ValueType::FileSize => read_copy::<FileSizeValue>(payload).map(TypedValue::FileSize)?,
@@ -550,26 +558,29 @@ impl<W: Write> TerminalRenderer<W> {
             ShellValue::RecordSchema { schema_id, fields } => {
                 self.schemas.insert(schema_id, fields);
                 Ok(())
-            },
-            ShellValue::RecordPresentation { schema_id, presentation, fields } => {
+            }
+            ShellValue::RecordPresentation {
+                schema_id,
+                presentation,
+                fields,
+            } => {
                 self.presentations.insert((schema_id, presentation), fields);
                 Ok(())
-            },
+            }
             ShellValue::Error(message) => {
                 self.begin_visible_value()?;
                 self.out.write_all(b"error: ")?;
                 self.out.write_all(message.as_bytes())
-            },
+            }
             ShellValue::StreamEnd => Ok(()),
         }
     }
 
     fn render_value(&mut self, value: TypedValue) -> Result<(), Error> {
         self.begin_visible_value()?;
-    
+
         match value {
-            TypedValue::Record { schema_id, fields } => self.render_record(schema_id,
-            &fields),
+            TypedValue::Record { schema_id, fields } => self.render_record(schema_id, &fields),
             other => {
                 let text = other.display_with(Default::default());
                 self.out.write_all(text.as_bytes())

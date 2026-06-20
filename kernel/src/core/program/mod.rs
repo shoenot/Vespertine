@@ -149,9 +149,9 @@ async fn map_elf_segments(
         }
 
         if ph.p_type == P_Type::PT_LOAD as u32 {
-            let aligned_vaddr = (load_base + ph.p_vaddr as usize) & !0xFFF ;
+            let aligned_vaddr = (load_base + ph.p_vaddr as usize) & !0xFFF;
             let aligned_offset = (ph.p_offset & !0xFFF) as usize;
-            let offset_in_page = (load_base + ph.p_vaddr as usize) & 0xFFF ;
+            let offset_in_page = (load_base + ph.p_vaddr as usize) & 0xFFF;
             let total_map_size = align_up(offset_in_page + ph.p_memsz as usize);
 
             let mut vm_flags = VM_FLAG_USER;

@@ -1,0 +1,8 @@
+[application]
+name = "dt"
+binary = "dt"
+id = "os.vespertine.dt"
+
+[io]
+input = "any"
+output = "typed"

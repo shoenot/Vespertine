@@ -1,7 +1,5 @@
 use alloc::string::String;
-use vespertine_abi::typed::{
-    DATETIME_HAS_OFFSET, DateTimeValue, FileSizeValue, ValueType,
-};
+use vespertine_abi::typed::{DATETIME_HAS_OFFSET, DateTimeValue, FileSizeValue, ValueType};
 use vespertine_cli::args::{Command, Opt};
 use vespertine_rt::println;
 use vespertine_std::{
@@ -150,9 +148,7 @@ pub fn ns_stat(args: &[String]) -> Result<(), Error> {
         &["name"],
     )?;
 
-    out.table(&[
-        "kind", "size", "owner", "mode", "created", "modified",
-    ])?;
+    out.table(&["kind", "size", "owner", "mode", "created", "modified"])?;
 
     let kind_str = match stat_info.object_type {
         0 => "File",

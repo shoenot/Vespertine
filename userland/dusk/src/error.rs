@@ -1,6 +1,5 @@
 use core::fmt::Display;
 
-
 #[derive(Debug)]
 pub enum ShellError {
     InvalidToken,

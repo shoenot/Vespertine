@@ -8,9 +8,9 @@ mod runtime;
 mod sys;
 use error::ShellError;
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use vespertine_abi::ProcessInitPackage;
-use vespertine_rt::{print, println, source::read_line};
+use vespertine_rt::{println, source::read_line};
 use vespertine_std::term::get_term_cursor_position;
 
 use crate::{runtime::ShellRuntime, sys::ShellResult};
@@ -37,11 +37,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), ShellError> {
             println!("");
         }
 
-        print!(
-            "{} \x1b[35m{} >> \x1b[0m",
-            runtime.context.cwd().to_string(),
-            runtime.context.status()
-        );
+        runtime.draw_prompt();
         let mut buf = [0u8; 128];
         let n = read_line(&mut buf);
 

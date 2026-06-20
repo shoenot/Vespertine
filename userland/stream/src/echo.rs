@@ -1,11 +1,12 @@
 use alloc::string::String;
 use vespertine_cli::args::{Command, Opt};
-use vespertine_rt::{println};
-use vespertine_std::{Error, typed::{TypedValue, TypedWriter}};
+use vespertine_rt::println;
+use vespertine_std::{
+    Error,
+    typed::{TypedValue, TypedWriter},
+};
 
-static ECHO_OPTIONS: &[Opt] = &[
-    Opt::flag("help", Some('h'), Some("help")),
-];
+static ECHO_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
 
 pub fn run(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("echo")

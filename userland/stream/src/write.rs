@@ -1,9 +1,12 @@
-use alloc::format;
 use alloc::string::String;
 use vespertine_abi::AccessRights;
 use vespertine_cli::args::{Command, Opt};
 use vespertine_rt::println;
-use vespertine_std::{Error, HandleReader, Write, env, fs::{File, PathBuf}, typed::{ShellValue, TypedReader}};
+use vespertine_std::{
+    Error, HandleReader, Write, env,
+    fs::{File, PathBuf},
+    typed::{ShellValue, TypedReader},
+};
 
 static WRITE_OPTIONS: &[Opt] = &[
     Opt::flag("help", Some('h'), Some("help")),
@@ -22,7 +25,9 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     }
 
     let Some(path_str) = matches.value("output-file") else {
-        return Err(Error::invalid_argument("stream write needs a file to write to".into()));
+        return Err(Error::invalid_argument(
+            "stream write needs a file to write to".into(),
+        ));
     };
 
     let pathbuf = PathBuf::from_str(path_str);
@@ -55,9 +60,9 @@ pub fn run(args: &[String]) -> Result<(), Error> {
                     let rendered = v.display_with(Default::default());
                     outfile.write_all(rendered.as_bytes())?;
                     wrote_value = true;
-                },
+                }
                 ShellValue::StreamEnd => break,
-                ShellValue::RecordSchema { .. } | ShellValue::RecordPresentation { .. } => {},
+                ShellValue::RecordSchema { .. } | ShellValue::RecordPresentation { .. } => {}
                 ShellValue::Error(message) => return Err(Error::invalid_argument(message)),
             }
         }

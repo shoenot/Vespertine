@@ -64,6 +64,19 @@ impl Parser {
                     }
                     _ => return Err(ShellError::InvalidToken),
                 },
+                "clear" => CommandNode::ClearScreen,
+                "md" => match self.advance() {
+                    None => {
+                        return Err(ShellError::ExpectedToken);
+                    }
+                    Some(Token::Word(app)) => {
+                        if self.peek().is_some() {
+                            return Err(ShellError::InvalidToken);
+                        }
+                        CommandNode::GetMetadata { app }
+                    }
+                    _ => return Err(ShellError::InvalidToken),
+                },
                 _ => CommandNode::Run {
                     exec,
                     args: self.collect_args()?,

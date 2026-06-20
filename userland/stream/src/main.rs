@@ -11,7 +11,7 @@ use vespertine_abi::{HandleID, ProcessInitPackage};
 use vespertine_rt::syscall::{sys_close, sys_read, sys_write};
 use vespertine_std::env;
 use vespertine_std::fs::{File, Path};
-use vespertine_std::typed::{TypedValue, TypedWriter};
+use vespertine_std::typed::TypedWriter;
 use vespertine_std::{Error, Read, Write};
 
 pub enum Input {

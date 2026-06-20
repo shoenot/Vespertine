@@ -1,9 +1,12 @@
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use vespertine_abi::typed::ValueType;
 use vespertine_cli::args::{Command, Opt};
-use vespertine_std::{Error, HandleWriter, Read, Write, env, typed::{RecordStream, TypedValue, TypedWriter}};
+use vespertine_std::{
+    Error, HandleWriter, Read,
+    typed::{RecordStream, TypedValue, TypedWriter},
+};
 
-use crate::{Sink, input_from_path};
+use crate::input_from_path;
 
 static READ_OPTIONS: &[Opt] = &[
     Opt::flag("number", Some('n'), Some("number")),
@@ -29,10 +32,7 @@ impl LineOutput {
         if numbered {
             let out = RecordStream::typed_default_out(
                 STREAM_LINE_SCHEMA,
-                &[
-                    ("number", ValueType::Integer),
-                    ("line", ValueType::String),
-                ],
+                &[("number", ValueType::Integer), ("line", ValueType::String)],
                 &["number", "line"],
             )?;
             out.table(&["number", "line"])?;
@@ -47,15 +47,11 @@ impl LineOutput {
             .map_err(|_| Error::invalid_encoding("input contains invalid UTF-8".into()))?;
 
         match self {
-            Self::Plain(out) => {
-                out.value(&TypedValue::String(String::from(text)))
-            }
-            Self::Numbered(out) => {
-                out.row_values(&[
-                    TypedValue::Integer(number as i128),
-                    TypedValue::String(String::from(text)),
-                ])
-            }
+            Self::Plain(out) => out.value(&TypedValue::String(String::from(text))),
+            Self::Numbered(out) => out.row_values(&[
+                TypedValue::Integer(number as i128),
+                TypedValue::String(String::from(text)),
+            ]),
         }
     }
 
@@ -86,7 +82,11 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     }
 
     let input = input_from_path(matches.positional(0))?;
-    copy_lines(&input, matches.flag("number"), matches.flag("squeeze-blank"))
+    copy_lines(
+        &input,
+        matches.flag("number"),
+        matches.flag("squeeze-blank"),
+    )
 }
 
 pub fn head(args: &[String]) -> Result<(), Error> {

@@ -1,13 +1,12 @@
 extern crate alloc;
-use core::fmt::Display;
 use alloc::format;
 use alloc::string::String;
+use core::fmt::Display;
 
 use vespertine_abi::typed::{DATETIME_HAS_OFFSET, DateTimeValue, DateValue, TimeValue};
 use vespertine_common::datetime::{datetime_to_epoch, epoch_to_datetime};
 
-use crate::{Error, typed::DisplayOptions};
-
+use crate::typed::DisplayOptions;
 
 #[derive(Debug, Clone, Copy)]
 pub enum DateTimeStyle {
@@ -124,21 +123,36 @@ pub trait DateTimeValueExt {
 impl DateTimeValueExt for DateTimeValue {
     fn date(self) -> DateValue {
         let dt = epoch_to_datetime(self.unix_seconds);
-        DateValue { year: dt.year, month: dt.month as u8, day: dt.day as u8, calendar: 0, flags: 0 }
+        DateValue {
+            year: dt.year,
+            month: dt.month as u8,
+            day: dt.day as u8,
+            calendar: 0,
+            flags: 0,
+        }
     }
 
     fn time(self) -> TimeValue {
         let dt = epoch_to_datetime(self.unix_seconds);
-        TimeValue { 
-            hour: dt.hour as u8, minute: dt.minute as u8, second: dt.second as u8, 
-            reserved: 0, nanos: 0, offset_minutes: 0, flags: 0 
+        TimeValue {
+            hour: dt.hour as u8,
+            minute: dt.minute as u8,
+            second: dt.second as u8,
+            reserved: 0,
+            nanos: 0,
+            offset_minutes: 0,
+            flags: 0,
         }
     }
 
     fn from_epoch(seconds: i64, nanos: u32) -> DateTimeValue {
-        DateTimeValue { 
-            unix_seconds: seconds, nanos, offset_minutes: 0, 
-            flags: DATETIME_HAS_OFFSET, calendar: 0, reserved: 0 
+        DateTimeValue {
+            unix_seconds: seconds,
+            nanos,
+            offset_minutes: 0,
+            flags: DATETIME_HAS_OFFSET,
+            calendar: 0,
+            reserved: 0,
         }
     }
 
@@ -151,9 +165,13 @@ impl DateTimeValueExt for DateTimeValue {
             minute: time.minute as u32,
             second: time.second as u32,
         };
-        DateTimeValue { 
-            unix_seconds: datetime_to_epoch(dt), nanos: 0, offset_minutes: 0, 
-            flags: DATETIME_HAS_OFFSET, calendar: 0, reserved: 0, 
+        DateTimeValue {
+            unix_seconds: datetime_to_epoch(dt),
+            nanos: 0,
+            offset_minutes: 0,
+            flags: DATETIME_HAS_OFFSET,
+            calendar: 0,
+            reserved: 0,
         }
     }
 }

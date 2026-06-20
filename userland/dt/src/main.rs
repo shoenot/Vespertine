@@ -1,7 +1,10 @@
 #![no_std]
 #![no_main]
 
-use alloc::{format, string::{String, ToString}};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
 use chrono::{DateTime, NaiveDateTime, Offset, TimeZone, Utc};
 use chrono_tz::Tz;
 use vespertine_abi::{
@@ -11,7 +14,10 @@ use vespertine_abi::{
 use vespertine_cli::args::{Command, Opt};
 use vespertine_rt::syscall::sys_close;
 use vespertine_std::{
-    Error, ErrorKind, HandleReader, clock::Time, env, typed::{ShellValue, TypedReader, TypedWriter, DateTimeStyle, TypedValue, datetime_display}
+    Error, ErrorKind, HandleReader,
+    clock::Time,
+    env,
+    typed::{DateTimeStyle, ShellValue, TypedReader, TypedValue, TypedWriter, datetime_display},
 };
 
 extern crate alloc;
@@ -125,13 +131,21 @@ fn dt_from(args: &[String]) -> Result<(), Error> {
             match value {
                 ShellValue::Value(v) => {
                     dt_opt = Some(datetime_from_value(v)?);
-                },
+                }
                 ShellValue::StreamEnd => break,
-                _ => return Err(Error::invalid_argument("`dt from` needs a datetime value to parse".into())),
+                _ => {
+                    return Err(Error::invalid_argument(
+                        "`dt from` needs a datetime value to parse".into(),
+                    ));
+                }
             }
         }
         match dt_opt {
-            None => return Err(Error::invalid_argument("could not parse piped input into DateTime".into())),
+            None => {
+                return Err(Error::invalid_argument(
+                    "could not parse piped input into DateTime".into(),
+                ));
+            }
             Some(v) => v,
         }
     };
@@ -199,31 +213,42 @@ fn datetime_from_raw(raw: &String) -> Result<DateTime<Utc>, Error> {
             return Ok(ndt.and_utc());
         }
     }
-    Err(Error::invalid_argument("could not parse raw input into DateTime".into()))
+    Err(Error::invalid_argument(
+        "could not parse raw input into DateTime".into(),
+    ))
 }
 
 fn datetime_from_epoch(raw: &String) -> Result<DateTime<Utc>, Error> {
     let trimmed = raw.trim();
-    let number = trimmed.parse::<i64>().map_err(|_| Error::invalid_argument("could not parse raw input into DateTime".into()))?;
+    let number = trimmed
+        .parse::<i64>()
+        .map_err(|_| Error::invalid_argument("could not parse raw input into DateTime".into()))?;
     if let Some(dt) = DateTime::from_timestamp(number, 0) {
         return Ok(dt);
     }
-    Err(Error::invalid_argument("could not parse raw input into DateTime".into()))
+    Err(Error::invalid_argument(
+        "could not parse raw input into DateTime".into(),
+    ))
 }
 
 fn datetime_from_value(value: TypedValue) -> Result<DateTime<Utc>, Error> {
     match value {
-        TypedValue::DateTime(v) => DateTime::from_timestamp(v.unix_seconds as i64, v.nanos)
-                                      .ok_or(Error::invalid_argument("could not parse DateTimeValue into DateTime".into())),
+        TypedValue::DateTime(v) => DateTime::from_timestamp(v.unix_seconds as i64, v.nanos).ok_or(
+            Error::invalid_argument("could not parse DateTimeValue into DateTime".into()),
+        ),
         TypedValue::Integer(s) => {
             if let Some(dt) = DateTime::from_timestamp(s as i64, 0) {
                 return Ok(dt);
             } else {
-                Err(Error::invalid_argument("could not parse integer into DateTime".into()))
+                Err(Error::invalid_argument(
+                    "could not parse integer into DateTime".into(),
+                ))
             }
-        },
+        }
         TypedValue::String(s) => datetime_from_string(&s),
-        _ => Err(Error::invalid_argument("cannot parse data type into DateTime".into())),
+        _ => Err(Error::invalid_argument(
+            "cannot parse data type into DateTime".into(),
+        )),
     }
 }
 

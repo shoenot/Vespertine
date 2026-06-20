@@ -1,8 +1,4 @@
-use alloc::{
-    collections::btree_map::BTreeMap,
-    format,
-    string::String,
-};
+use alloc::{collections::btree_map::BTreeMap, format, string::String};
 use vespertine_abi::{AccessRights, HandleID};
 use vespertine_rt::syscall::sys_close;
 use vespertine_std::{

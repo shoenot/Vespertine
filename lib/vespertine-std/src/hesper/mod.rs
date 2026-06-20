@@ -1,31 +1,25 @@
 extern crate alloc;
 
-use alloc::string::String;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use vespertine_abi::app::hesper::*;
 
-use crate::{
-    Error, Write,
-    socket::{DecodePacketPayload, PacketPayload, Socket},
-};
+use crate::{Error, socket::Socket};
 
-pub struct AppMetadataRequest<'a> {
-    pub app_name: &'a str,
-}
+const MAX_APP_NAME: usize = 256;
+const MAX_ARGUMENTS: usize = 128;
+const MAX_ARGUMENT_LENGTH: usize = 4096;
 
-pub struct OwnedAppMetadataRequest {
+#[derive(Debug)]
+pub struct AppMetadataRequest {
     pub app_name: String,
 }
 
-pub struct AppMetadataResponse<'a> {
-    pub status: u32,
-    pub input: AppIoMode,
-    pub output: AppIoMode,
-    pub app_id: &'a str,
-    pub display_name: &'a str,
-}
-
-pub struct OwnedAppMetadataResponse {
+#[derive(Debug)]
+pub struct AppMetadataResponse {
     pub status: u32,
     pub input: AppIoMode,
     pub output: AppIoMode,
@@ -33,168 +27,372 @@ pub struct OwnedAppMetadataResponse {
     pub display_name: String,
 }
 
-impl PacketPayload for AppMetadataRequest<'_> {
-    fn payload_len(&self) -> usize {
-        size_of::<AppMetadataRequestHeader>() + self.app_name.len()
-    }
-
-    fn write_payload(&self, socket: &Socket) -> Result<(), Error> {
-        let header = AppMetadataRequestHeader {
-            app_name_len: self.app_name.len() as u32,
-        };
-
-        header.write_payload(socket)?;
-        socket.write_all(self.app_name.as_bytes())
-    }
+#[derive(Debug)]
+pub struct ExecuteRequest {
+    pub app_name: String,
+    pub arguments: Vec<String>,
 }
 
-impl DecodePacketPayload for OwnedAppMetadataRequest {
-    fn decode_packet_payload(payload: &[u8]) -> Result<Self, Error> {
-        let header = read_plain::<AppMetadataRequestHeader>(payload)?;
-        let offset = size_of::<AppMetadataRequestHeader>();
+#[derive(Debug)]
+pub struct ExecuteResponse {
+    pub status: u32,
+    pub message: String,
+}
 
-        let app_len = header.app_name_len as usize;
-        if payload.len() != offset + app_len {
-            return Err(Error::invalid_argument("bad metadata request length".into()));
+#[derive(Debug)]
+pub enum HesperRequest {
+    AppMetadata {
+        request_id: u32,
+        request: AppMetadataRequest,
+    },
+    Execute {
+        request_id: u32,
+        request: ExecuteRequest,
+    },
+}
+
+#[derive(Debug)]
+pub enum HesperResponse {
+    AppMetadata {
+        request_id: u32,
+        response: AppMetadataResponse,
+    },
+    Execute {
+        request_id: u32,
+        response: ExecuteResponse,
+    },
+}
+
+struct PayloadReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> PayloadReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn take(&mut self, length: usize) -> Result<&'a [u8], Error> {
+        let end = self
+            .offset
+            .checked_add(length)
+            .ok_or_else(|| Error::invalid_argument("payload length overflow".into()))?;
+
+        if end > self.bytes.len() {
+            return Err(Error::invalid_argument("truncated packet payload".into()));
         }
 
-        let app_name = str::from_utf8(&payload[offset..offset + app_len])
-            .map_err(|_| Error::invalid_argument("invalid app name utf8".into()))?
-            .into();
-
-        Ok(Self { app_name })
-    }
-}
-
-
-fn read_plain<T: Copy>(payload: &[u8]) -> Result<T, Error> {
-    if payload.len() < size_of::<T>() {
-        return Err(Error::invalid_argument("short packet".into()));
+        let value = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(value)
     }
 
-    let mut value = unsafe { core::mem::zeroed::<T>() };
-    let bytes = unsafe {
-        core::slice::from_raw_parts_mut(
-            &mut value as *mut T as *mut u8,
-            size_of::<T>(),
-        )
-    };
-
-    bytes.copy_from_slice(&payload[..size_of::<T>()]);
-    Ok(value)
-}
-
-pub fn send_app_metadata_request(socket: &Socket, app_name: &str) -> Result<(), Error> {
-    socket.send_packet(
-        HESPER_APP_METADATA_REQUEST,
-        &AppMetadataRequest { app_name },
-    )
-}
-
-pub fn recv_app_metadata_request(socket: &Socket) -> Result<OwnedAppMetadataRequest, Error> {
-    let (header, req) = socket.recv_packet::<OwnedAppMetadataRequest>()?;
-
-    if header.packet_type != HESPER_APP_METADATA_REQUEST {
-        return Err(Error::invalid_argument("unexpected packet type".into()));
+    fn read_u8(&mut self) -> Result<u8, Error> {
+        Ok(self.take(1)?[0])
     }
 
-    Ok(req)
-}
-
-
-fn decode_io_mode(value: u8) -> Result<AppIoMode, Error> {
-    match value {
-        0 => Ok(AppIoMode::Any),
-        1 => Ok(AppIoMode::Text),
-        2 => Ok(AppIoMode::Typed),
-        3 => Ok(AppIoMode::Direct),
-        _ => Err(Error::invalid_argument("invalid app io mode".into())),
-    }
-}
-
-impl PacketPayload for AppMetadataResponse<'_> {
-    fn payload_len(&self) -> usize {
-        size_of::<AppMetadataResponseHeader>()
-            + self.app_id.len()
-            + self.display_name.len()
+    fn read_u16(&mut self) -> Result<u16, Error> {
+        let bytes = self.take(2)?;
+        Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
     }
 
-    fn write_payload(&self, socket: &Socket) -> Result<(), Error> {
-        let header = AppMetadataResponseHeader {
-            status: self.status,
-            input: self.input as u8,
-            output: self.output as u8,
-            flags: 0,
-            app_id_len: self.app_id.len() as u32,
-            display_name_len: self.display_name.len() as u32,
-        };
+    fn read_u32(&mut self) -> Result<u32, Error> {
+        let bytes = self.take(4)?;
+        Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
 
-        header.write_payload(socket)?;
-        socket.write_all(self.app_id.as_bytes())?;
-        socket.write_all(self.display_name.as_bytes())?;
+    fn read_string(&mut self, maximum: usize, description: &str) -> Result<String, Error> {
+        let length = self.read_u32()? as usize;
+
+        if length > maximum {
+            return Err(Error::invalid_argument(alloc::format!(
+                "{} is too long",
+                description
+            )));
+        }
+
+        let bytes = self.take(length)?;
+        let value = str::from_utf8(bytes)
+            .map_err(|_| Error::invalid_encoding(alloc::format!("{} is not UTF-8", description)))?;
+
+        Ok(value.to_string())
+    }
+
+    fn finish(self) -> Result<(), Error> {
+        if self.offset != self.bytes.len() {
+            return Err(Error::invalid_argument(
+                "packet contains trailing data".into(),
+            ));
+        }
 
         Ok(())
     }
 }
 
-impl DecodePacketPayload for OwnedAppMetadataResponse {
-    fn decode_packet_payload(payload: &[u8]) -> Result<Self, Error> {
-        let header = read_plain::<AppMetadataResponseHeader>(payload)?;
-        let mut offset = size_of::<AppMetadataResponseHeader>();
+fn write_u8(output: &mut Vec<u8>, value: u8) {
+    output.push(value);
+}
 
-        let app_id_len = header.app_id_len as usize;
-        let display_name_len = header.display_name_len as usize;
+fn write_u16(output: &mut Vec<u8>, value: u16) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
 
-        if payload.len() != offset + app_id_len + display_name_len {
-            return Err(Error::invalid_argument("bad metadata response length".into()));
+fn write_u32(output: &mut Vec<u8>, value: u32) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_string(
+    output: &mut Vec<u8>,
+    value: &str,
+    maximum: usize,
+    description: &str,
+) -> Result<(), Error> {
+    if value.len() > maximum {
+        return Err(Error::invalid_argument(alloc::format!(
+            "{} is too long",
+            description
+        )));
+    }
+
+    let length = u32::try_from(value.len())
+        .map_err(|_| Error::invalid_argument(alloc::format!("{} is too long", description)))?;
+
+    write_u32(output, length);
+    output.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+pub fn decode_io_mode(value: u8) -> Result<AppIoMode, Error> {
+    match value {
+        0 => Ok(AppIoMode::Any),
+        1 => Ok(AppIoMode::Text),
+        2 => Ok(AppIoMode::Typed),
+        3 => Ok(AppIoMode::Direct),
+        _ => Err(Error::invalid_argument("invalid app I/O mode".into())),
+    }
+}
+
+pub fn decode_io_mode_string(value: &str) -> Result<AppIoMode, Error> {
+    match value {
+        "any" => Ok(AppIoMode::Any),
+        "text" => Ok(AppIoMode::Text),
+        "typed" => Ok(AppIoMode::Typed),
+        "direct" => Ok(AppIoMode::Direct),
+        _ => Err(Error::invalid_argument("invalid app I/O mode".into())),
+    }
+}
+
+fn decode_metadata_request(payload: &[u8]) -> Result<AppMetadataRequest, Error> {
+    let mut reader = PayloadReader::new(payload);
+    let app_name = reader.read_string(MAX_APP_NAME, "application name")?;
+
+    reader.finish()?;
+    Ok(AppMetadataRequest { app_name })
+}
+
+fn decode_execute_request(payload: &[u8]) -> Result<ExecuteRequest, Error> {
+    let mut reader = PayloadReader::new(payload);
+
+    let app_name = reader.read_string(MAX_APP_NAME, "application name")?;
+
+    let argument_count = reader.read_u32()? as usize;
+    if argument_count > MAX_ARGUMENTS {
+        return Err(Error::invalid_argument(
+            "too many application arguments".into(),
+        ));
+    }
+
+    let mut arguments = Vec::new();
+
+    for _ in 0..argument_count {
+        arguments.push(reader.read_string(MAX_ARGUMENT_LENGTH, "application argument")?);
+    }
+
+    reader.finish()?;
+    Ok(ExecuteRequest {
+        app_name,
+        arguments,
+    })
+}
+
+fn decode_metadata_response(payload: &[u8]) -> Result<AppMetadataResponse, Error> {
+    let mut reader = PayloadReader::new(payload);
+
+    let status = reader.read_u32()?;
+    let input = decode_io_mode(reader.read_u8()?)?;
+    let output = decode_io_mode(reader.read_u8()?)?;
+
+    // reserved response flags.
+    let _flags = reader.read_u16()?;
+
+    let app_id = reader.read_string(MAX_APP_NAME, "application ID")?;
+
+    let display_name = reader.read_string(MAX_APP_NAME, "application display name")?;
+
+    reader.finish()?;
+
+    Ok(AppMetadataResponse {
+        status,
+        input,
+        output,
+        app_id,
+        display_name,
+    })
+}
+
+fn decode_execute_response(payload: &[u8]) -> Result<ExecuteResponse, Error> {
+    let mut reader = PayloadReader::new(payload);
+
+    let status = reader.read_u32()?;
+    let message = reader.read_string(4096, "execution response message")?;
+
+    reader.finish()?;
+    Ok(ExecuteResponse { status, message })
+}
+
+pub fn recv_hesper_request(socket: &Socket) -> Result<HesperRequest, Error> {
+    let frame = socket.recv_frame()?;
+    let request_id = frame.header.reserved;
+
+    match frame.header.packet_type {
+        HESPER_APP_METADATA_REQUEST => {
+            let request = decode_metadata_request(&frame.payload)?;
+
+            Ok(HesperRequest::AppMetadata {
+                request_id,
+                request,
+            })
         }
 
-        let app_id = str::from_utf8(&payload[offset..offset + app_id_len])
-            .map_err(|_| Error::invalid_argument("invalid app id utf8".into()))?
-            .into();
+        HESPER_EXECUTE_REQUEST => {
+            let request = decode_execute_request(&frame.payload)?;
 
-        offset += app_id_len;
+            Ok(HesperRequest::Execute {
+                request_id,
+                request,
+            })
+        }
 
-        let display_name = str::from_utf8(&payload[offset..offset + display_name_len])
-            .map_err(|_| Error::invalid_argument("invalid display name utf8".into()))?
-            .into();
-
-        Ok(Self {
-            status: header.status,
-            input: decode_io_mode(header.input)?,
-            output: decode_io_mode(header.output)?,
-            app_id,
-            display_name,
-        })
+        _ => Err(Error::invalid_argument(
+            "unknown Hesper request type".into(),
+        )),
     }
+}
+
+pub fn recv_hesper_response(socket: &Socket) -> Result<HesperResponse, Error> {
+    let frame = socket.recv_frame()?;
+    let request_id = frame.header.reserved;
+
+    match frame.header.packet_type {
+        HESPER_APP_METADATA_RESPONSE => {
+            let response = decode_metadata_response(&frame.payload)?;
+
+            Ok(HesperResponse::AppMetadata {
+                request_id,
+                response,
+            })
+        }
+
+        HESPER_EXECUTE_RESPONSE => {
+            let response = decode_execute_response(&frame.payload)?;
+
+            Ok(HesperResponse::Execute {
+                request_id,
+                response,
+            })
+        }
+
+        _ => Err(Error::invalid_argument(
+            "unknown Hesper response type".into(),
+        )),
+    }
+}
+
+pub fn send_app_metadata_request(
+    socket: &Socket,
+    request_id: u32,
+    app_name: &str,
+) -> Result<(), Error> {
+    let mut payload = Vec::new();
+
+    write_string(&mut payload, app_name, MAX_APP_NAME, "application name")?;
+
+    socket.send_frame(HESPER_APP_METADATA_REQUEST, request_id, &payload)
+}
+
+pub fn send_execute_request(
+    socket: &Socket,
+    request_id: u32,
+    app_name: &str,
+    arguments: &[String],
+) -> Result<(), Error> {
+    if arguments.len() > MAX_ARGUMENTS {
+        return Err(Error::invalid_argument(
+            "too many application arguments".into(),
+        ));
+    }
+
+    let mut payload = Vec::new();
+
+    write_string(&mut payload, app_name, MAX_APP_NAME, "application name")?;
+
+    write_u32(
+        &mut payload,
+        u32::try_from(arguments.len())
+            .map_err(|_| Error::invalid_argument("too many application arguments".into()))?,
+    );
+
+    for argument in arguments {
+        write_string(
+            &mut payload,
+            argument,
+            MAX_ARGUMENT_LENGTH,
+            "application argument",
+        )?;
+    }
+
+    socket.send_frame(HESPER_EXECUTE_REQUEST, request_id, &payload)
 }
 
 pub fn send_app_metadata_response(
     socket: &Socket,
+    request_id: u32,
     status: u32,
     input: AppIoMode,
     output: AppIoMode,
     app_id: &str,
     display_name: &str,
 ) -> Result<(), Error> {
-    socket.send_packet(
-        HESPER_APP_METADATA_RESPONSE,
-        &AppMetadataResponse {
-            status,
-            input,
-            output,
-            app_id,
-            display_name,
-        },
-    )
+    let mut payload = Vec::new();
+
+    write_u32(&mut payload, status);
+    write_u8(&mut payload, input as u8);
+    write_u8(&mut payload, output as u8);
+    write_u16(&mut payload, 0);
+
+    write_string(&mut payload, app_id, MAX_APP_NAME, "application ID")?;
+
+    write_string(
+        &mut payload,
+        display_name,
+        MAX_APP_NAME,
+        "application display name",
+    )?;
+
+    socket.send_frame(HESPER_APP_METADATA_RESPONSE, request_id, &payload)
 }
 
-pub fn recv_app_metadata_response(socket: &Socket) -> Result<OwnedAppMetadataResponse, Error> {
-    let (header, response) = socket.recv_packet::<OwnedAppMetadataResponse>()?;
+pub fn send_execute_response(
+    socket: &Socket,
+    request_id: u32,
+    status: u32,
+    message: &str,
+) -> Result<(), Error> {
+    let mut payload = Vec::new();
 
-    if header.packet_type != HESPER_APP_METADATA_RESPONSE {
-        return Err(Error::invalid_argument("unexpected packet type".into()));
-    }
+    write_u32(&mut payload, status);
+    write_string(&mut payload, message, 4096, "execution response message")?;
 
-    Ok(response)
+    socket.send_frame(HESPER_EXECUTE_RESPONSE, request_id, &payload)
 }

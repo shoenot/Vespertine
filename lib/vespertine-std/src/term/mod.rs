@@ -51,8 +51,9 @@ pub fn get_term_cursor_position() -> Result<(usize, usize), Error> {
 
 pub fn clear_term_screen() -> Result<(), Error> {
     let sock = get_ctrl_sock()?;
-    sock.send_packet(PacketType::TermCommand as u32, &TermCommand::Clear)?;
-    Ok(())
+    let res = sock.send_packet(PacketType::TermCommand as u32, &TermCommand::Clear);
+    forget(sock);
+    res
 }
 
 pub fn set_raw_mode() -> Result<(), Error> {

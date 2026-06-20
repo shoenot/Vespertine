@@ -8,10 +8,8 @@ use alloc::vec::Vec;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
 use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_LAUNCHER_EXEC, CAP_LAUNCHER_GRANT};
-use vespertine_abi::{AccessRights, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp};
-use vespertine_rt::syscall::{
-    sys_invoke, sys_read, sys_set_read_policy, sys_write_bytes,
-};
+use vespertine_abi::{AccessRights, ProcessInitPackage};
+use vespertine_rt::syscall::{sys_read, sys_set_read_policy, sys_write_bytes};
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::clock::Time;
 use vespertine_std::log::SystemLog;
@@ -86,7 +84,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .sink(app_stdout.handle())
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
-        .grant(CAP_LAUNCHER_EXEC, AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE)?
+        .grant(
+            CAP_LAUNCHER_EXEC,
+            AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE,
+        )?
         .grant(CAP_LAUNCHER_GRANT, AccessRights::MUTATE)?
         .grant_new(
             app_ctrl.handle(),
