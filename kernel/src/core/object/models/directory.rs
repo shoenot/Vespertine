@@ -47,6 +47,8 @@ use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::memory::NORMAL_PAGE_SIZE;
 
+use crate::core::object::help::RightsWrapper;
+
 pub const FILENAME_LEN_MAX: usize = 254;
 
 #[derive(Debug)]
@@ -107,9 +109,21 @@ fn register_lookup_result(object: Arc<dyn KernelObject>) -> Result<usize, Invoca
 
 #[async_trait]
 impl KernelObject for Directory {
-    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::Directory(DirectoryOp::Link { .. }) => Err(InvocationError::UnsupportedOperation),
+            Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
+                calling_rights.err_if_no(AccessRights::CREATE)?;
+
+                let filename = Filename::new(name as *const u8, name_len)?;
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let object = {
+                    let handles = proc.proc_handles.read();
+                    handles.resolve(handle_id, AccessRights::READ)?
+                };
+
+                KernelDirectory::link_child(self, &filename.name, object).await?;
+                Ok(0)
+            },
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 KernelDirectory::unlink_child(self, &filename.name).await?;
@@ -167,9 +181,11 @@ impl KernelDirectory for Directory {
     async fn link_child(&self, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
         validate_child_name(name)?;
         let filename = Filename { name: Box::from(name) };
-        if self.tree.write().insert(filename, object).is_some() {
+        let mut tree = self.tree.write();
+        if tree.contains_key(&filename) {
             return Err(InvocationError::InvalidArgument);
         }
+        tree.insert(filename, object);
         Ok(())
     }
 

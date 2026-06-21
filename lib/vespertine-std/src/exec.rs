@@ -67,13 +67,21 @@ pub struct Process {
 }
 
 impl Process {
+    pub fn from_handle(handle: HandleID) -> Self {
+        Self { handle }
+    }
+
+    pub fn handle(&self) -> HandleID {
+        self.handle
+    }
+
     pub fn wait(&self) -> Result<ProcessExitInfo, Error> {
         sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
-
         let mut info = ProcessExitInfo::running();
-
-        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetExitInfo { info_ptr: &mut info as *mut _ as usize })).map_err(Error::from)?;
-
+        sys_invoke(
+            self.handle, 
+            &Invocation::Proc(ProcOp::GetExitInfo { info_ptr: &mut info as *mut _ as usize })
+        ).map_err(Error::from)?;
         Ok(info)
     }
 }

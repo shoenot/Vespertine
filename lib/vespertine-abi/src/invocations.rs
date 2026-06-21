@@ -70,6 +70,7 @@ impl Invocation {
             Invocation::Socket(SocketOp::SetReadPolicy { .. }) => AccessRights::WRITE,
             Invocation::Wait(..) => AccessRights::READ,
             Invocation::Portal(PortalOp::Create { .. }) => AccessRights::CREATE,
+            Invocation::Portal(..) => AccessRights::WRITE,
             Invocation::Broker(BrokerOp::Request { .. }) => AccessRights::READ,
         }
     }

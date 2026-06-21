@@ -17,6 +17,7 @@ use vespertine_abi::{
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::handle::HandleTable;
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::mempool::MemPool;
 use crate::core::object::models::process::ProcessControlBlock;
@@ -57,10 +58,7 @@ impl KernelObject for ProcessManager {
                 args_buffer_ptr,
                 args_buffer_len,
             }) => {
-                if !calling_rights.contains(AccessRights::CREATE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::CREATE)?;
                 let parent_proc = get_current_process().ok_or(InvocationError::OutOfMemory)?;
                 let new_proc_root = parent_proc.proc_handles.read().resolve(root_handle, root_rights)?;
                 let new_proc_cwd = parent_proc.proc_handles.read().resolve(cwd_handle, cwd_rights)?;

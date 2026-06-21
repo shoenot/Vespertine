@@ -12,6 +12,7 @@ use vespertine_abi::{
     Invocation,
 };
 
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
@@ -96,10 +97,7 @@ impl KernelObject for MemPool {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::MemPool(MemPoolOp::AllocateVmo { size }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.state.try_allocate(size)?;
 
                 let vmo_arc = Vmo::new(size);
@@ -111,10 +109,7 @@ impl KernelObject for MemPool {
                 Ok(handle.0)
             }
             Invocation::MemPool(MemPoolOp::CreateSubPool { limit }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 let sub_pool = Arc::new(MemPool::new(Some(limit), Some(self.state.clone())));
 
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
@@ -123,10 +118,7 @@ impl KernelObject for MemPool {
                 Ok(handle.0)
             }
             Invocation::MemPool(MemPoolOp::RequestExpansion { additional_bytes }) => {
-                if !calling_rights.contains(AccessRights::MUTATE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::MUTATE)?;
                 self.state.request_expansion(additional_bytes)
             }
             _ => Err(InvocationError::UnsupportedOperation),

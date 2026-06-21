@@ -13,5 +13,5 @@ pub mod procman;
 pub mod socket;
 pub mod thread;
 pub mod portal;
-pub mod userobj;
 pub mod vmo;
+

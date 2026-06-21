@@ -43,6 +43,7 @@ use crate::core::asynchronous::waiter::{
     wake_all,
 };
 use crate::core::object::handle::HandleTable;
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::thread::Thread;
 use crate::core::object::obj::{
@@ -257,9 +258,7 @@ impl KernelObject for ProcessControlBlock {
                 Ok(0)
             }
             Invocation::Proc(ProcOp::InsertHandle { source_handle, rights }) => {
-                if !calling_rights.contains(AccessRights::MUTATE) {
-                    return Err(InvocationError::AccessDenied);
-                }
+                calling_rights.err_if_no(AccessRights::MUTATE)?;
                 let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let obj = caller.proc_handles.read().resolve(source_handle, rights)?;
                 let new_handle_id = self.proc_handles.write().insert(obj, rights);

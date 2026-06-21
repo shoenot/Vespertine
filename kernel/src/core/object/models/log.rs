@@ -8,6 +8,7 @@ use vespertine_abi::{
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::klogln;
@@ -22,10 +23,7 @@ impl KernelObject for Log {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Write { offset: _, buffer_ptr, len }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 if len > 1024 {
                     return Err(InvocationError::BufferFull);
                 }

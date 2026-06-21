@@ -3,24 +3,15 @@ use alloc::string::{
     String,
     ToString,
 };
-use core::sync::atomic::{
-    AtomicU32,
-    Ordering,
-};
 
 use vespertine_abi::app::hesper::{HESPER_STATUS_INVALID_REQUEST, HESPER_STATUS_NOT_FOUND, HESPER_STATUS_OK};
-use vespertine_abi::tag::CAP_LAUNCHER_EXEC;
 use vespertine_rt::{
     print,
     println,
 };
 use vespertine_std::hesper::{
-    AppMetadataResponse,
-    HesperResponse,
-    recv_hesper_response,
-    send_app_metadata_request,
+    AppMetadataResponse, Launcher, 
 };
-use vespertine_std::socket::Socket;
 use vespertine_std::{
     Error,
     term,
@@ -39,10 +30,6 @@ use crate::sys::{
     launch_base,
     launch_command,
 };
-
-static NEXT_HESPER_REQUEST: AtomicU32 = AtomicU32::new(1);
-
-fn next_hesper_request_id() -> u32 { NEXT_HESPER_REQUEST.fetch_add(1, Ordering::Relaxed) }
 
 pub struct ShellRuntime {
     pub context: ShellContext,
@@ -102,31 +89,20 @@ impl ShellRuntime {
 }
 
 pub fn get_app_metadata(name: &str) -> Result<AppMetadataResponse, Error> {
-    let capability =
-        vespertine_std::env::capability(CAP_LAUNCHER_EXEC).ok_or_else(|| Error::access_denied("launcher capability not found".into()))?;
+    let mut launcher = Launcher::connect()?;
+    let response = launcher.metadata(name)?;
 
-    let socket = Socket::borrow_handle(capability.id);
-    let request_id = next_hesper_request_id();
-
-    send_app_metadata_request(&socket, request_id, name)?;
-
-    match recv_hesper_response(&socket)? {
-        HesperResponse::AppMetadata { request_id: response_id, response } => {
-            if response_id != request_id {
-                return Err(Error::invalid_argument("Hesper response ID mismatch".into()));
-            }
-            if response.status != HESPER_STATUS_OK {
-                return Err(match response.status {
-                    HESPER_STATUS_NOT_FOUND => Error::not_found("application was not found".into()),
-                    HESPER_STATUS_INVALID_REQUEST => Error::invalid_argument("application manifest is invalid".into()),
-                    _ => Error::unknown("Hesper returned an unknown status".into()),
-                });
-            }
-            Ok(response)
-        }
-        HesperResponse::Execute { .. } => {
-            println!("received execute response");
-            Err(Error::unknown("placeholder".into()))
-        }
+    if response.status != HESPER_STATUS_OK {
+        return Err(match response.status {
+            HESPER_STATUS_NOT_FOUND => {
+                Error::not_found("application was not found".into())
+            },
+            HESPER_STATUS_INVALID_REQUEST => {
+                Error::invalid_argument("application manifest is invalid".into())
+            },
+            _ => Error::unknown("Hesper returned an unknown status".into()),
+        });
     }
+
+    Ok(response)
 }

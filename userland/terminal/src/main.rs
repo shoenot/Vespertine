@@ -8,11 +8,7 @@ use alloc::vec::Vec;
 
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::{
-    CAP_APP_TERMCTRL,
-    CAP_LAUNCHER_EXEC,
-    CAP_LAUNCHER_GRANT,
-};
+use vespertine_abi::tag::CAP_APP_TERMCTRL;
 use vespertine_abi::{
     AccessRights,
     ProcessInitPackage,
@@ -99,8 +95,6 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .sink(app_stdout.handle())
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
-        .grant(CAP_LAUNCHER_EXEC, AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE)?
-        .grant(CAP_LAUNCHER_GRANT, AccessRights::MUTATE)?
         .grant_new(app_ctrl.handle(), CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE)?
         .inherit_capabilities()
         .spawn()?;

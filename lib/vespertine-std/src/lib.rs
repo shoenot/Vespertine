@@ -19,3 +19,4 @@ pub mod log;
 pub mod proc;
 pub mod term;
 pub mod typed;
+pub mod portal;

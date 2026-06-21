@@ -28,6 +28,7 @@ use vespertine_abi::{
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::{
     Filename,
@@ -77,16 +78,25 @@ impl KernelObject for MountDirectory {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let handle = proc.proc_handles.write().insert(object, AccessRights::all());
                 Ok(handle.0)
-            }
+            },
+            Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
+                calling_rights.err_if_no(AccessRights::CREATE)?;
 
-            Invocation::Directory(DirectoryOp::Link { .. }) => Err(InvocationError::UnsupportedOperation),
+                let filename = Filename::new(name as *const u8, name_len)?;
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let object = {
+                    let handles = proc.proc_handles.read();
+                    handles.resolve(handle_id, AccessRights::READ)?
+                };
 
+                KernelDirectory::link_child(self, &filename.name, object).await?;
+                Ok(0)
+            },
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 KernelDirectory::unlink_child(self, &filename.name).await?;
                 Ok(0)
-            }
-
+            },
             Invocation::File(FileOp::Stat { stat_ptr }) => {
                 let underlying = self.underlying.read().clone();
                 match underlying.invoke(Invocation::File(FileOp::Stat { stat_ptr }), calling_rights).await {
@@ -118,8 +128,7 @@ impl KernelObject for MountDirectory {
                     }
                     Err(e) => Err(e),
                 }
-            }
-
+            },
             Invocation::Directory(DirectoryOp::List { offset, sink }) => {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let sink_obj = proc.proc_handles.read().resolve(sink, AccessRights::WRITE)?;
@@ -179,8 +188,7 @@ impl KernelObject for MountDirectory {
                 let _ = underlying.invoke(Invocation::Directory(DirectoryOp::List { offset, sink }), calling_rights).await;
 
                 Ok(0)
-            }
-
+            },
             Invocation::Directory(DirectoryOp::CreateFile { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
@@ -188,8 +196,7 @@ impl KernelObject for MountDirectory {
                 let rights = allowed_rights(&object)?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 Ok(proc.proc_handles.write().insert(object, rights).0)
-            }
-
+            },
             Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
@@ -197,8 +204,7 @@ impl KernelObject for MountDirectory {
                 let rights = allowed_rights(&object)?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 Ok(proc.proc_handles.write().insert(object, rights).0)
-            }
-
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -230,9 +236,11 @@ impl KernelDirectory for MountDirectory {
     async fn link_child(&self, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
         validate_child_name(name)?;
         let filename = Filename { name: Box::from(name) };
-        if self.overlays.write().insert(filename, object).is_some() {
+        let mut overlays = self.overlays.write();
+        if overlays.contains_key(&filename) {
             return Err(InvocationError::InvalidArgument);
         }
+        overlays.insert(filename, object);
         Ok(())
     }
 

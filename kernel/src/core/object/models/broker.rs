@@ -10,6 +10,7 @@ use vespertine_abi::{
     Invocation,
 };
 
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::core::thread::get_current_process;
@@ -38,10 +39,7 @@ impl KernelObject for Broker {
     fn type_name(&self) -> &'static str { "Broker" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
-        if !calling_rights.contains(AccessRights::READ) {
-            return Err(InvocationError::AccessDenied);
-        }
-
+        calling_rights.err_if_no(AccessRights::READ)?;
         let Invocation::Broker(BrokerOp::Request { capability, requested_rights }) = invocation else {
             return Err(InvocationError::UnsupportedOperation);
         };

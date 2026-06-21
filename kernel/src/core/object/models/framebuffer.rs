@@ -11,6 +11,7 @@ use vespertine_abi::{
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
@@ -31,10 +32,7 @@ impl KernelObject for FramebufferDevice {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
-                if !calling_rights.contains(AccessRights::READ) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::READ)?;
                 let mut current_offset = offset;
                 let use_cursor = offset == usize::MAX;
                 if use_cursor {

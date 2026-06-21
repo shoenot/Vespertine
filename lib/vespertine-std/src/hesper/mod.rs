@@ -1,14 +1,21 @@
 extern crate alloc;
 
+use alloc::format;
+
 use alloc::string::{
     String,
     ToString,
 };
 use alloc::vec::Vec;
 
+use vespertine_abi::{AccessRights, HandleID};
 use vespertine_abi::app::hesper::*;
+use vespertine_abi::tag::CAP_LAUNCHER_CONNECT;
 
-use crate::Error;
+use crate::{Error, Process};
+use crate::broker::Broker;
+use crate::fs::{Path, resolve};
+use crate::portal::{PortalOfferId, accept_handle, offer_handle, revoke_offer};
 use crate::socket::Socket;
 
 const MAX_APP_NAME: usize = 256;
@@ -33,11 +40,16 @@ pub struct AppMetadataResponse {
 pub struct ExecuteRequest {
     pub app_name: String,
     pub arguments: Vec<String>,
+    
+    pub source_offer: PortalOfferId,
+    pub sink_offer: PortalOfferId,
+    pub cwd_offer: PortalOfferId,
 }
 
 #[derive(Debug)]
 pub struct ExecuteResponse {
     pub status: u32,
+    pub process_offer: Option<PortalOfferId>,
     pub message: String,
 }
 
@@ -83,6 +95,25 @@ impl<'a> PayloadReader<'a> {
     fn read_u32(&mut self) -> Result<u32, Error> {
         let bytes = self.take(4)?;
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+
+
+    fn read_u64(&mut self) -> Result<u64, Error> {
+        let bytes = self.take(8)?;
+        Ok(u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ]))
+    }
+    
+    fn read_offer_id(&mut self, description: &str) -> Result<PortalOfferId, Error> {
+        let raw = self.read_u64()?;
+        if raw == 0 {
+            return Err(Error::invalid_argument(format!("{} is missing", description)));
+        }
+        usize::try_from(raw).map_err(|_| {
+            Error::invalid_argument(format!("{} is out of range", description))
+        })
     }
 
     fn read_string(&mut self, maximum: usize, description: &str) -> Result<String, Error> {
@@ -144,11 +175,14 @@ fn decode_execute_request(reader: &mut PayloadReader<'_>) -> Result<ExecuteReque
     if argument_count > MAX_ARGUMENTS {
         return Err(Error::invalid_argument("too many application arguments".into()));
     }
-    let mut arguments = Vec::new();
+    let mut arguments = Vec::with_capacity(argument_count);
     for _ in 0..argument_count {
         arguments.push(reader.read_string(MAX_ARGUMENT_LENGTH, "application argument")?);
     }
-    Ok(ExecuteRequest { app_name, arguments })
+    let source_offer = reader.read_offer_id("source offer")?;
+    let sink_offer = reader.read_offer_id("sink offer")?;
+    let cwd_offer = reader.read_offer_id("cwd offer")?;
+    Ok(ExecuteRequest { app_name, arguments, source_offer, sink_offer, cwd_offer })
 }
 
 fn decode_metadata_response(reader: &mut PayloadReader<'_>) -> Result<AppMetadataResponse, Error> {
@@ -163,8 +197,15 @@ fn decode_metadata_response(reader: &mut PayloadReader<'_>) -> Result<AppMetadat
 
 fn decode_execute_response(reader: &mut PayloadReader<'_>) -> Result<ExecuteResponse, Error> {
     let status = reader.read_u32()?;
+    let raw_offer = reader.read_u64()?;
+    let process_offer = if raw_offer == 0 {
+        None 
+    } else {
+        Some(usize::try_from(raw_offer)
+            .map_err(|_| Error::invalid_argument("process offer is out of range".into()))?)
+    };
     let message = reader.read_string(4096, "execution response message")?;
-    Ok(ExecuteResponse { status, message })
+    Ok(ExecuteResponse { status, process_offer, message })
 }
 
 pub fn recv_hesper_request(socket: &Socket) -> Result<HesperRequest, Error> {
@@ -197,13 +238,13 @@ pub fn recv_hesper_response(socket: &Socket) -> Result<HesperResponse, Error> {
     match frame.header.packet_type {
         HESPER_APP_METADATA_RESPONSE => {
             let response = decode_metadata_response(&mut reader)?;
-
+            reader.finish()?;
             Ok(HesperResponse::AppMetadata { request_id, response })
         }
 
         HESPER_EXECUTE_RESPONSE => {
             let response = decode_execute_response(&mut reader)?;
-
+            reader.finish()?;
             Ok(HesperResponse::Execute { request_id, response })
         }
 
@@ -218,6 +259,18 @@ fn write_u8(output: &mut Vec<u8>, value: u8) { output.push(value); }
 fn write_u16(output: &mut Vec<u8>, value: u16) { output.extend_from_slice(&value.to_le_bytes()); }
 
 fn write_u32(output: &mut Vec<u8>, value: u32) { output.extend_from_slice(&value.to_le_bytes()); }
+
+fn write_u64(output: &mut Vec<u8>, value: u64) { output.extend_from_slice(&value.to_le_bytes()); }
+
+fn write_offer_id(output: &mut Vec<u8>, offer_id: PortalOfferId, description: &str) -> Result<(), Error> {
+    if offer_id == 0 {
+        return Err(Error::invalid_argument(format!("{} is missing", description)));
+    }
+    let raw = u64::try_from(offer_id)
+        .map_err(|_| Error::invalid_argument(format!("{} is out of range", description)))?;
+    write_u64(output, raw);
+    Ok(())
+}
 
 fn write_string(output: &mut Vec<u8>, value: &str, maximum: usize, description: &str) -> Result<(), Error> {
     if value.len() > maximum {
@@ -244,17 +297,23 @@ pub fn send_app_metadata_request(socket: &Socket, request_id: u32, app_name: &st
     socket.send_frame(HESPER_APP_METADATA_REQUEST, &payload)
 }
 
-pub fn send_execute_request(socket: &Socket, request_id: u32, app_name: &str, arguments: &[String]) -> Result<(), Error> {
+pub fn send_execute_request(
+    socket: &Socket, request_id: u32, app_name: &str, arguments: &[String],
+    source_offer: PortalOfferId, sink_offer: PortalOfferId, cwd_offer: PortalOfferId,
+) -> Result<(), Error> {
     if arguments.len() > MAX_ARGUMENTS {
         return Err(Error::invalid_argument("too many application arguments".into()));
     }
     let mut payload = Vec::new();
     write_hesper_header(&mut payload, request_id);
     write_string(&mut payload, app_name, MAX_APP_NAME, "application name")?;
-    write_u32(&mut payload, u32::try_from(arguments.len()).map_err(|_| Error::invalid_argument("too many application arguments".into()))?);
-    for argument in arguments {
-        write_string(&mut payload, argument, MAX_ARGUMENT_LENGTH, "application argument")?;
-    }
+    write_u32(&mut payload, u32::try_from(arguments.len())
+        .map_err(|_| Error::invalid_argument( "too many application arguments" .into()))?);
+
+    for argument in arguments { write_string(&mut payload, argument, MAX_ARGUMENT_LENGTH, "application argument")?; }
+    write_offer_id(&mut payload, source_offer, "source offer")?;
+    write_offer_id(&mut payload, sink_offer, "sink offer")?;
+    write_offer_id(&mut payload, cwd_offer, "cwd offer")?;
     socket.send_frame(HESPER_EXECUTE_REQUEST, &payload)
 }
 
@@ -272,10 +331,143 @@ pub fn send_app_metadata_response(
     socket.send_frame(HESPER_APP_METADATA_RESPONSE, &payload)
 }
 
-pub fn send_execute_response(socket: &Socket, request_id: u32, status: u32, message: &str) -> Result<(), Error> {
+pub fn send_execute_response(socket: &Socket, request_id: u32, status: u32, process_offer: Option<PortalOfferId>, message: &str) -> Result<(), Error> {
     let mut payload = Vec::new();
     write_hesper_header(&mut payload, request_id);
     write_u32(&mut payload, status);
+    match process_offer {
+        Some(offer_id) => write_offer_id(&mut payload, offer_id, "process offer")?,
+        None => write_u64(&mut payload, 0),
+    }
     write_string(&mut payload, message, 4096, "execution response message")?;
     socket.send_frame(HESPER_EXECUTE_RESPONSE, &payload)
+}
+
+pub struct Launcher {
+    socket: Socket,
+    next_id: u32,
+}
+
+impl Launcher {
+    pub fn connect() -> Result<Self, Error> {
+        let portal_handle = resolve(&Path::new("/System/Services/Launcher"), AccessRights::READ)?;
+        let portal = Broker::from_handle(portal_handle);
+        let socket_handle = portal.request(
+            CAP_LAUNCHER_CONNECT,
+            AccessRights::READ | AccessRights::WRITE,
+        )?;
+
+        Ok(Self {
+            socket: Socket::from_handle(socket_handle),
+            next_id: 1,
+        })
+    }
+
+    fn next_id(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
+
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        id
+    }
+
+    pub fn metadata(&mut self, app_name: &str) -> Result<AppMetadataResponse, Error> {
+        let request_id = self.next_id();
+
+        send_app_metadata_request(&self.socket, request_id, app_name)?;
+
+        match recv_hesper_response(&self.socket)? {
+            HesperResponse::AppMetadata { request_id: response_id, response } => {
+                if response_id != request_id {
+                    return Err(Error::invalid_argument(
+                        "Hesper response ID mismatch".into(),
+                    ));
+                }
+                Ok(response)
+            }
+
+            HesperResponse::Execute { .. } => {
+                Err(Error::invalid_argument(
+                    "Hesper returned the wrong response type".into(),
+                ))
+            }
+        }
+    }
+
+    pub fn execute(&mut self, app_name: &str, arguments: &[String], source_offer: PortalOfferId, sink_offer: PortalOfferId, cwd_offer: PortalOfferId) -> Result<ExecuteResponse, Error> {
+        let request_id = self.next_id();
+    
+        send_execute_request(
+            &self.socket, request_id, app_name, arguments,
+            source_offer, sink_offer, cwd_offer,
+        )?;
+    
+        match recv_hesper_response(&self.socket)? {
+            HesperResponse::Execute { request_id: response_id, response } => {
+                if response_id != request_id {
+                    return Err(Error::invalid_argument("Hesper response ID mismatch".into()));
+                }
+                Ok(response)
+            },
+            HesperResponse::AppMetadata { .. } => {
+                Err(Error::invalid_argument("Hesper returned the wrong response type".into()))
+            },
+        }
+    }
+
+    pub fn offer(&self, handle: HandleID, max_rights: AccessRights) -> Result<PortalOfferId, Error> {
+        offer_handle(self.socket.handle(), handle, max_rights)
+    }
+    
+    pub fn accept(&self, offer_id: PortalOfferId, requested_rights: AccessRights) -> Result<HandleID, Error> {
+        accept_handle(self.socket.handle(), offer_id, requested_rights)
+    }
+    
+    pub fn revoke(&self, offer_id: PortalOfferId) -> Result<(), Error> {
+        revoke_offer(self.socket.handle(), offer_id)
+    }
+
+
+    pub fn launch(&mut self, app_name: &str, arguments: &[String], source: HandleID, sink: HandleID, cwd: HandleID) -> Result<Process, Error> {
+        let source_offer = self.offer(source, AccessRights::READ)?;
+        let sink_offer = match self.offer(sink, AccessRights::WRITE) {
+            Ok(offer) => offer,
+            Err(error) => {
+                let _ = self.revoke(source_offer);
+                return Err(error);
+            },
+        };
+        let cwd_offer = match self.offer(cwd, AccessRights::TRAVERSE) {
+            Ok(offer) => offer,
+            Err(error) => {
+                let _ = self.revoke(source_offer);
+                let _ = self.revoke(sink_offer);
+                return Err(error);
+            },
+        };
+        let response_result = self.execute(app_name, arguments, source_offer, sink_offer, cwd_offer);
+    
+        // if transmission or decoding failed, this revokes anything still pending.
+        let _ = self.revoke(source_offer);
+        let _ = self.revoke(sink_offer);
+        let _ = self.revoke(cwd_offer);
+    
+        let response = response_result?;
+    
+        if response.status != HESPER_STATUS_OK {
+            return Err(match response.status {
+                HESPER_STATUS_NOT_FOUND => Error::not_found( "application was not found".into()),
+                HESPER_STATUS_INVALID_REQUEST => Error::invalid_argument(response.message),
+                HESPER_STATUS_LAUNCH_FAILED => Error::unknown(response.message),
+                _ => Error::unknown("Hesper returned an unknown status".into()),
+            });
+        }
+    
+        let process_offer = response.process_offer
+            .ok_or_else(|| Error::invalid_argument("successful launch response omitted the process capability".into()))?;
+        let process_handle = self.accept(process_offer, AccessRights::READ)?;
+        Ok(Process::from_handle(process_handle))
+    }
 }

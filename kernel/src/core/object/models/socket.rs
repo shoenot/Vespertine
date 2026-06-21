@@ -41,6 +41,7 @@ use crate::core::asynchronous::waiter::{
     WaiterList,
     wake_all,
 };
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::{
     KernelObject,
@@ -379,9 +380,7 @@ impl KernelObject for SocketEndpoint {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { buffer_ptr, len, .. }) => {
-                if !calling_rights.contains(AccessRights::READ) {
-                    return Err(InvocationError::AccessDenied);
-                }
+                calling_rights.err_if_no(AccessRights::READ)?;
                 if len == 0 {
                     return Ok(0);
                 }
@@ -390,27 +389,21 @@ impl KernelObject for SocketEndpoint {
                 SocketReadFuture::new(self, buffer_ptr, len, requested_min, timeout_ds).await
             }
             Invocation::File(FileOp::Write { buffer_ptr, len, .. }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                }
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 if len == 0 {
                     return Ok(0);
                 }
                 SocketWriteFuture::new(self, buffer_ptr, len).await
             }
             Invocation::Socket(SocketOp::SetNB { nb }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                }
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.is_nb.store(nb, Ordering::Release);
                 self.read_bus.notify_readers();
                 self.write_bus.notify_writers();
                 Ok(0)
             }
             Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds }) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                }
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.write_bus.read_min.store(min, Ordering::Release);
                 self.write_bus.read_timeout_ds.store(timeout_ds, Ordering::Release);
                 self.write_bus.notify_readers();
@@ -483,7 +476,58 @@ impl SocketEndpoint {
         }
         signals
     }
+
+    pub(crate) async fn write_all_internal(&self, data: &[u8]) -> Result<(), InvocationError> {
+        let mut written = 0;
+        while written < data.len() {
+            let count = InternalSocketWrite {
+                endpoint: self,
+                data: &data[written..],
+                waiter: AsyncWaiter::new(),
+            }.await?;
+
+            if count == 0 {
+                return Err(InvocationError::UnsupportedOperation);
+            }
+
+            written += count;
+        }
+        Ok(())
+    }
 }
+
+pub struct InternalSocketWrite<'a> {
+    endpoint: &'a SocketEndpoint,
+    data: &'a [u8],
+    waiter: Arc<AsyncWaiter>,
+}
+
+impl Drop for InternalSocketWrite<'_> {
+    fn drop(&mut self) { self.waiter.deactivate(); }
+}
+
+impl Future for InternalSocketWrite<'_> {
+    type Output = Result<usize, InvocationError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        if this.endpoint.write_bus.is_closed.load(Ordering::Acquire) {
+            return Poll::Ready(Err(InvocationError::UnsupportedOperation));
+        }
+
+        let mut inner = this.endpoint.write_bus.inner.lock();
+        if inner.buffer.is_full() {
+            inner.write_waiters.register(&this.waiter, cx.waker());
+            return Poll::Pending;
+        }
+
+        let count = inner.buffer.push_slice(this.data);
+        drop(inner);
+        this.endpoint.write_bus.notify_readable();
+        Poll::Ready(Ok(count))
+    }
+}
+
 
 #[derive(Debug)]
 pub struct SocketFactory {}
@@ -495,9 +539,7 @@ impl KernelObject for SocketFactory {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Socket(SocketOp::Create { .. }) => {
-                if !calling_rights.contains(AccessRights::CREATE) {
-                    return Err(InvocationError::AccessDenied);
-                }
+                calling_rights.err_if_no(AccessRights::CREATE)?;
                 let (ep1, ep2) = SocketEndpoint::new_pair();
                 let current_proc = crate::core::thread::get_current_process().ok_or(InvocationError::OutOfMemory)?;
 

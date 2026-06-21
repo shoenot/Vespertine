@@ -131,5 +131,14 @@ pub enum PortalOp {
     Create {
         capability: CapabilityID,
         max_rights: AccessRights,
-    }
+    },
+    Offer {
+        handle: HandleID,
+        max_rights: AccessRights,
+    },
+    Accept {
+        offer_id: usize,
+        requested_rights: AccessRights,
+    },
+    Revoke { offer_id: usize },
 }

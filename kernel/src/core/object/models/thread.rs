@@ -10,6 +10,7 @@ use vespertine_abi::{
 use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::core::cpu::get_core_data_for;
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::core::thread::schedule::{
@@ -34,9 +35,7 @@ impl KernelObject for Thread {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Thread(ThreadOp::Kill) => {
-                if !calling_rights.contains(AccessRights::WRITE) {
-                    return Err(InvocationError::AccessDenied);
-                };
+                calling_rights.err_if_no(AccessRights::WRITE)?;
                 unsafe {
                     (*self.tcb).set_state(ThreadState::Terminated);
                     GRAVEYARD.lock().push(self.tcb);
@@ -53,9 +52,7 @@ impl KernelObject for Thread {
             }
             Invocation::Thread(ThreadOp::Join) => Err(InvocationError::UnsupportedOperation),
             Invocation::Thread(ThreadOp::GetID) => {
-                if !calling_rights.contains(AccessRights::READ) {
-                    return Err(InvocationError::AccessDenied);
-                };
+                calling_rights.err_if_no(AccessRights::READ)?;
                 let id = unsafe { (*self.tcb).thread_id };
                 Ok(id)
             }

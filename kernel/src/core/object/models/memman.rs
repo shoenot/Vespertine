@@ -8,6 +8,7 @@ use vespertine_abi::{
     Invocation,
 };
 
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::mempool::MemPool;
 use crate::core::object::obj::KernelObject;
@@ -23,10 +24,7 @@ impl KernelObject for MemoryManager {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::MemoryManager(MemManOp::CreatePool { limit }) => {
-                if !calling_rights.contains(AccessRights::CREATE) {
-                    return Err(InvocationError::AccessDenied);
-                }
-
+                calling_rights.err_if_no(AccessRights::CREATE)?;
                 // 0 = unlimited
                 let pool_limit = if limit == 0 { None } else { Some(limit) };
                 let pool = Arc::new(MemPool::new(pool_limit, None));
