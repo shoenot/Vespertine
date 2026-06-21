@@ -51,10 +51,7 @@ impl From<SysError> for Error {
             SysError::NotMapped => ErrorKind::NotMapped,
             _ => ErrorKind::Unknown,
         };
-        Error {
-            kind,
-            message: "".into(),
-        }
+        Error { kind, message: "".into() }
     }
 }
 
@@ -66,23 +63,16 @@ impl From<PathError> for Error {
             PathError::NoFileName => ErrorKind::InvalidArgument,
             PathError::NameTooLong => ErrorKind::NameTooLong,
         };
-        Error {
-            kind,
-            message: "".into(),
-        }
+        Error { kind, message: "".into() }
     }
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.message)
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { write!(f, "{}", self.message) }
 }
 
 impl Error {
-    pub fn new(kind: ErrorKind, message: String) -> Self {
-        Self { kind, message }
-    }
+    pub fn new(kind: ErrorKind, message: String) -> Self { Self { kind, message } }
 }
 
 macro_rules! error_constructors {

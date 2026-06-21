@@ -1,10 +1,17 @@
-use core::{
-    cell::UnsafeCell,
-    ops::{Deref, DerefMut},
-    sync::atomic::{AtomicU32, Ordering},
+use core::cell::UnsafeCell;
+use core::ops::{
+    Deref,
+    DerefMut,
+};
+use core::sync::atomic::{
+    AtomicU32,
+    Ordering,
 };
 
-use crate::syscall::{sys_futex_wait, sys_futex_wake};
+use crate::syscall::{
+    sys_futex_wait,
+    sys_futex_wake,
+};
 
 // 0 - unlocked
 // 1 - locked (no waiters)
@@ -23,20 +30,11 @@ pub struct MutexGuard<'a, T> {
 }
 
 impl<T> Mutex<T> {
-    pub const fn new(val: T) -> Self {
-        Self {
-            locked: AtomicU32::new(0),
-            data: UnsafeCell::new(val),
-        }
-    }
+    pub const fn new(val: T) -> Self { Self { locked: AtomicU32::new(0), data: UnsafeCell::new(val) } }
 
     pub fn lock(&self) -> MutexGuard<'_, T> {
         // fast path = if 0 change to 1
-        while self
-            .locked
-            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
-        {
+        while self.locked.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             return MutexGuard { lock: self };
         }
 
@@ -62,15 +60,11 @@ impl<T> Mutex<T> {
 
 impl<T> Deref for MutexGuard<'_, T> {
     type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { &*self.lock.data.get() }
-    }
+    fn deref(&self) -> &T { unsafe { &*self.lock.data.get() } }
 }
 
 impl<T> DerefMut for MutexGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.lock.data.get() }
-    }
+    fn deref_mut(&mut self) -> &mut T { unsafe { &mut *self.lock.data.get() } }
 }
 
 impl<T> Drop for MutexGuard<'_, T> {

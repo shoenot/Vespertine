@@ -17,9 +17,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
-    pub const fn as_u16(self) -> u16 {
-        self as u16
-    }
+    pub const fn as_u16(self) -> u16 { self as u16 }
 
     pub fn from_u16(value: u16) -> Option<Self> {
         match value {

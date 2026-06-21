@@ -1,10 +1,15 @@
 extern crate alloc;
+use alloc::string::{
+    String,
+    ToString,
+};
+use alloc::vec::Vec;
 use core::fmt::Display;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-
-use vespertine_common::path::{Component, Components};
+use vespertine_common::path::{
+    Component,
+    Components,
+};
 
 pub const PATH_MAX: usize = 4096;
 
@@ -38,21 +43,13 @@ pub struct PathBuf {
 }
 
 impl<'a> Path<'a> {
-    pub fn new(raw: &'a str) -> Self {
-        Self { raw }
-    }
+    pub fn new(raw: &'a str) -> Self { Self { raw } }
 
-    pub fn as_str(&self) -> &'a str {
-        self.raw
-    }
+    pub fn as_str(&self) -> &'a str { self.raw }
 
-    pub fn components(&self) -> Components<'a> {
-        Components::new(self.raw)
-    }
+    pub fn components(&self) -> Components<'a> { Components::new(self.raw) }
 
-    pub fn is_absolute(&self) -> bool {
-        matches!(self.components().next(), Some(Component::Root))
-    }
+    pub fn is_absolute(&self) -> bool { matches!(self.components().next(), Some(Component::Root)) }
 
     pub fn parent(&self) -> Option<PathBuf> {
         let norm = self.normalize_lexical();
@@ -75,19 +72,11 @@ impl<'a> Path<'a> {
         last
     }
 
-    pub fn to_path_buf(&self) -> PathBuf {
-        PathBuf {
-            inner: self.raw.to_string(),
-        }
-    }
+    pub fn to_path_buf(&self) -> PathBuf { PathBuf { inner: self.raw.to_string() } }
 
-    pub fn normalize_lexical(&self) -> PathBuf {
-        PathBuf::normalize_lexical(self)
-    }
+    pub fn normalize_lexical(&self) -> PathBuf { PathBuf::normalize_lexical(self) }
 
-    pub fn join(&self, child: &Path<'_>) -> PathBuf {
-        self.to_path_buf().join(child)
-    }
+    pub fn join(&self, child: &Path<'_>) -> PathBuf { self.to_path_buf().join(child) }
 
     pub fn validate(&self) -> Result<(), PathError> {
         if self.raw.is_empty() {
@@ -114,10 +103,7 @@ impl<'a> Path<'a> {
             return false;
         }
 
-        self_parts
-            .iter()
-            .zip(base_parts.iter())
-            .all(|(a, b)| a == b)
+        self_parts.iter().zip(base_parts.iter()).all(|(a, b)| a == b)
     }
 
     pub fn strip_prefix(&self, base: &Path<'_>) -> Option<PathBuf> {
@@ -132,11 +118,7 @@ impl<'a> Path<'a> {
             return None;
         }
 
-        if !self_parts
-            .iter()
-            .zip(base_parts.iter())
-            .all(|(a, b)| a == b)
-        {
+        if !self_parts.iter().zip(base_parts.iter()).all(|(a, b)| a == b) {
             return None;
         }
 
@@ -151,85 +133,43 @@ impl<'a> Path<'a> {
 }
 
 impl<'a> AsRef<Path<'a>> for Path<'a> {
-    fn as_ref(&self) -> &Path<'a> {
-        self
-    }
+    fn as_ref(&self) -> &Path<'a> { self }
 }
 
 impl Display for Path<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_str())
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { f.write_str(self.as_str()) }
 }
 
 impl PathBuf {
-    pub fn new() -> Self {
-        Self::current()
-    }
+    pub fn new() -> Self { Self::current() }
 
-    pub fn empty() -> Self {
-        Self {
-            inner: String::new(),
-        }
-    }
+    pub fn empty() -> Self { Self { inner: String::new() } }
 
-    pub fn root() -> Self {
-        Self {
-            inner: "/".to_string(),
-        }
-    }
+    pub fn root() -> Self { Self { inner: "/".to_string() } }
 
-    pub fn current() -> Self {
-        Self {
-            inner: ".".to_string(),
-        }
-    }
+    pub fn current() -> Self { Self { inner: ".".to_string() } }
 
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
+    pub fn is_empty(&self) -> bool { self.inner.is_empty() }
 
-    pub fn is_absolute(&self) -> bool {
-        self.as_path().is_absolute()
-    }
+    pub fn is_absolute(&self) -> bool { self.as_path().is_absolute() }
 
-    pub fn file_name(&self) -> Option<&str> {
-        self.as_path().file_name()
-    }
+    pub fn file_name(&self) -> Option<&str> { self.as_path().file_name() }
 
-    pub fn clear(&mut self) {
-        self.inner.clear()
-    }
+    pub fn clear(&mut self) { self.inner.clear() }
 
-    pub fn into_string(self) -> String {
-        self.inner
-    }
+    pub fn into_string(self) -> String { self.inner }
 
-    pub fn as_str(&self) -> &str {
-        &self.inner
-    }
+    pub fn as_str(&self) -> &str { &self.inner }
 
-    pub fn from_str(s: &str) -> Self {
-        Self {
-            inner: s.to_string(),
-        }
-    }
+    pub fn from_str(s: &str) -> Self { Self { inner: s.to_string() } }
 
-    pub fn as_path(&self) -> Path<'_> {
-        Path::new(&self.inner)
-    }
+    pub fn as_path(&self) -> Path<'_> { Path::new(&self.inner) }
 
-    pub fn from_path(path: &Path<'_>) -> Self {
-        path.to_path_buf()
-    }
+    pub fn from_path(path: &Path<'_>) -> Self { path.to_path_buf() }
 
-    pub fn starts_with(&self, base: &Path<'_>) -> bool {
-        self.as_path().starts_with(base)
-    }
+    pub fn starts_with(&self, base: &Path<'_>) -> bool { self.as_path().starts_with(base) }
 
-    pub fn strip_prefix(&self, base: &Path<'_>) -> Option<PathBuf> {
-        self.as_path().strip_prefix(base)
-    }
+    pub fn strip_prefix(&self, base: &Path<'_>) -> Option<PathBuf> { self.as_path().strip_prefix(base) }
 
     pub fn join(&self, child: &Path<'_>) -> PathBuf {
         if child.is_absolute() {
@@ -357,11 +297,7 @@ impl PathBuf {
         components.pop();
 
         if components.is_empty() {
-            if absolute {
-                Some(PathBuf::from_str("/"))
-            } else {
-                Some(PathBuf::from_str("."))
-            }
+            if absolute { Some(PathBuf::from_str("/")) } else { Some(PathBuf::from_str(".")) }
         } else {
             let mut inner = String::new();
             if absolute {
@@ -390,27 +326,19 @@ impl PathBuf {
 }
 
 impl Default for PathBuf {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl From<&str> for PathBuf {
-    fn from(value: &str) -> Self {
-        Self::from_str(value)
-    }
+    fn from(value: &str) -> Self { Self::from_str(value) }
 }
 
 impl From<String> for PathBuf {
-    fn from(value: String) -> Self {
-        Self { inner: value }
-    }
+    fn from(value: String) -> Self { Self { inner: value } }
 }
 
 impl Display for PathBuf {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.inner)
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { f.write_str(&self.inner) }
 }
 
 pub fn split_parent_name<'a>(path: &'a Path<'a>) -> Result<(PathBuf, &'a str), PathError> {
@@ -481,18 +409,9 @@ fn normalize_root() {
 
 #[test]
 fn join_paths() {
-    assert_eq!(
-        PathBuf::from_str("/a/b").join(&Path::new("c")).as_str(),
-        "/a/b/c"
-    );
-    assert_eq!(
-        PathBuf::from_str("/a/b").join(&Path::new("../c")).as_str(),
-        "/a/c"
-    );
-    assert_eq!(
-        PathBuf::from_str("/a/b").join(&Path::new("/x")).as_str(),
-        "/x"
-    );
+    assert_eq!(PathBuf::from_str("/a/b").join(&Path::new("c")).as_str(), "/a/b/c");
+    assert_eq!(PathBuf::from_str("/a/b").join(&Path::new("../c")).as_str(), "/a/c");
+    assert_eq!(PathBuf::from_str("/a/b").join(&Path::new("/x")).as_str(), "/x");
 }
 
 #[test]

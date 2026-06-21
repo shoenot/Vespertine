@@ -1,7 +1,13 @@
-use alloc::{format, string::String};
+use alloc::format;
+use alloc::string::String;
+
+use vespertine_std::fs::{
+    File,
+    Path,
+};
 use vespertine_std::{
-    Error, Read,
-    fs::{File, Path},
+    Error,
+    Read,
 };
 
 #[derive(Debug, serde::Deserialize)]
@@ -28,9 +34,8 @@ pub fn get_metadata(name: &str) -> Result<AppManifest, Error> {
     let manifest_file = File::open(&Path::new(app_path.as_str()))?;
     let manifest_str = manifest_file.read_to_string()?;
 
-    let manifest = toml::from_str::<AppManifest>(manifest_str.as_str()).map_err(|e| {
-        Error::invalid_encoding(format!("could not parse file into toml: {:?}", e).into())
-    })?;
+    let manifest = toml::from_str::<AppManifest>(manifest_str.as_str())
+        .map_err(|e| Error::invalid_encoding(format!("could not parse file into toml: {:?}", e).into()))?;
 
     Ok(manifest)
 }

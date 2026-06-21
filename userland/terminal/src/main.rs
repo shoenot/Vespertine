@@ -5,21 +5,43 @@ mod term;
 
 use alloc::vec;
 use alloc::vec::Vec;
+
 use vespertine_abi::app::termios::*;
 use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_LAUNCHER_EXEC, CAP_LAUNCHER_GRANT};
-use vespertine_abi::{AccessRights, ProcessInitPackage};
-use vespertine_rt::syscall::{sys_read, sys_set_read_policy, sys_write_bytes};
+use vespertine_abi::tag::{
+    CAP_APP_TERMCTRL,
+    CAP_LAUNCHER_EXEC,
+    CAP_LAUNCHER_GRANT,
+};
+use vespertine_abi::{
+    AccessRights,
+    ProcessInitPackage,
+};
+use vespertine_rt::syscall::{
+    sys_read,
+    sys_set_read_policy,
+    sys_write_bytes,
+};
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::clock::Time;
+use vespertine_std::fb::Framebuffer;
 use vespertine_std::log::SystemLog;
 use vespertine_std::proc::Waiter;
 use vespertine_std::socket::Socket;
-use vespertine_std::{Error, fb::Framebuffer};
-use vespertine_std::{ErrorKind, Exec, Write, env};
+use vespertine_std::{
+    Error,
+    ErrorKind,
+    Exec,
+    Write,
+    env,
+};
 
-use crate::term::Cell;
-use crate::term::{PADDING_X, PADDING_Y, TerminalGrid};
+use crate::term::{
+    Cell,
+    PADDING_X,
+    PADDING_Y,
+    TerminalGrid,
+};
 
 extern crate alloc;
 
@@ -61,14 +83,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         can_buffer: Vec::new(),
         current_fg: FG_COLOR,
         current_bg: BG_COLOR,
-        cells: vec![
-            Cell {
-                char: ' ',
-                fg: FG_COLOR,
-                bg: BG_COLOR
-            };
-            width_chars * height_chars
-        ],
+        cells: vec![Cell { char: ' ', fg: FG_COLOR, bg: BG_COLOR }; width_chars * height_chars],
         fb,
         app_source: term_stdin.handle(),
     };
@@ -84,16 +99,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .sink(app_stdout.handle())
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
-        .grant(
-            CAP_LAUNCHER_EXEC,
-            AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE,
-        )?
+        .grant(CAP_LAUNCHER_EXEC, AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE)?
         .grant(CAP_LAUNCHER_GRANT, AccessRights::MUTATE)?
-        .grant_new(
-            app_ctrl.handle(),
-            CAP_APP_TERMCTRL,
-            AccessRights::READ | AccessRights::WRITE,
-        )?
+        .grant_new(app_ctrl.handle(), CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE)?
         .inherit_capabilities()
         .spawn()?;
 
@@ -109,16 +117,10 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
             }
         }
     })
-    .map_err(|_| Error {
-        kind: ErrorKind::InvalidArgument,
-        message: "Failed to spawn blink thread".into(),
-    })?;
+    .map_err(|_| Error { kind: ErrorKind::InvalidArgument, message: "Failed to spawn blink thread".into() })?;
 
-    let mut waiter = Waiter::new()
-        .readable(kbd_handle)
-        .readable(term_stdout.handle())
-        .readable(blink_read.handle())
-        .readable(ctrl_term.handle());
+    let mut waiter =
+        Waiter::new().readable(kbd_handle).readable(term_stdout.handle()).readable(blink_read.handle()).readable(ctrl_term.handle());
 
     let mut vte_parser = vte::Parser::new();
     let mut buf = [0u8; 256];
@@ -188,10 +190,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         }
 
                         if should_echo && !matches!(processed_byte, b'\x08' | b'\x7f') {
-                            if processed_byte == b'\n'
-                                && check_flag(oflag, OPOST)
-                                && check_flag(oflag, ONLCR)
-                            {
+                            if processed_byte == b'\n' && check_flag(oflag, OPOST) && check_flag(oflag, ONLCR) {
                                 vte_parser.advance(&mut grid, &[b'\r', b'\n']);
                             } else {
                                 vte_parser.advance(&mut grid, &[processed_byte]);
@@ -208,8 +207,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                                 b'\x08' | b'\x7f' => {
                                     if let Some(_popped) = grid.can_buffer.pop() {
                                         if check_flag(lflag, ECHOE) {
-                                            vte_parser
-                                                .advance(&mut grid, &[b'\x08', b' ', b'\x08']);
+                                            vte_parser.advance(&mut grid, &[b'\x08', b' ', b'\x08']);
                                         }
                                     }
                                 }
@@ -306,15 +304,11 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                             ws_xpixel: width_cols as u16,
                             ws_ypixel: height_rows as u16,
                         };
-                        let _ =
-                            ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
+                        let _ = ctrl_term.send_packet::<WinSize>(PacketType::TermSize as u32, &wsize);
                     }
                     TermCommand::GetCursorPosition => {
                         let cursor = (grid.cursor_y, grid.cursor_x);
-                        let _ = ctrl_term.send_packet::<(usize, usize)>(
-                            PacketType::TermCursorPos as u32,
-                            &cursor,
-                        );
+                        let _ = ctrl_term.send_packet::<(usize, usize)>(PacketType::TermCursorPos as u32, &cursor);
                     }
                     TermCommand::Clear => {
                         grid.clear_screen();

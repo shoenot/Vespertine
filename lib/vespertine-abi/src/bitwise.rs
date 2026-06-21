@@ -1,5 +1,10 @@
 #![allow(dead_code)]
-use core::ops::{BitAnd, BitOr, Not, Shl};
+use core::ops::{
+    BitAnd,
+    BitOr,
+    Not,
+    Shl,
+};
 
 #[inline]
 pub fn set_bit<T>(value: T, bit: u8) -> T

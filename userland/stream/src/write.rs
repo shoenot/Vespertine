@@ -1,23 +1,30 @@
 use alloc::string::String;
+
 use vespertine_abi::AccessRights;
-use vespertine_cli::args::{Command, Opt};
+use vespertine_cli::args::{
+    Command,
+    Opt,
+};
 use vespertine_rt::println;
+use vespertine_std::fs::{
+    File,
+    PathBuf,
+};
+use vespertine_std::typed::{
+    ShellValue,
+    TypedReader,
+};
 use vespertine_std::{
-    Error, HandleReader, Write, env,
-    fs::{File, PathBuf},
-    typed::{ShellValue, TypedReader},
+    Error,
+    HandleReader,
+    Write,
+    env,
 };
 
-static WRITE_OPTIONS: &[Opt] = &[
-    Opt::flag("help", Some('h'), Some("help")),
-    Opt::value("output-file", Some('o'), Some("output-file")),
-];
+static WRITE_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help")), Opt::value("output-file", Some('o'), Some("output-file"))];
 
 pub fn run(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("write")
-        .options(WRITE_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("write").options(WRITE_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         println!("usage: stream echo -o [file] [text..]");
@@ -25,9 +32,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     }
 
     let Some(path_str) = matches.value("output-file") else {
-        return Err(Error::invalid_argument(
-            "stream write needs a file to write to".into(),
-        ));
+        return Err(Error::invalid_argument("stream write needs a file to write to".into()));
     };
 
     let pathbuf = PathBuf::from_str(path_str);

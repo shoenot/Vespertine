@@ -1,36 +1,29 @@
 pub mod ast;
 
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::{
+    IntoIter,
+    Vec,
+};
 use core::iter::Peekable;
 
 use ast::*;
-
-use alloc::{
-    boxed::Box,
-    string::String,
-    vec::{IntoIter, Vec},
-};
 use vespertine_std::fs::PathBuf;
 
-use crate::{error::ShellError, lexer::Token};
+use crate::error::ShellError;
+use crate::lexer::Token;
 
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Self {
-            tokens: tokens.into_iter().peekable(),
-        }
-    }
+    pub fn new(tokens: Vec<Token>) -> Self { Self { tokens: tokens.into_iter().peekable() } }
 
-    fn advance(&mut self) -> Option<Token> {
-        self.tokens.next()
-    }
+    fn advance(&mut self) -> Option<Token> { self.tokens.next() }
 
-    fn peek(&mut self) -> Option<&Token> {
-        self.tokens.peek()
-    }
+    fn peek(&mut self) -> Option<&Token> { self.tokens.peek() }
 
     pub fn parse_command(&mut self) -> Result<CommandNode, ShellError> {
         let cmd = self.advance();
@@ -45,22 +38,15 @@ impl Parser {
                     let Token::Word(exec) = exec_tok else {
                         return Err(ShellError::InvalidToken);
                     };
-                    CommandNode::Run {
-                        exec,
-                        args: self.collect_args()?,
-                    }
+                    CommandNode::Run { exec, args: self.collect_args()? }
                 }
                 "cd" => match self.advance() {
-                    None => CommandNode::ChangeDir {
-                        path: PathBuf::root(),
-                    },
+                    None => CommandNode::ChangeDir { path: PathBuf::root() },
                     Some(Token::Word(path)) => {
                         if self.peek().is_some() {
                             return Err(ShellError::InvalidToken);
                         }
-                        CommandNode::ChangeDir {
-                            path: PathBuf::from(path),
-                        }
+                        CommandNode::ChangeDir { path: PathBuf::from(path) }
                     }
                     _ => return Err(ShellError::InvalidToken),
                 },
@@ -77,10 +63,7 @@ impl Parser {
                     }
                     _ => return Err(ShellError::InvalidToken),
                 },
-                _ => CommandNode::Run {
-                    exec,
-                    args: self.collect_args()?,
-                },
+                _ => CommandNode::Run { exec, args: self.collect_args()? },
             },
             _ => return Err(ShellError::InvalidToken),
         };

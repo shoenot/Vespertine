@@ -1,5 +1,11 @@
-use alloc::string::{String, ToString};
-use alloc::vec::{IntoIter, Vec};
+use alloc::string::{
+    String,
+    ToString,
+};
+use alloc::vec::{
+    IntoIter,
+    Vec,
+};
 
 use crate::CliError;
 
@@ -19,14 +25,7 @@ pub struct Arguments<'a> {
 }
 
 impl<'a> Arguments<'a> {
-    pub fn new(args: &'a [String]) -> Self {
-        Self {
-            args,
-            index: 0,
-            end_options: false,
-            short_chars: None,
-        }
-    }
+    pub fn new(args: &'a [String]) -> Self { Self { args, index: 0, end_options: false, short_chars: None } }
 
     pub fn next_arg(&mut self) -> Result<Option<Arg<'a>>, CliError> {
         if let Some(chars) = &mut self.short_chars {

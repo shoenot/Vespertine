@@ -1,4 +1,5 @@
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::error::ShellError;
 
@@ -13,9 +14,7 @@ pub enum Token {
 pub struct Tokenizer;
 
 impl Tokenizer {
-    fn split_line(&mut self, line: String) -> Vec<String> {
-        line.split_whitespace().map(String::from).collect()
-    }
+    fn split_line(&mut self, line: String) -> Vec<String> { line.split_whitespace().map(String::from).collect() }
 
     fn tokenize(&mut self, text: String) -> Result<Token, ShellError> {
         let tok = match text.as_str() {

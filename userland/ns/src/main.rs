@@ -5,11 +5,14 @@ mod command;
 extern crate alloc;
 
 use alloc::format;
+
 use vespertine_abi::ProcessInitPackage;
 use vespertine_rt::syscall::sys_close;
-use vespertine_std::Error;
-use vespertine_std::env;
 use vespertine_std::typed::TypedWriter;
+use vespertine_std::{
+    Error,
+    env,
+};
 
 static HELP_TEXT: &'static str = "usage: ns [command] [flags] [args]\n
                                   commands:

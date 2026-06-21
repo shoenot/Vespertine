@@ -1,15 +1,22 @@
 extern crate alloc;
 
-use core::fmt::Display;
-
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt::Display;
+
 use vespertine_abi::typed::{
-    DateTimeValue, DateValue, FileSizeValue, TimeValue, ValueType,
+    DateTimeValue,
+    DateValue,
+    FileSizeValue,
+    TimeValue,
+    ValueType,
 };
 
-use crate::typed::{DateTimeStyle, datetime_display};
+use crate::typed::{
+    DateTimeStyle,
+    datetime_display,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileSizeStyle {
@@ -24,12 +31,7 @@ pub struct FileSizeDisplay {
 }
 
 impl FileSizeDisplay {
-    pub fn new(value: FileSizeValue) -> Self {
-        Self {
-            value,
-            options: DisplayOptions::default(),
-        }
-    }
+    pub fn new(value: FileSizeValue) -> Self { Self { value, options: DisplayOptions::default() } }
 
     pub fn options(mut self, options: DisplayOptions) -> Self {
         self.options = options;
@@ -48,9 +50,7 @@ impl FileSizeDisplay {
 }
 
 impl Display for FileSizeDisplay {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&format_filesize(self.value, self.options))
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { f.write_str(&format_filesize(self.value, self.options)) }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,14 +84,8 @@ pub enum TypedValue {
     Time(TimeValue),
     DateTime(DateTimeValue),
     FileSize(FileSizeValue),
-    List {
-        element_type: ValueType,
-        items: Vec<TypedValue>,
-    },
-    Record {
-        schema_id: u64,
-        fields: Vec<TypedValue>,
-    },
+    List { element_type: ValueType, items: Vec<TypedValue> },
+    Record { schema_id: u64, fields: Vec<TypedValue> },
 }
 
 impl TypedValue {
@@ -117,26 +111,12 @@ pub fn format_filesize(v: FileSizeValue, opts: DisplayOptions) -> String {
     }
 
     let negative = v.bytes < 0;
-    let bytes = if negative {
-        (-v.bytes) as u128
-    } else {
-        v.bytes as u128
-    };
+    let bytes = if negative { (-v.bytes) as u128 } else { v.bytes as u128 };
 
     let text = match opts.filesize_style {
         FileSizeStyle::Bytes => unreachable!(),
-        FileSizeStyle::Iec => format_scaled(
-            bytes,
-            1024,
-            &["B", "KiB", "MiB", "GiB", "TiB", "PiB"],
-            opts.filesize_precision,
-        ),
-        FileSizeStyle::Si => format_scaled(
-            bytes,
-            1000,
-            &["B", "KB", "MB", "GB", "TB", "PB"],
-            opts.filesize_precision,
-        ),
+        FileSizeStyle::Iec => format_scaled(bytes, 1024, &["B", "KiB", "MiB", "GiB", "TiB", "PiB"], opts.filesize_precision),
+        FileSizeStyle::Si => format_scaled(bytes, 1000, &["B", "KB", "MB", "GB", "TB", "PB"], opts.filesize_precision),
     };
 
     if negative { format!("-{}", text) } else { text }
@@ -165,13 +145,7 @@ fn format_scaled(bytes: u128, base: u128, units: &[&str], precision: usize) -> S
     let factor = pow10(precision);
     let frac = (rem * factor) / scale;
 
-    format!(
-        "{}.{:0width$} {}",
-        whole,
-        frac,
-        units[unit],
-        width = precision
-    )
+    format!("{}.{:0width$} {}", whole, frac, units[unit], width = precision)
 }
 
 fn pow10(n: usize) -> u128 {
@@ -182,6 +156,4 @@ fn pow10(n: usize) -> u128 {
     out
 }
 
-pub fn filesize_display(value: FileSizeValue) -> FileSizeDisplay {
-    FileSizeDisplay::new(value)
-}
+pub fn filesize_display(value: FileSizeValue) -> FileSizeDisplay { FileSizeDisplay::new(value) }

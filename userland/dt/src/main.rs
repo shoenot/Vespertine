@@ -1,36 +1,51 @@
 #![no_std]
 #![no_main]
 
-use alloc::{
-    format,
-    string::{String, ToString},
+use alloc::format;
+use alloc::string::{
+    String,
+    ToString,
 };
-use chrono::{DateTime, NaiveDateTime, Offset, TimeZone, Utc};
+
+use chrono::{
+    DateTime,
+    NaiveDateTime,
+    Offset,
+    TimeZone,
+    Utc,
+};
 use chrono_tz::Tz;
-use vespertine_abi::{
-    ProcessInitPackage,
-    typed::{DATETIME_HAS_OFFSET, DateTimeValue},
+use vespertine_abi::ProcessInitPackage;
+use vespertine_abi::typed::{
+    DATETIME_HAS_OFFSET,
+    DateTimeValue,
 };
-use vespertine_cli::args::{Command, Opt};
+use vespertine_cli::args::{
+    Command,
+    Opt,
+};
 use vespertine_rt::syscall::sys_close;
+use vespertine_std::clock::Time;
+use vespertine_std::typed::{
+    DateTimeStyle,
+    ShellValue,
+    TypedReader,
+    TypedValue,
+    TypedWriter,
+    datetime_display,
+};
 use vespertine_std::{
-    Error, ErrorKind, HandleReader,
-    clock::Time,
+    Error,
+    ErrorKind,
+    HandleReader,
     env,
-    typed::{DateTimeStyle, ShellValue, TypedReader, TypedValue, TypedWriter, datetime_display},
 };
 
 extern crate alloc;
 
-static NOW_OPTIONS: &[Opt] = &[
-    Opt::value("display", Some('d'), Some("display")),
-    Opt::value("timezone", Some('z'), Some("timezone")),
-];
+static NOW_OPTIONS: &[Opt] = &[Opt::value("display", Some('d'), Some("display")), Opt::value("timezone", Some('z'), Some("timezone"))];
 
-static FROM_OPTIONS: &[Opt] = &[
-    Opt::value("display", Some('d'), Some("display")),
-    Opt::value("timezone", Some('z'), Some("timezone")),
-];
+static FROM_OPTIONS: &[Opt] = &[Opt::value("display", Some('d'), Some("display")), Opt::value("timezone", Some('z'), Some("timezone"))];
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
@@ -48,10 +63,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let (ts, _) = Time::now();
     let dt = DateTime::from_timestamp_secs(ts as i64)
         .ok_or(0)
-        .map_err(|_| Error {
-            kind: ErrorKind::Unknown,
-            message: "Error converting timestamp to dt".into(),
-        })?;
+        .map_err(|_| Error { kind: ErrorKind::Unknown, message: "Error converting timestamp to dt".into() })?;
 
     let command_args = &args[2..];
 
@@ -69,10 +81,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
 fn dt_now(dt: DateTime<Utc>, args: &[String]) -> Result<(), Error> {
     let out = TypedWriter::out();
-    let matches = Command::new("now")
-        .options(NOW_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("now").options(NOW_OPTIONS).parse(args).map_err(Error::from)?;
 
     let display = match matches.value("display") {
         None | Some("iso") => DateTimeStyle::Iso,
@@ -83,9 +92,7 @@ fn dt_now(dt: DateTime<Utc>, args: &[String]) -> Result<(), Error> {
     };
 
     let value = if let Some(tz_name) = matches.value("timezone") {
-        let tz: Tz = tz_name
-            .parse()
-            .map_err(|_| Error::invalid_argument("invalid timezone".into()))?;
+        let tz: Tz = tz_name.parse().map_err(|_| Error::invalid_argument("invalid timezone".into()))?;
         let localized = dt.with_timezone(&tz);
         tz_to_value(&localized)
     } else {
@@ -109,10 +116,7 @@ fn dt_now(dt: DateTime<Utc>, args: &[String]) -> Result<(), Error> {
 
 fn dt_from(args: &[String]) -> Result<(), Error> {
     let out = TypedWriter::out();
-    let matches = Command::new("from")
-        .options(FROM_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("from").options(FROM_OPTIONS).parse(args).map_err(Error::from)?;
 
     let display = match matches.value("display") {
         None | Some("iso") => DateTimeStyle::Iso,
@@ -134,26 +138,20 @@ fn dt_from(args: &[String]) -> Result<(), Error> {
                 }
                 ShellValue::StreamEnd => break,
                 _ => {
-                    return Err(Error::invalid_argument(
-                        "`dt from` needs a datetime value to parse".into(),
-                    ));
+                    return Err(Error::invalid_argument("`dt from` needs a datetime value to parse".into()));
                 }
             }
         }
         match dt_opt {
             None => {
-                return Err(Error::invalid_argument(
-                    "could not parse piped input into DateTime".into(),
-                ));
+                return Err(Error::invalid_argument("could not parse piped input into DateTime".into()));
             }
             Some(v) => v,
         }
     };
 
     let value = if let Some(tz_name) = matches.value("timezone") {
-        let tz: Tz = tz_name
-            .parse()
-            .map_err(|_| Error::invalid_argument("invalid timezone".into()))?;
+        let tz: Tz = tz_name.parse().map_err(|_| Error::invalid_argument("invalid timezone".into()))?;
         let localized = dt.with_timezone(&tz);
         tz_to_value(&localized)
     } else {
@@ -201,54 +199,37 @@ fn datetime_from_raw(raw: &String) -> Result<DateTime<Utc>, Error> {
     let trimmed = raw.trim();
 
     // try common formats first
-    let datetime_layouts = &[
-        "%Y-%m-%d %H:%M:%S",
-        "%d %b %Y %H:%M:%S",
-        "%d/%m/%Y %H:%M:%S",
-        "%m/%d/%Y %H:%M:%S",
-        "%Y/%m/%d %H:%M:%S",
-    ];
+    let datetime_layouts = &["%Y-%m-%d %H:%M:%S", "%d %b %Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y/%m/%d %H:%M:%S"];
     for &layout in datetime_layouts {
         if let Ok(ndt) = NaiveDateTime::parse_from_str(trimmed, layout) {
             return Ok(ndt.and_utc());
         }
     }
-    Err(Error::invalid_argument(
-        "could not parse raw input into DateTime".into(),
-    ))
+    Err(Error::invalid_argument("could not parse raw input into DateTime".into()))
 }
 
 fn datetime_from_epoch(raw: &String) -> Result<DateTime<Utc>, Error> {
     let trimmed = raw.trim();
-    let number = trimmed
-        .parse::<i64>()
-        .map_err(|_| Error::invalid_argument("could not parse raw input into DateTime".into()))?;
+    let number = trimmed.parse::<i64>().map_err(|_| Error::invalid_argument("could not parse raw input into DateTime".into()))?;
     if let Some(dt) = DateTime::from_timestamp(number, 0) {
         return Ok(dt);
     }
-    Err(Error::invalid_argument(
-        "could not parse raw input into DateTime".into(),
-    ))
+    Err(Error::invalid_argument("could not parse raw input into DateTime".into()))
 }
 
 fn datetime_from_value(value: TypedValue) -> Result<DateTime<Utc>, Error> {
     match value {
-        TypedValue::DateTime(v) => DateTime::from_timestamp(v.unix_seconds as i64, v.nanos).ok_or(
-            Error::invalid_argument("could not parse DateTimeValue into DateTime".into()),
-        ),
+        TypedValue::DateTime(v) => DateTime::from_timestamp(v.unix_seconds as i64, v.nanos)
+            .ok_or(Error::invalid_argument("could not parse DateTimeValue into DateTime".into())),
         TypedValue::Integer(s) => {
             if let Some(dt) = DateTime::from_timestamp(s as i64, 0) {
                 return Ok(dt);
             } else {
-                Err(Error::invalid_argument(
-                    "could not parse integer into DateTime".into(),
-                ))
+                Err(Error::invalid_argument("could not parse integer into DateTime".into()))
             }
         }
         TypedValue::String(s) => datetime_from_string(&s),
-        _ => Err(Error::invalid_argument(
-            "cannot parse data type into DateTime".into(),
-        )),
+        _ => Err(Error::invalid_argument("cannot parse data type into DateTime".into())),
     }
 }
 

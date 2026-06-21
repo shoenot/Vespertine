@@ -1,8 +1,16 @@
-use core::ffi::{CStr, c_char};
-
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::{CapabilityGrant, CapabilityID, HandleID, ProcessInitPackage};
+use core::ffi::{
+    CStr,
+    c_char,
+};
+
+use vespertine_abi::{
+    CapabilityGrant,
+    CapabilityID,
+    HandleID,
+    ProcessInitPackage,
+};
 use vespertine_rt::get_init_pkg;
 
 extern crate alloc;
@@ -31,33 +39,18 @@ pub fn args() -> Vec<String> {
     ret
 }
 
-pub fn sink() -> HandleID {
-    pkg().sink_handle
-}
+pub fn sink() -> HandleID { pkg().sink_handle }
 
-pub fn source() -> HandleID {
-    pkg().source_handle
-}
+pub fn source() -> HandleID { pkg().source_handle }
 
-pub fn root() -> HandleID {
-    pkg().root_handle
-}
+pub fn root() -> HandleID { pkg().root_handle }
 
-pub fn cwd() -> HandleID {
-    pkg().cwd_handle
-}
+pub fn cwd() -> HandleID { pkg().cwd_handle }
 
-pub fn self_handle() -> HandleID {
-    pkg().self_handle
-}
+pub fn self_handle() -> HandleID { pkg().self_handle }
 
-pub fn capabilities() -> &'static [CapabilityGrant] {
-    pkg().capabilities()
-}
+pub fn capabilities() -> &'static [CapabilityGrant] { pkg().capabilities() }
 
 pub fn capability(capability: CapabilityID) -> Option<CapabilityGrant> {
-    capabilities()
-        .iter()
-        .copied()
-        .find(|g| g.capability == capability)
+    capabilities().iter().copied().find(|g| g.capability == capability)
 }

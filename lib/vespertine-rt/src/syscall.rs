@@ -1,8 +1,18 @@
 use core::arch::asm;
 
 use vespertine_abi::{
-    ClockOp, DirectoryOp, FileOp, FileStat, HandleID, Invocation, MemPoolOp, ProcOp, Signal,
-    SocketOp, VmoOp, WaitOp,
+    ClockOp,
+    DirectoryOp,
+    FileOp,
+    FileStat,
+    HandleID,
+    Invocation,
+    MemPoolOp,
+    ProcOp,
+    Signal,
+    SocketOp,
+    VmoOp,
+    WaitOp,
 };
 
 #[derive(Debug)]
@@ -79,11 +89,7 @@ pub fn sys_invoke(handle: HandleID, op: &Invocation) -> Result<usize, SysError> 
         );
     }
 
-    if ret == 0 {
-        Ok(payload)
-    } else {
-        Err(SysError::from(ret))
-    }
+    if ret == 0 { Ok(payload) } else { Err(SysError::from(ret)) }
 }
 
 /// Top level system call function. Closes the handle.
@@ -100,11 +106,7 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
             out("r11") _,   // clobbered
         );
     }
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(SysError::from(ret))
-    }
+    if ret == 0 { Ok(()) } else { Err(SysError::from(ret)) }
 }
 
 pub fn sys_terminate(exit_code: u32) -> ! {
@@ -162,29 +164,15 @@ pub fn sys_futex_wake(addr: usize, count: usize) {
 //----------------------------------------------------------//
 
 pub fn sys_create_socket(factory: HandleID) -> Result<(HandleID, HandleID), SysError> {
-    let packed = sys_invoke(
-        factory,
-        &Invocation::Socket(SocketOp::Create {
-            sourceproc: HandleID(1),
-            sinkproc: HandleID(1),
-        }),
-    )?;
+    let packed = sys_invoke(factory, &Invocation::Socket(SocketOp::Create { sourceproc: HandleID(1), sinkproc: HandleID(1) }))?;
     Ok((HandleID(packed & 0xFFFF_FFFF), HandleID(packed >> 32)))
 }
 
-pub fn sys_set_nb(handle: HandleID, nb: bool) -> Result<usize, SysError> {
-    sys_invoke(handle, &Invocation::Socket(SocketOp::SetNB { nb }))
-}
+pub fn sys_set_nb(handle: HandleID, nb: bool) -> Result<usize, SysError> { sys_invoke(handle, &Invocation::Socket(SocketOp::SetNB { nb })) }
 
-pub fn sys_wait(handle: HandleID, signal: Signal) -> Result<usize, SysError> {
-    sys_invoke(handle, &Invocation::Wait(WaitOp::One(signal)))
-}
+pub fn sys_wait(handle: HandleID, signal: Signal) -> Result<usize, SysError> { sys_invoke(handle, &Invocation::Wait(WaitOp::One(signal))) }
 
-pub fn sys_set_read_policy(
-    handle: HandleID,
-    min: usize,
-    timeout_ds: usize,
-) -> Result<usize, SysError> {
+pub fn sys_set_read_policy(handle: HandleID, min: usize, timeout_ds: usize) -> Result<usize, SysError> {
     let op = Invocation::Socket(SocketOp::SetReadPolicy { min, timeout_ds });
     sys_invoke(handle, &op)
 }
@@ -194,66 +182,36 @@ pub fn sys_set_read_policy(
 //----------------------------------------------------------//
 
 pub fn sys_lookup(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
-    let op = Invocation::Directory(DirectoryOp::Lookup {
-        name: name.as_ptr() as usize,
-        name_len: name.len(),
-    });
+    let op = Invocation::Directory(DirectoryOp::Lookup { name: name.as_ptr() as usize, name_len: name.len() });
     let child_handle = sys_invoke(dir, &op)?;
     Ok(HandleID(child_handle))
 }
 
 pub fn sys_create_file(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
-    let op = Invocation::Directory(DirectoryOp::CreateFile {
-        name: name.as_ptr() as usize,
-        name_len: name.len(),
-    });
+    let op = Invocation::Directory(DirectoryOp::CreateFile { name: name.as_ptr() as usize, name_len: name.len() });
     let child = sys_invoke(dir, &op)?;
     Ok(HandleID(child))
 }
 
 pub fn sys_create_dir(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
-    let op = Invocation::Directory(DirectoryOp::CreateDir {
-        name: name.as_ptr() as usize,
-        name_len: name.len(),
-    });
+    let op = Invocation::Directory(DirectoryOp::CreateDir { name: name.as_ptr() as usize, name_len: name.len() });
     let child = sys_invoke(dir, &op)?;
     Ok(HandleID(child))
 }
 
 pub fn sys_unlink(dir: HandleID, name: &str) -> Result<(), SysError> {
-    let op = Invocation::Directory(DirectoryOp::Unlink {
-        name: name.as_ptr() as usize,
-        name_len: name.len(),
-    });
+    let op = Invocation::Directory(DirectoryOp::Unlink { name: name.as_ptr() as usize, name_len: name.len() });
     sys_invoke(dir, &op)?;
     Ok(())
 }
 
-pub fn sys_read(
-    handle: HandleID,
-    buffer_ptr: *mut u8,
-    len: usize,
-    offset: usize,
-) -> Result<usize, SysError> {
-    let op = FileOp::Read {
-        offset,
-        buffer_ptr: buffer_ptr as usize,
-        len,
-    };
+pub fn sys_read(handle: HandleID, buffer_ptr: *mut u8, len: usize, offset: usize) -> Result<usize, SysError> {
+    let op = FileOp::Read { offset, buffer_ptr: buffer_ptr as usize, len };
     sys_invoke(handle, &Invocation::File(op))
 }
 
-pub fn sys_write(
-    handle: HandleID,
-    buffer_ptr: *const u8,
-    len: usize,
-    offset: usize,
-) -> Result<usize, SysError> {
-    let op = FileOp::Write {
-        offset,
-        buffer_ptr: buffer_ptr as *mut u8 as usize,
-        len,
-    };
+pub fn sys_write(handle: HandleID, buffer_ptr: *const u8, len: usize, offset: usize) -> Result<usize, SysError> {
+    let op = FileOp::Write { offset, buffer_ptr: buffer_ptr as *mut u8 as usize, len };
     sys_invoke(handle, &Invocation::File(op))
 }
 
@@ -274,9 +232,7 @@ pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError>
 }
 
 pub fn sys_stat(handle: HandleID, stat: &mut FileStat) -> Result<usize, SysError> {
-    let op = FileOp::Stat {
-        stat_ptr: stat as *mut _ as usize,
-    };
+    let op = FileOp::Stat { stat_ptr: stat as *mut _ as usize };
     sys_invoke(handle, &Invocation::File(op))
 }
 
@@ -284,21 +240,12 @@ pub fn sys_stat(handle: HandleID, stat: &mut FileStat) -> Result<usize, SysError
 //----------------------- VMO HELPERS ----------------------//
 //----------------------------------------------------------//
 
-pub fn sys_mmap(
-    mem_pool_handle: HandleID,
-    size: usize,
-    target_vaddr: usize,
-    vm_flags: usize,
-) -> Result<usize, SysError> {
+pub fn sys_mmap(mem_pool_handle: HandleID, size: usize, target_vaddr: usize, vm_flags: usize) -> Result<usize, SysError> {
     let alloc_op = Invocation::MemPool(MemPoolOp::AllocateVmo { size });
     let vmo_idx = sys_invoke(mem_pool_handle, &alloc_op)?;
     let vmo_handle = HandleID(vmo_idx);
 
-    let map_op = Invocation::Vmo(VmoOp::MapIntoProc {
-        vaddr: target_vaddr,
-        len: size,
-        vm_flags,
-    });
+    let map_op = Invocation::Vmo(VmoOp::MapIntoProc { vaddr: target_vaddr, len: size, vm_flags });
     let mapped_addr = sys_invoke(vmo_handle, &map_op);
 
     let _ = sys_close(vmo_handle);

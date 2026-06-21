@@ -8,19 +8,32 @@ pub mod source;
 pub mod syscall;
 pub mod thread;
 
-use core::{
-    alloc::{GlobalAlloc, Layout},
-    panic::PanicInfo,
-    ptr::{null, null_mut},
-    sync::atomic::AtomicUsize,
+use core::alloc::{
+    GlobalAlloc,
+    Layout,
 };
-use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcessInitPackage, VmoOp};
+use core::panic::PanicInfo;
+use core::ptr::{
+    null,
+    null_mut,
+};
+use core::sync::atomic::AtomicUsize;
+
+use vespertine_abi::{
+    HandleID,
+    Invocation,
+    MemPoolOp,
+    ProcessInitPackage,
+    VmoOp,
+};
 use vespertine_common::slab::SlabAllocator;
 
-use crate::{
-    memory::UserPageProvider,
-    mutex::Mutex,
-    syscall::{sys_close, sys_invoke, sys_terminate},
+use crate::memory::UserPageProvider;
+use crate::mutex::Mutex;
+use crate::syscall::{
+    sys_close,
+    sys_invoke,
+    sys_terminate,
 };
 
 pub const ARENA_SIZE: usize = 1024 * 64; // pre allocate 64kb per init heap
@@ -35,11 +48,7 @@ unsafe impl Sync for GlobalUserAlloc {}
 unsafe impl GlobalAlloc for GlobalUserAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let lock = self.inner.lock();
-        if let Some(ref allocator) = *lock {
-            unsafe { allocator.alloc(layout) }
-        } else {
-            null_mut()
-        }
+        if let Some(ref allocator) = *lock { unsafe { allocator.alloc(layout) } } else { null_mut() }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -51,9 +60,7 @@ unsafe impl GlobalAlloc for GlobalUserAlloc {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc {
-    inner: Mutex::new(None),
-};
+pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc { inner: Mutex::new(None) };
 
 pub static mut MAIN_MEM_POOL: HandleID = HandleID(0);
 
@@ -69,16 +76,10 @@ pub fn init_heap() {
     }
 
     let op = MemPoolOp::AllocateVmo { size: ARENA_SIZE };
-    let vmo_id =
-        sys_invoke(pool, &Invocation::MemPool(op)).expect("Failed to allocate initial heap VMO");
+    let vmo_id = sys_invoke(pool, &Invocation::MemPool(op)).expect("Failed to allocate initial heap VMO");
 
-    let op = VmoOp::MapIntoProc {
-        vaddr: 0,
-        len: ARENA_SIZE,
-        vm_flags: 5,
-    };
-    let mapped_addr =
-        sys_invoke(HandleID(vmo_id), &Invocation::Vmo(op)).expect("Failed to map initial heap VMO");
+    let op = VmoOp::MapIntoProc { vaddr: 0, len: ARENA_SIZE, vm_flags: 5 };
+    let mapped_addr = sys_invoke(HandleID(vmo_id), &Invocation::Vmo(op)).expect("Failed to map initial heap VMO");
 
     let _ = sys_close(HandleID(vmo_id));
 
@@ -96,9 +97,7 @@ pub fn init_heap() {
 
 static mut INITIAL_PACKAGE: *const ProcessInitPackage = null();
 
-pub fn get_init_pkg() -> *const ProcessInitPackage {
-    unsafe { INITIAL_PACKAGE }
-}
+pub fn get_init_pkg() -> *const ProcessInitPackage { unsafe { INITIAL_PACKAGE } }
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn _start(initpkg_ptr: *const ProcessInitPackage) -> ! {

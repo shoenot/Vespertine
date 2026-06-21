@@ -1,4 +1,7 @@
-use crate::{AccessRights, HandleID};
+use crate::{
+    AccessRights,
+    HandleID,
+};
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

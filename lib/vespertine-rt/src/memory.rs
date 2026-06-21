@@ -1,8 +1,20 @@
-use core::{ptr::null_mut, sync::atomic::AtomicUsize};
+use core::ptr::null_mut;
+use core::sync::atomic::AtomicUsize;
 
-use crate::syscall::{SysError, sys_close, sys_invoke};
-use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcOp, VmoOp};
+use vespertine_abi::{
+    HandleID,
+    Invocation,
+    MemPoolOp,
+    ProcOp,
+    VmoOp,
+};
 use vespertine_common::slab::PageProvider;
+
+use crate::syscall::{
+    SysError,
+    sys_close,
+    sys_invoke,
+};
 
 pub struct UserPageProvider {
     pub mem_pool_handle: HandleID,
@@ -19,12 +31,7 @@ impl PageProvider for UserPageProvider {
         let mut offset = self.arena_offset.load(Ordering::Relaxed);
         loop {
             if offset + size <= self.arena_size {
-                match self.arena_offset.compare_exchange_weak(
-                    offset,
-                    offset + size,
-                    Ordering::SeqCst,
-                    Ordering::Relaxed,
-                ) {
+                match self.arena_offset.compare_exchange_weak(offset, offset + size, Ordering::SeqCst, Ordering::Relaxed) {
                     Ok(_) => {
                         let ptr = (self.arena_start.load(Ordering::SeqCst) + offset) as *mut u8;
                         return ptr;
@@ -43,21 +50,14 @@ impl PageProvider for UserPageProvider {
             match vmo_idx {
                 Ok(idx) => {
                     let vmo_handle = HandleID(idx);
-                    let map_op = Invocation::Vmo(VmoOp::MapIntoProc {
-                        vaddr: 0,
-                        len: size,
-                        vm_flags: 5,
-                    });
+                    let map_op = Invocation::Vmo(VmoOp::MapIntoProc { vaddr: 0, len: size, vm_flags: 5 });
 
-                    let mapped_addr = sys_invoke(vmo_handle, &map_op)
-                        .expect("Out of memory: Out of virtual memory");
+                    let mapped_addr = sys_invoke(vmo_handle, &map_op).expect("Out of memory: Out of virtual memory");
                     let _ = sys_close(vmo_handle);
                     return mapped_addr as *mut u8;
                 }
                 Err(SysError::PoolExhausted) => {
-                    let expansion = Invocation::MemPool(MemPoolOp::RequestExpansion {
-                        additional_bytes: size,
-                    });
+                    let expansion = Invocation::MemPool(MemPoolOp::RequestExpansion { additional_bytes: size });
                     if sys_invoke(self.mem_pool_handle, &expansion).is_ok() {
                         continue;
                     }
@@ -83,10 +83,7 @@ impl PageProvider for UserPageProvider {
         }
 
         let self_handle = HandleID(1);
-        let unmap_op = Invocation::Proc(ProcOp::Unmap {
-            vaddr: ptr as usize,
-            len: size,
-        });
+        let unmap_op = Invocation::Proc(ProcOp::Unmap { vaddr: ptr as usize, len: size });
 
         let _ = sys_invoke(self_handle, &unmap_op).expect("Process munmap failed");
     }

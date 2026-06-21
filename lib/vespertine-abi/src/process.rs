@@ -1,6 +1,10 @@
 use core::slice;
 
-use crate::{CapabilityGrant, HandleID, UserID};
+use crate::{
+    CapabilityGrant,
+    HandleID,
+    UserID,
+};
 
 pub const AT_VESPERTINE_INITPKG: usize = 0x6fff_0001;
 
@@ -23,9 +27,7 @@ pub struct ProcessInitPackage {
 }
 
 impl ProcessInitPackage {
-    pub fn capabilities(&self) -> &[CapabilityGrant] {
-        unsafe { slice::from_raw_parts(self.capabilities_ptr, self.capabilities_len) }
-    }
+    pub fn capabilities(&self) -> &[CapabilityGrant] { unsafe { slice::from_raw_parts(self.capabilities_ptr, self.capabilities_len) } }
 }
 
 #[repr(C)]
@@ -56,27 +58,9 @@ pub struct ProcessExitInfo {
 }
 
 impl ProcessExitInfo {
-    pub const fn running() -> Self {
-        Self {
-            kind: ProcessExitKind::Running,
-            code: 0,
-            detail: 0,
-        }
-    }
+    pub const fn running() -> Self { Self { kind: ProcessExitKind::Running, code: 0, detail: 0 } }
 
-    pub const fn exited(code: u32) -> Self {
-        Self {
-            kind: ProcessExitKind::Exited,
-            code,
-            detail: 0,
-        }
-    }
+    pub const fn exited(code: u32) -> Self { Self { kind: ProcessExitKind::Exited, code, detail: 0 } }
 
-    pub const fn killed(reason: u32) -> Self {
-        Self {
-            kind: ProcessExitKind::Killed,
-            code: reason,
-            detail: 0,
-        }
-    }
+    pub const fn killed(reason: u32) -> Self { Self { kind: ProcessExitKind::Killed, code: reason, detail: 0 } }
 }

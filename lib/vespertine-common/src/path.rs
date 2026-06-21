@@ -11,12 +11,7 @@ pub struct Components<'a> {
 }
 
 impl<'a> Components<'a> {
-    pub fn new(path: &'a str) -> Self {
-        Self {
-            path,
-            emitted_root: false,
-        }
-    }
+    pub fn new(path: &'a str) -> Self { Self { path, emitted_root: false } }
 }
 
 impl<'a> Iterator for Components<'a> {

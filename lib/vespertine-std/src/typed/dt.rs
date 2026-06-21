@@ -3,8 +3,16 @@ use alloc::format;
 use alloc::string::String;
 use core::fmt::Display;
 
-use vespertine_abi::typed::{DATETIME_HAS_OFFSET, DateTimeValue, DateValue, TimeValue};
-use vespertine_common::datetime::{datetime_to_epoch, epoch_to_datetime};
+use vespertine_abi::typed::{
+    DATETIME_HAS_OFFSET,
+    DateTimeValue,
+    DateValue,
+    TimeValue,
+};
+use vespertine_common::datetime::{
+    datetime_to_epoch,
+    epoch_to_datetime,
+};
 
 use crate::typed::DisplayOptions;
 
@@ -22,12 +30,7 @@ pub struct DateTimeDisplay {
 }
 
 impl DateTimeDisplay {
-    pub fn new(value: DateTimeValue) -> Self {
-        Self {
-            value,
-            options: DisplayOptions::default(),
-        }
-    }
+    pub fn new(value: DateTimeValue) -> Self { Self { value, options: DisplayOptions::default() } }
 
     pub fn style(mut self, style: DateTimeStyle) -> Self {
         self.options.datetime_style = style;
@@ -51,9 +54,7 @@ impl DateTimeDisplay {
 }
 
 impl Display for DateTimeDisplay {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&format_datetime(self.value, self.options))
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { f.write_str(&format_datetime(self.value, self.options)) }
 }
 
 pub fn format_datetime(v: DateTimeValue, opts: DisplayOptions) -> String {
@@ -67,33 +68,16 @@ pub fn format_datetime(v: DateTimeValue, opts: DisplayOptions) -> String {
         DateTimeStyle::Date => format!("{:04}-{:02}-{:02}", dt.year, dt.month, dt.day),
         DateTimeStyle::Time => format_time(&dt, v.nanos, opts),
         DateTimeStyle::Iso => {
-            let tz = if opts.datetime_show_tz && (v.flags & DATETIME_HAS_OFFSET) != 0 {
-                format_tz(v.offset_minutes)
-            } else {
-                String::new()
-            };
-            format!(
-                "{:04}-{:02}-{:02}T{}{}",
-                dt.year,
-                dt.month,
-                dt.day,
-                format_time(&dt, v.nanos, opts),
-                tz
-            )
+            let tz =
+                if opts.datetime_show_tz && (v.flags & DATETIME_HAS_OFFSET) != 0 { format_tz(v.offset_minutes) } else { String::new() };
+            format!("{:04}-{:02}-{:02}T{}{}", dt.year, dt.month, dt.day, format_time(&dt, v.nanos, opts), tz)
         }
     }
 }
 
-fn format_time(
-    dt: &vespertine_common::datetime::DateTime,
-    nanos: u32,
-    opts: DisplayOptions,
-) -> String {
+fn format_time(dt: &vespertine_common::datetime::DateTime, nanos: u32, opts: DisplayOptions) -> String {
     if opts.datetime_show_subsec && nanos != 0 {
-        format!(
-            "{:02}:{:02}:{:02}.{:09}",
-            dt.hour, dt.minute, dt.second, nanos
-        )
+        format!("{:02}:{:02}:{:02}.{:09}", dt.hour, dt.minute, dt.second, nanos)
     } else {
         format!("{:02}:{:02}:{:02}", dt.hour, dt.minute, dt.second)
     }
@@ -109,9 +93,7 @@ fn format_tz(offset_minutes: i32) -> String {
     format!("{}{:02}:{:02}", sign, abs / 60, abs % 60)
 }
 
-pub fn datetime_display(value: DateTimeValue) -> DateTimeDisplay {
-    DateTimeDisplay::new(value)
-}
+pub fn datetime_display(value: DateTimeValue) -> DateTimeDisplay { DateTimeDisplay::new(value) }
 
 pub trait DateTimeValueExt {
     fn date(self) -> DateValue;
@@ -123,13 +105,7 @@ pub trait DateTimeValueExt {
 impl DateTimeValueExt for DateTimeValue {
     fn date(self) -> DateValue {
         let dt = epoch_to_datetime(self.unix_seconds);
-        DateValue {
-            year: dt.year,
-            month: dt.month as u8,
-            day: dt.day as u8,
-            calendar: 0,
-            flags: 0,
-        }
+        DateValue { year: dt.year, month: dt.month as u8, day: dt.day as u8, calendar: 0, flags: 0 }
     }
 
     fn time(self) -> TimeValue {
@@ -146,14 +122,7 @@ impl DateTimeValueExt for DateTimeValue {
     }
 
     fn from_epoch(seconds: i64, nanos: u32) -> DateTimeValue {
-        DateTimeValue {
-            unix_seconds: seconds,
-            nanos,
-            offset_minutes: 0,
-            flags: DATETIME_HAS_OFFSET,
-            calendar: 0,
-            reserved: 0,
-        }
+        DateTimeValue { unix_seconds: seconds, nanos, offset_minutes: 0, flags: DATETIME_HAS_OFFSET, calendar: 0, reserved: 0 }
     }
 
     fn from_date_and_time(date: DateValue, time: TimeValue) -> DateTimeValue {

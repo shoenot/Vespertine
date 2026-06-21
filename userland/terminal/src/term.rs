@@ -1,15 +1,16 @@
-use core::{
-    cmp,
-    ptr::{read_volatile, write_volatile},
+use alloc::format;
+use alloc::vec::Vec;
+use core::cmp;
+use core::ptr::{
+    read_volatile,
+    write_volatile,
 };
 
-use alloc::{format, vec::Vec};
 use vespertine_abi::HandleID;
+use vespertine_abi::app::termios::*;
 use vespertine_rt::syscall::sys_write_bytes;
 use vespertine_std::fb::Framebuffer;
 use vte::Perform;
-
-use vespertine_abi::app::termios::*;
 
 static FONT_DATA: &[u8] = include_bytes!("zap-ext-light16.psf");
 pub const PADDING_X: usize = 12;
@@ -51,11 +52,7 @@ impl Perform for TerminalGrid {
 
         // save to virtual grid
         let idx = self.cursor_y * self.width_chars + self.cursor_x;
-        self.cells[idx] = Cell {
-            char: c,
-            fg: self.current_fg,
-            bg: self.current_bg,
-        };
+        self.cells[idx] = Cell { char: c, fg: self.current_fg, bg: self.current_bg };
 
         // blit directly to fb
         self.draw_cell(self.cursor_x, self.cursor_y);
@@ -80,13 +77,7 @@ impl Perform for TerminalGrid {
         }
     }
 
-    fn csi_dispatch(
-        &mut self,
-        params: &vte::Params,
-        _intermediates: &[u8],
-        _ignore: bool,
-        action: char,
-    ) {
+    fn csi_dispatch(&mut self, params: &vte::Params, _intermediates: &[u8], _ignore: bool, action: char) {
         match action {
             'm' => {
                 for param in params.iter() {
@@ -118,8 +109,7 @@ impl Perform for TerminalGrid {
                 for param in params.iter() {
                     match param {
                         [6] => {
-                            let reply =
-                                format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
+                            let reply = format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
                             let _ = sys_write_bytes(self.app_source, reply.as_bytes());
                         }
                         _ => {}
@@ -234,18 +224,13 @@ impl TerminalGrid {
 
     fn clear_cell(&mut self, col: usize, row: usize) {
         let idx = row * self.width_chars + col;
-        self.cells[idx] = Cell {
-            char: ' ',
-            fg: self.current_fg,
-            bg: self.current_bg,
-        };
+        self.cells[idx] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
 
         let x_start = PADDING_X + col * 8;
         let y_start = PADDING_Y + row * 16;
         for y in 0..16 {
             for x in 0..8 {
-                self.fb
-                    .write_pixel(x_start + x, y_start + y, self.current_bg);
+                self.fb.write_pixel(x_start + x, y_start + y, self.current_bg);
             }
         }
     }
@@ -265,11 +250,7 @@ impl TerminalGrid {
 
         let last_row_start = (self.height_chars - 1) * self.width_chars;
         for i in last_row_start..self.cells.len() {
-            self.cells[i] = Cell {
-                char: ' ',
-                fg: self.current_fg,
-                bg: self.current_bg,
-            };
+            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
         }
 
         let info = self.fb.info();
@@ -306,11 +287,7 @@ impl TerminalGrid {
         let _w = self.width_chars;
         let _h = self.height_chars;
         for i in 0..self.cells.len() {
-            self.cells[i] = Cell {
-                char: ' ',
-                fg: self.current_fg,
-                bg: self.current_bg,
-            };
+            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
         }
         let pixels = self.fb.pixels_mut();
         for p in pixels.iter_mut() {

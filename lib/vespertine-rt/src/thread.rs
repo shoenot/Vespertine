@@ -2,14 +2,23 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
+};
 
-use vespertine_abi::{HandleID, Invocation, ProcOp};
+use vespertine_abi::{
+    HandleID,
+    Invocation,
+    ProcOp,
+};
 
-use crate::syscall::sys_terminate;
-use crate::{
-    get_init_pkg,
-    syscall::{SysError, sys_invoke, sys_mmap},
+use crate::get_init_pkg;
+use crate::syscall::{
+    SysError,
+    sys_invoke,
+    sys_mmap,
+    sys_terminate,
 };
 
 const DEFAULT_STACK_SIZE: usize = 4096 * 16;
@@ -37,9 +46,7 @@ pub struct JoinHandle {
 
 impl JoinHandle {
     #[inline]
-    pub fn is_done(&self) -> bool {
-        self.done.load(Ordering::Acquire)
-    }
+    pub fn is_done(&self) -> bool { self.done.load(Ordering::Acquire) }
 }
 
 pub fn spawn<F>(f: F) -> Result<JoinHandle, SysError>
@@ -56,10 +63,7 @@ where
 
     // box closure + done flag and leak it
     let done = Arc::new(AtomicBool::new(false));
-    let args = Box::new(ThreadArgs {
-        func: Box::new(f),
-        done: Arc::clone(&done),
-    });
+    let args = Box::new(ThreadArgs { func: Box::new(f), done: Arc::clone(&done) });
     let arg_ptr = Box::into_raw(args) as usize;
 
     let self_handle = {
@@ -71,12 +75,7 @@ where
         unsafe { (*pkg).self_handle }
     };
 
-    let op = Invocation::Proc(ProcOp::SpawnThread {
-        entry: thread_trampoline as *const () as usize,
-        stack_top,
-        arg: arg_ptr,
-        priority: 1,
-    });
+    let op = Invocation::Proc(ProcOp::SpawnThread { entry: thread_trampoline as *const () as usize, stack_top, arg: arg_ptr, priority: 1 });
 
     match sys_invoke(self_handle, &op) {
         Ok(_) => Ok(JoinHandle { done }),

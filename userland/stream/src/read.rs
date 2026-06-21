@@ -1,9 +1,20 @@
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use vespertine_abi::typed::ValueType;
-use vespertine_cli::args::{Command, Opt};
+use vespertine_cli::args::{
+    Command,
+    Opt,
+};
+use vespertine_std::typed::{
+    RecordStream,
+    TypedValue,
+    TypedWriter,
+};
 use vespertine_std::{
-    Error, HandleWriter, Read,
-    typed::{RecordStream, TypedValue, TypedWriter},
+    Error,
+    HandleWriter,
+    Read,
 };
 
 use crate::input_from_path;
@@ -43,15 +54,11 @@ impl LineOutput {
     }
 
     fn line(&mut self, number: usize, bytes: &[u8]) -> Result<(), Error> {
-        let text = str::from_utf8(bytes)
-            .map_err(|_| Error::invalid_encoding("input contains invalid UTF-8".into()))?;
+        let text = str::from_utf8(bytes).map_err(|_| Error::invalid_encoding("input contains invalid UTF-8".into()))?;
 
         match self {
             Self::Plain(out) => out.value(&TypedValue::String(String::from(text))),
-            Self::Numbered(out) => out.row_values(&[
-                TypedValue::Integer(number as i128),
-                TypedValue::String(String::from(text)),
-            ]),
+            Self::Numbered(out) => out.row_values(&[TypedValue::Integer(number as i128), TypedValue::String(String::from(text))]),
         }
     }
 
@@ -64,47 +71,43 @@ impl LineOutput {
 }
 
 pub fn run(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("read")
-        .options(READ_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("read").options(READ_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         return Ok(());
     }
 
     if matches.positional_count() > 1 {
-        return Err(Error::invalid_argument("usage: stream read [flags] [file | - ]\n
+        return Err(Error::invalid_argument(
+            "usage: stream read [flags] [file | - ]\n
                                             flags:\n
                                             \t-n, --number:        print line numbers\n
                                             \t-s, --squeeze-blank: squeeze multiple consecutive blank lines\n
-                                            \t-h, --help:          print this help text".into()));
+                                            \t-h, --help:          print this help text"
+                .into(),
+        ));
     }
 
     let input = input_from_path(matches.positional(0))?;
-    copy_lines(
-        &input,
-        matches.flag("number"),
-        matches.flag("squeeze-blank"),
-    )
+    copy_lines(&input, matches.flag("number"), matches.flag("squeeze-blank"))
 }
 
 pub fn head(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("head")
-        .options(TRUNCATED_READ_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("head").options(TRUNCATED_READ_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         return Ok(());
     }
 
     if matches.positional_count() > 1 {
-        return Err(Error::invalid_argument("usage: stream head [flags] [file | - ]\n
+        return Err(Error::invalid_argument(
+            "usage: stream head [flags] [file | - ]\n
                                             flags:\n
                                             \t-n, --num-lines: number of lines to print (from the beginning)\n
                                             \t-N, --numbers:   print line numbers\n
-                                            \t-h, --help:      print this help text".into()));
+                                            \t-h, --help:      print this help text"
+                .into(),
+        ));
     }
 
     let input = input_from_path(matches.positional(0))?;
@@ -112,21 +115,21 @@ pub fn head(args: &[String]) -> Result<(), Error> {
 }
 
 pub fn tail(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("tail")
-        .options(TRUNCATED_READ_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("tail").options(TRUNCATED_READ_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         return Ok(());
     }
 
     if matches.positional_count() > 1 {
-        return Err(Error::invalid_argument("usage: stream tail [flags] [file | - ]\n
+        return Err(Error::invalid_argument(
+            "usage: stream tail [flags] [file | - ]\n
                                             flags:\n
                                             \t-n, --num-lines: number of lines to print (from the beginning)\n
                                             \t-N, --numbers:   print line numbers\n
-                                            \t-h, --help:      print this help text".into()));
+                                            \t-h, --help:      print this help text"
+                .into(),
+        ));
     }
 
     let input = input_from_path(matches.positional(0))?;
@@ -135,9 +138,7 @@ pub fn tail(args: &[String]) -> Result<(), Error> {
 
 fn parse_line_limit(raw: Option<&str>) -> Result<usize, Error> {
     match raw {
-        Some(nstr) => nstr
-            .parse::<usize>()
-            .map_err(|_| Error::invalid_argument("-n argument must be a number".into())),
+        Some(nstr) => nstr.parse::<usize>().map_err(|_| Error::invalid_argument("-n argument must be a number".into())),
         None => Ok(10),
     }
 }

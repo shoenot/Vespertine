@@ -5,20 +5,27 @@ extern crate alloc;
 mod launcher;
 mod meta;
 use alloc::format;
+
+use vespertine_abi::tag::{
+    CAP_LAUNCHER_EXEC,
+    CAP_LAUNCHER_GRANT,
+    CAP_LOGGER,
+};
 use vespertine_abi::{
-    AccessRights, ProcessInitPackage,
-    tag::{CAP_LAUNCHER_EXEC, CAP_LAUNCHER_GRANT, CAP_LOGGER},
+    AccessRights,
+    ProcessInitPackage,
 };
-use vespertine_rt::{
-    println,
-    syscall::sys_close,
-};
+use vespertine_rt::println;
+use vespertine_rt::syscall::sys_close;
+use vespertine_std::hesper::recv_hesper_request;
+use vespertine_std::log::SystemLog;
+use vespertine_std::proc::Waiter;
+use vespertine_std::socket::Socket;
 use vespertine_std::{
-    Error, Exec, Write, env,
-    hesper::recv_hesper_request,
-    log::SystemLog,
-    proc::Waiter,
-    socket::Socket,
+    Error,
+    Exec,
+    Write,
+    env,
 };
 
 use crate::launcher::handle_request;
@@ -48,11 +55,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
         .grant(CAP_LOGGER, AccessRights::WRITE)?
-        .grant_new(
-            launch_app.handle(),
-            CAP_LAUNCHER_EXEC,
-            AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE,
-        )?
+        .grant_new(launch_app.handle(), CAP_LAUNCHER_EXEC, AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE)?
         .grant_new(env::self_handle(), CAP_LAUNCHER_GRANT, AccessRights::MUTATE)?
         .spawn()?;
 

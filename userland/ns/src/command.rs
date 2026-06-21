@@ -1,26 +1,36 @@
 use alloc::string::String;
-use vespertine_abi::typed::{DATETIME_HAS_OFFSET, DateTimeValue, FileSizeValue, ValueType};
-use vespertine_cli::args::{Command, Opt};
+
+use vespertine_abi::typed::{
+    DATETIME_HAS_OFFSET,
+    DateTimeValue,
+    FileSizeValue,
+    ValueType,
+};
+use vespertine_cli::args::{
+    Command,
+    Opt,
+};
 use vespertine_rt::println;
-use vespertine_std::{
-    Error,
-    fs::{Dir, EntryKind, File, Path, PathBuf, stat},
-    typed::RecordStream,
-    typed::TypedValue,
+use vespertine_std::Error;
+use vespertine_std::fs::{
+    Dir,
+    EntryKind,
+    File,
+    Path,
+    PathBuf,
+    stat,
+};
+use vespertine_std::typed::{
+    RecordStream,
+    TypedValue,
 };
 
-static LIST_OPTIONS: &[Opt] = &[
-    Opt::flag("all", Some('a'), None),
-    Opt::flag("help", Some('h'), Some("help")),
-];
+static LIST_OPTIONS: &[Opt] = &[Opt::flag("all", Some('a'), None), Opt::flag("help", Some('h'), Some("help"))];
 
 const NS_DIR_ENTRY_SCHEMA: u64 = 1;
 
 pub fn list(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("list")
-        .options(LIST_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("list").options(LIST_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         println!("usage: ns list [flags] [dir]");
@@ -28,16 +38,10 @@ pub fn list(args: &[String]) -> Result<(), Error> {
     }
 
     if matches.positional_count() > 1 {
-        return Err(Error::invalid_argument(
-            "usage: ns list [flags] [dir]".into(),
-        ));
+        return Err(Error::invalid_argument("usage: ns list [flags] [dir]".into()));
     }
 
-    let dir_path = if let Some(path) = matches.positional(0) {
-        Path::new(path)
-    } else {
-        Path::new(".")
-    };
+    let dir_path = if let Some(path) = matches.positional(0) { Path::new(path) } else { Path::new(".") };
 
     let dir = Dir::open(&dir_path)?;
 
@@ -55,9 +59,7 @@ pub fn list(args: &[String]) -> Result<(), Error> {
         &["name"],
     )?;
 
-    out.table(&[
-        "name", "kind", "size", "owner", "mode", "created", "modified",
-    ])?;
+    out.table(&["name", "kind", "size", "owner", "mode", "created", "modified"])?;
 
     let mut dir_iter = dir.list()?;
 

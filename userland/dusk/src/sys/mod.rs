@@ -1,25 +1,42 @@
+use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::{
+    format,
+    vec,
+};
 use core::fmt::Display;
 
-use alloc::vec;
-use alloc::{format, string::String, vec::Vec};
+use vespertine_abi::tag::CAP_APP_TERMCTRL;
 use vespertine_abi::{
-    AccessRights, CapabilityID, HandleID, ProcessExitInfo, tag::CAP_APP_TERMCTRL,
+    AccessRights,
+    CapabilityID,
+    HandleID,
+    ProcessExitInfo,
 };
-
 use vespertine_rt::thread as rt_thread;
-
+use vespertine_std::fs::{
+    File,
+    Path,
+    PathBuf,
+};
+use vespertine_std::socket::Socket;
+use vespertine_std::term::unset_raw_mode;
+use vespertine_std::typed::render_typed_stream;
 use vespertine_std::{
-    Error, ErrorKind, Exec, HandleWriter, Process, Read, env,
-    fs::{File, Path, PathBuf},
-    socket::Socket,
-    term::unset_raw_mode,
-    typed::render_typed_stream,
+    Error,
+    ErrorKind,
+    Exec,
+    HandleWriter,
+    Process,
+    Read,
+    env,
 };
 
-use crate::{
-    parser::ast::{BaseNode, CommandNode},
-    runtime::env::ShellContext,
+use crate::parser::ast::{
+    BaseNode,
+    CommandNode,
 };
+use crate::runtime::env::ShellContext;
 
 #[derive(Debug, Clone)]
 pub enum ShellResult {
@@ -90,19 +107,11 @@ pub struct ProgramManifest {
 }
 
 impl ProgramManifest {
-    fn new() -> Self {
-        Self {
-            input: ProgramInput::Text,
-            output: ProgramOutput::Text,
-            grants: Vec::new(),
-        }
-    }
+    fn new() -> Self { Self { input: ProgramInput::Text, output: ProgramOutput::Text, grants: Vec::new() } }
 }
 
 impl Default for ProgramManifest {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 pub fn parse_manifest(p: &Path) -> Option<ProgramManifest> {
@@ -131,9 +140,7 @@ pub fn parse_manifest(p: &Path) -> Option<ProgramManifest> {
             },
             "grant" => match v.trim() {
                 "CAP_APP_TERMCTRL" => {
-                    manifest
-                        .grants
-                        .push((CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE));
+                    manifest.grants.push((CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE));
                 }
                 _ => {}
             },
@@ -157,16 +164,14 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
 
     match manifest.output {
         ProgramOutput::Direct | ProgramOutput::Text => {
-            let spawned =
-                match spawn_command(name, args, context, env::source(), CommandSink::Terminal) {
-                    Ok(s) => s,
-                    Err(r) => return r,
-                };
+            let spawned = match spawn_command(name, args, context, env::source(), CommandSink::Terminal) {
+                Ok(s) => s,
+                Err(r) => return r,
+            };
             wait_process(name, spawned.process)
         }
         ProgramOutput::Typed => {
-            let spawned = match spawn_command(name, args, context, env::source(), CommandSink::Pipe)
-            {
+            let spawned = match spawn_command(name, args, context, env::source(), CommandSink::Pipe) {
                 Ok(s) => s,
                 Err(r) => return r,
             };
@@ -202,13 +207,13 @@ fn wait_process(name: &str, proc: Process) -> ShellResult {
 }
 
 pub fn build_exec(name: &str, args: &[String], context: &ShellContext) -> Result<Exec, Error> {
-    let child_fs_rights = AccessRights::READ
-        | AccessRights::WRITE
-        | AccessRights::CREATE
-        | AccessRights::EXECUTE
-        | AccessRights::TRAVERSE
-        | AccessRights::REMOVE
-        | AccessRights::LIST;
+    let child_fs_rights = AccessRights::READ |
+        AccessRights::WRITE |
+        AccessRights::CREATE |
+        AccessRights::EXECUTE |
+        AccessRights::TRAVERSE |
+        AccessRights::REMOVE |
+        AccessRights::LIST;
 
     let exec = Exec::new(name.into())
         .source(env::source())
@@ -220,61 +225,34 @@ pub fn build_exec(name: &str, args: &[String], context: &ShellContext) -> Result
 }
 
 pub fn spawn_command(
-    name: &str,
-    args: &[String],
-    context: &ShellContext,
-    source: HandleID,
-    sink: CommandSink,
+    name: &str, args: &[String], context: &ShellContext, source: HandleID, sink: CommandSink,
 ) -> Result<SpawnedCommand, ShellResult> {
     let manifest = load_manifest(name).unwrap_or_default();
 
     if manifest.output == ProgramOutput::Direct && !matches!(sink, CommandSink::Terminal) {
-        return Err(ShellResult::FailedToLaunch(
-            name.into(),
-            Error::invalid_argument("direct program cannot be piped".into()),
-        ));
+        return Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("direct program cannot be piped".into())));
     }
 
     let mut exec = build_exec(name, args, context)
         .map_err(|e| {
-            if e.kind == ErrorKind::NotFound {
-                ShellResult::NotFound(name.into())
-            } else {
-                ShellResult::FailedToLaunch(name.into(), e)
-            }
+            if e.kind == ErrorKind::NotFound { ShellResult::NotFound(name.into()) } else { ShellResult::FailedToLaunch(name.into(), e) }
         })?
         .source(source);
 
     for grant in manifest.grants {
-        exec = exec
-            .grant(grant.0, grant.1)
-            .map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
+        exec = exec.grant(grant.0, grant.1).map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
     }
 
     match sink {
         CommandSink::Terminal => {
-            let process = exec
-                .sink(env::sink())
-                .spawn()
-                .map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
+            let process = exec.sink(env::sink()).spawn().map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
 
-            Ok(SpawnedCommand {
-                process,
-                output: SpawnedOutput::Terminal,
-            })
+            Ok(SpawnedCommand { process, output: SpawnedOutput::Terminal })
         }
         CommandSink::Pipe => {
-            let (process, socket) = exec
-                .spawn_piped_sink()
-                .map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
+            let (process, socket) = exec.spawn_piped_sink().map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
 
-            Ok(SpawnedCommand {
-                process,
-                output: SpawnedOutput::Piped {
-                    kind: manifest.output,
-                    socket,
-                },
-            })
+            Ok(SpawnedCommand { process, output: SpawnedOutput::Piped { kind: manifest.output, socket } })
         }
     }
 }
@@ -294,13 +272,8 @@ pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
 
     let render_result = match run.output {
         SpawnedOutput::Terminal => Ok(()),
-        SpawnedOutput::Piped {
-            kind: ProgramOutput::Typed,
-            socket,
-        } => render_typed_stream(socket, HandleWriter::new(env::sink())),
-        SpawnedOutput::Piped { .. } => Err(Error::invalid_argument(
-            "final pipeline node must be terminal-renderable".into(),
-        )),
+        SpawnedOutput::Piped { kind: ProgramOutput::Typed, socket } => render_typed_stream(socket, HandleWriter::new(env::sink())),
+        SpawnedOutput::Piped { .. } => Err(Error::invalid_argument("final pipeline node must be terminal-renderable".into())),
     };
 
     let mut final_result = ShellResult::None;
@@ -320,23 +293,14 @@ pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
     }
 }
 
-fn spawn_base(
-    base: &BaseNode,
-    context: &ShellContext,
-    source: HandleID,
-    sink: CommandSink,
-) -> Result<PipelineRun, ShellResult> {
+fn spawn_base(base: &BaseNode, context: &ShellContext, source: HandleID, sink: CommandSink) -> Result<PipelineRun, ShellResult> {
     match base {
         BaseNode::Cmd(cmd) => spawn_command_node(cmd, context, source, sink),
 
         BaseNode::Pipe(left, right) => {
             let left_run = spawn_base(left, context, source, CommandSink::Pipe)?;
 
-            let SpawnedOutput::Piped {
-                kind: left_kind,
-                socket: pipe_source,
-            } = left_run.output
-            else {
+            let SpawnedOutput::Piped { kind: left_kind, socket: pipe_source } = left_run.output else {
                 return Err(ShellResult::FailedToLaunch(
                     "pipeline".into(),
                     Error::invalid_argument("left side of pipe did not produce a socket".into()),
@@ -350,11 +314,8 @@ fn spawn_base(
             let mut adapter_sockets = left_run.adapter_sockets;
             let mut adapter_threads = left_run.adapter_threads;
 
-            let right_source = if left_kind == ProgramOutput::Typed
-                && right_input == Some(ProgramInput::Text)
-            {
-                let (text_rx, text_tx) = Socket::new_pair()
-                    .map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), e))?;
+            let right_source = if left_kind == ProgramOutput::Typed && right_input == Some(ProgramInput::Text) {
+                let (text_rx, text_tx) = Socket::new_pair().map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), e))?;
 
                 let source_socket = pipe_source;
                 let thread = rt_thread::spawn(move || {
@@ -377,28 +338,16 @@ fn spawn_base(
             adapter_sockets.extend(right_run.adapter_sockets);
             adapter_threads.extend(right_run.adapter_threads);
 
-            Ok(PipelineRun {
-                processes,
-                output: right_run.output,
-                adapter_sockets,
-                adapter_threads,
-            })
+            Ok(PipelineRun { processes, output: right_run.output, adapter_sockets, adapter_threads })
         }
     }
 }
 
-fn spawn_command_node(
-    cmd: &CommandNode,
-    context: &ShellContext,
-    source: HandleID,
-    sink: CommandSink,
-) -> Result<PipelineRun, ShellResult> {
+fn spawn_command_node(cmd: &CommandNode, context: &ShellContext, source: HandleID, sink: CommandSink) -> Result<PipelineRun, ShellResult> {
     let CommandNode::Run { exec, args } = cmd else {
         return Err(ShellResult::FailedToLaunch(
             "pipeline".into(),
-            Error::invalid_argument(
-                "only external commands are supported in pipelines for now".into(),
-            ),
+            Error::invalid_argument("only external commands are supported in pipelines for now".into()),
         ));
     };
 
@@ -428,26 +377,19 @@ fn check_pipe_compat(left_output: ProgramOutput, right: &BaseNode) -> Result<(),
     let accepted = match input {
         ProgramInput::Any => true,
         ProgramInput::Typed => left_output == ProgramOutput::Typed,
-        ProgramInput::Text => {
-            left_output == ProgramOutput::Text || left_output == ProgramOutput::Typed
-        }
+        ProgramInput::Text => left_output == ProgramOutput::Text || left_output == ProgramOutput::Typed,
     };
 
     if accepted {
         Ok(())
     } else {
-        Err(ShellResult::FailedToLaunch(
-            "pipeline".into(),
-            Error::invalid_argument("pipeline type mismatch".into()),
-        ))
+        Err(ShellResult::FailedToLaunch("pipeline".into(), Error::invalid_argument("pipeline type mismatch".into())))
     }
 }
 
 fn first_input_mode(node: &BaseNode) -> Option<ProgramInput> {
     match node {
-        BaseNode::Cmd(CommandNode::Run { exec, .. }) => {
-            Some(load_manifest(exec.as_str()).unwrap_or_default().input)
-        }
+        BaseNode::Cmd(CommandNode::Run { exec, .. }) => Some(load_manifest(exec.as_str()).unwrap_or_default().input),
         BaseNode::Pipe(left, _) => first_input_mode(left),
         _ => None,
     }

@@ -1,4 +1,7 @@
-use crate::{HandleID, define_bitflags};
+use crate::{
+    HandleID,
+    define_bitflags,
+};
 
 define_bitflags! {
     pub struct Signal(u32) {

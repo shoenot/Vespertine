@@ -1,15 +1,37 @@
 use core::fmt::Display;
 use core::ptr::copy_nonoverlapping;
 
-use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
-use vespertine_abi::{AccessRights, FileStat};
-use vespertine_abi::{DirectoryOp, HandleID, Invocation, protocol::PacketHeader};
-use vespertine_rt::syscall::{sys_close, sys_create_dir, sys_invoke, sys_stat, sys_unlink};
+use vespertine_abi::protocol::{
+    AbiDirEntry,
+    PacketFlags,
+    PacketHeader,
+    VESPER_MAGIC,
+};
+use vespertine_abi::{
+    AccessRights,
+    DirectoryOp,
+    FileStat,
+    HandleID,
+    Invocation,
+};
+use vespertine_rt::syscall::{
+    sys_close,
+    sys_create_dir,
+    sys_invoke,
+    sys_stat,
+    sys_unlink,
+};
 
-use crate::Read;
-use crate::fs::{Path, split_parent_name};
+use crate::fs::{
+    Path,
+    resolve,
+    split_parent_name,
+};
 use crate::socket::Socket;
-use crate::{Error, fs::resolve};
+use crate::{
+    Error,
+    Read,
+};
 
 extern crate alloc;
 
@@ -34,9 +56,7 @@ impl Display for DirEntry {
 }
 
 impl PartialEq<&str> for DirEntry {
-    fn eq(&self, other: &&str) -> bool {
-        self.name == *other
-    }
+    fn eq(&self, other: &&str) -> bool { self.name == *other }
 }
 
 #[repr(C)]
@@ -98,24 +118,14 @@ impl Iterator for ReadDir {
             }
         }
 
-        let mut header = PacketHeader {
-            magic: 0,
-            version: 0,
-            packet_flags: PacketFlags::new(),
-            packet_type: 0,
-            payload_len: 0,
-            reserved: 0,
-        };
+        let mut header =
+            PacketHeader { magic: 0, version: 0, packet_flags: PacketFlags::new(), packet_type: 0, payload_len: 0, reserved: 0 };
 
         // read header
         let header_len = size_of::<PacketHeader>();
 
         unsafe {
-            copy_nonoverlapping(
-                self.buffer.as_ptr().add(self.cursor),
-                &mut header as *mut _ as *mut u8,
-                header_len,
-            );
+            copy_nonoverlapping(self.buffer.as_ptr().add(self.cursor), &mut header as *mut _ as *mut u8, header_len);
         }
         self.cursor += header_len;
 
@@ -126,18 +136,10 @@ impl Iterator for ReadDir {
         }
 
         // read payload
-        let mut entry = AbiDirEntry {
-            entry_type: 0,
-            name_len: 0,
-            name: [0u8; 254],
-        };
+        let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0u8; 254] };
         let entry_len = size_of::<AbiDirEntry>();
         unsafe {
-            copy_nonoverlapping(
-                self.buffer.as_ptr().add(self.cursor),
-                &mut entry as *mut _ as *mut u8,
-                entry_len,
-            );
+            copy_nonoverlapping(self.buffer.as_ptr().add(self.cursor), &mut entry as *mut _ as *mut u8, entry_len);
         }
         self.cursor += entry_len;
 
@@ -159,57 +161,34 @@ impl Iterator for ReadDir {
 }
 
 impl Dir {
-    pub fn open(path: &Path<'_>) -> Result<Self, Error> {
-        Self::open_with_rights(path, AccessRights::LIST | AccessRights::TRAVERSE)
-    }
+    pub fn open(path: &Path<'_>) -> Result<Self, Error> { Self::open_with_rights(path, AccessRights::LIST | AccessRights::TRAVERSE) }
 
-    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> {
-        resolve(path, rights).map(Dir)
-    }
+    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> { resolve(path, rights).map(Dir) }
 
-    pub fn handle(&self) -> HandleID {
-        self.0
-    }
+    pub fn handle(&self) -> HandleID { self.0 }
 
-    pub fn from_handle(handle: HandleID) -> Self {
-        Dir(handle)
-    }
+    pub fn from_handle(handle: HandleID) -> Self { Dir(handle) }
 
     pub fn list(&self) -> Result<ReadDir, Error> {
         let (read_end, write_end) = Socket::new_pair()?;
 
-        let op = DirectoryOp::List {
-            offset: 0,
-            sink: write_end.handle(),
-        };
+        let op = DirectoryOp::List { offset: 0, sink: write_end.handle() };
 
         sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
 
         write_end.close();
 
-        Ok(ReadDir {
-            read_end,
-            finished: false,
-            buffer: [0u8; 4096],
-            cursor: 0,
-            limit: 0,
-        })
+        Ok(ReadDir { read_end, finished: false, buffer: [0u8; 4096], cursor: 0, limit: 0 })
     }
 
     pub fn subdir(&self, name: &str) -> Result<Dir, Error> {
-        let op = DirectoryOp::Lookup {
-            name: name.as_ptr() as usize,
-            name_len: name.len(),
-        };
+        let op = DirectoryOp::Lookup { name: name.as_ptr() as usize, name_len: name.len() };
         let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         Ok(Dir::from_handle(HandleID(handle)))
     }
 
     pub fn lookup(&self, name: &str) -> Result<HandleID, Error> {
-        let op = DirectoryOp::Lookup {
-            name: name.as_ptr() as usize,
-            name_len: name.len(),
-        };
+        let op = DirectoryOp::Lookup { name: name.as_ptr() as usize, name_len: name.len() };
         let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         Ok(HandleID(handle))
     }
@@ -238,7 +217,5 @@ impl Dir {
 }
 
 impl Drop for Dir {
-    fn drop(&mut self) {
-        let _ = sys_close(self.0);
-    }
+    fn drop(&mut self) { let _ = sys_close(self.0); }
 }

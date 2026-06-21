@@ -1,15 +1,19 @@
 use core::mem::forget;
 
-use vespertine_abi::{app::termios::*, protocol::PacketType, tag::CAP_APP_TERMCTRL};
+use vespertine_abi::app::termios::*;
+use vespertine_abi::protocol::PacketType;
+use vespertine_abi::tag::CAP_APP_TERMCTRL;
 
-use crate::{Error, ErrorKind, env, socket::Socket};
+use crate::socket::Socket;
+use crate::{
+    Error,
+    ErrorKind,
+    env,
+};
 
 fn get_ctrl_sock() -> Result<Socket, Error> {
     let term = env::capability(CAP_APP_TERMCTRL)
-        .ok_or(Error {
-            kind: ErrorKind::NotFound,
-            message: "Terminal control socket not found".into(),
-        })?
+        .ok_or(Error { kind: ErrorKind::NotFound, message: "Terminal control socket not found".into() })?
         .id;
     Ok(Socket::from_handle(term))
 }
@@ -40,10 +44,7 @@ pub fn get_termsize() -> Result<(usize, usize), Error> {
 
 pub fn get_term_cursor_position() -> Result<(usize, usize), Error> {
     let sock = get_ctrl_sock()?;
-    sock.send_packet(
-        PacketType::TermCommand as u32,
-        &TermCommand::GetCursorPosition,
-    )?;
+    sock.send_packet(PacketType::TermCommand as u32, &TermCommand::GetCursorPosition)?;
     let (_, (row, column)) = sock.recv_packet::<(usize, usize)>()?;
     forget(sock);
     Ok((row, column))

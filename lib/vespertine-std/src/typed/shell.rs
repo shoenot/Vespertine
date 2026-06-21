@@ -1,31 +1,51 @@
-use core::{ptr::read_unaligned, slice, str};
+use core::ptr::read_unaligned;
+use core::{
+    slice,
+    str,
+};
 extern crate alloc;
-use crate::{Error, ErrorKind, HandleWriter, Read, Write, env, typed::TypedValue};
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_abi::{
-    protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC},
-    typed::{
-        DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX,
-        RECORD_PRESENTATION_DEFAULT, RECORD_PRESENTATION_TABLE, RecordField,
-        RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, TimeValue, ValueHeader,
-        ValueType,
-    },
+
+use vespertine_abi::protocol::{
+    PacketFlags,
+    PacketHeader,
+    PacketType,
+    VESPER_MAGIC,
+};
+use vespertine_abi::typed::{
+    DateTimeValue,
+    DateValue,
+    FileSizeValue,
+    ListHeader,
+    RECORD_FIELD_NAME_MAX,
+    RECORD_PRESENTATION_DEFAULT,
+    RECORD_PRESENTATION_TABLE,
+    RecordField,
+    RecordPresentationHeader,
+    RecordSchemaHeader,
+    RecordValueHeader,
+    TimeValue,
+    ValueHeader,
+    ValueType,
+};
+
+use crate::typed::TypedValue;
+use crate::{
+    Error,
+    ErrorKind,
+    HandleWriter,
+    Read,
+    Write,
+    env,
 };
 
 #[derive(Debug, Clone)]
 pub enum ShellValue {
     Value(TypedValue),
-    RecordSchema {
-        schema_id: u64,
-        fields: Vec<RecordFieldInfo>,
-    },
-    RecordPresentation {
-        schema_id: u64,
-        presentation: u16,
-        fields: Vec<u16>,
-    },
+    RecordSchema { schema_id: u64, fields: Vec<RecordFieldInfo> },
+    RecordPresentation { schema_id: u64, presentation: u16, fields: Vec<u16> },
     StreamEnd,
     Error(String),
 }
@@ -49,9 +69,7 @@ pub struct TypedWriter<W> {
 }
 
 impl<W: Write> TypedWriter<W> {
-    pub fn new(sink: W) -> Self {
-        Self { sink }
-    }
+    pub fn new(sink: W) -> Self { Self { sink } }
 
     pub fn stream_end(&self) -> Result<(), Error> {
         let packet = PacketHeader {
@@ -66,16 +84,9 @@ impl<W: Write> TypedWriter<W> {
         self.write_struct(&packet)
     }
 
-    pub fn record_presentation(
-        &self,
-        schema_id: u64,
-        presentation: u16,
-        fields: &[u16],
-    ) -> Result<(), Error> {
+    pub fn record_presentation(&self, schema_id: u64, presentation: u16, fields: &[u16]) -> Result<(), Error> {
         if fields.len() > u16::MAX as usize {
-            return Err(Error::invalid_argument(
-                "too many presentation fields".into(),
-            ));
+            return Err(Error::invalid_argument("too many presentation fields".into()));
         }
 
         let payload_len = size_of::<RecordPresentationHeader>() + fields.len() * size_of::<u16>();
@@ -89,12 +100,7 @@ impl<W: Write> TypedWriter<W> {
             reserved: 0,
         };
 
-        let header = RecordPresentationHeader {
-            schema_id,
-            presentation,
-            field_count: fields.len() as u16,
-            reserved: 0,
-        };
+        let header = RecordPresentationHeader { schema_id, presentation, field_count: fields.len() as u16, reserved: 0 };
 
         self.write_struct(&packet)?;
         self.write_struct(&header)?;
@@ -107,8 +113,7 @@ impl<W: Write> TypedWriter<W> {
     }
 
     fn write_struct<T: Copy>(&self, value: &T) -> Result<(), Error> {
-        let bytes =
-            unsafe { slice::from_raw_parts(value as *const _ as *const u8, size_of::<T>()) };
+        let bytes = unsafe { slice::from_raw_parts(value as *const _ as *const u8, size_of::<T>()) };
         self.sink.write_all(bytes)
     }
 
@@ -145,11 +150,7 @@ impl<W: Write> TypedWriter<W> {
             reserved: 0,
         };
 
-        let header = RecordSchemaHeader {
-            schema_id,
-            field_count: fields.len() as u16,
-            reserved: 0,
-        };
+        let header = RecordSchemaHeader { schema_id, field_count: fields.len() as u16, reserved: 0 };
 
         self.write_struct(&packet)?;
         self.write_struct(&header)?;
@@ -159,12 +160,8 @@ impl<W: Write> TypedWriter<W> {
                 return Err(Error::name_too_long("record field name too long".into()));
             }
 
-            let mut field = RecordField {
-                value_type: value_type.as_u16(),
-                name_len: name.len() as u8,
-                reserved: 0,
-                name: [0; RECORD_FIELD_NAME_MAX],
-            };
+            let mut field =
+                RecordField { value_type: value_type.as_u16(), name_len: name.len() as u8, reserved: 0, name: [0; RECORD_FIELD_NAME_MAX] };
 
             field.name[..name.len()].copy_from_slice(name.as_bytes());
             self.write_struct(&field)?;
@@ -189,8 +186,7 @@ impl<W: Write> TypedWriter<W> {
 }
 
 fn push_struct<T: Copy>(out: &mut Vec<u8>, value: &T) {
-    let bytes =
-        unsafe { core::slice::from_raw_parts(value as *const _ as *const u8, size_of::<T>()) };
+    let bytes = unsafe { core::slice::from_raw_parts(value as *const _ as *const u8, size_of::<T>()) };
     out.extend_from_slice(bytes);
 }
 
@@ -230,19 +226,12 @@ fn encode_value(value: &TypedValue, out: &mut Vec<u8>) -> Result<(), Error> {
             push_struct(&mut payload, v);
             ValueType::FileSize
         }
-        TypedValue::List {
-            element_type,
-            items,
-        } => {
+        TypedValue::List { element_type, items } => {
             for item in items {
                 encode_value(item, &mut payload)?;
             }
-            let header = ListHeader {
-                element_type: element_type.as_u16(),
-                flags: 0,
-                count: items.len() as u32,
-                payload_len: payload.len() as u32,
-            };
+            let header =
+                ListHeader { element_type: element_type.as_u16(), flags: 0, count: items.len() as u32, payload_len: payload.len() as u32 };
             let mut wrapped = Vec::new();
             push_struct(&mut wrapped, &header);
             wrapped.extend_from_slice(&payload);
@@ -253,12 +242,8 @@ fn encode_value(value: &TypedValue, out: &mut Vec<u8>) -> Result<(), Error> {
             for field in fields {
                 encode_value(field, &mut payload)?;
             }
-            let header = RecordValueHeader {
-                schema_id: *schema_id,
-                field_count: fields.len() as u16,
-                flags: 0,
-                payload_len: payload.len() as u32,
-            };
+            let header =
+                RecordValueHeader { schema_id: *schema_id, field_count: fields.len() as u16, flags: 0, payload_len: payload.len() as u32 };
             let mut wrapped = Vec::new();
             push_struct(&mut wrapped, &header);
             wrapped.extend_from_slice(&payload);
@@ -267,11 +252,7 @@ fn encode_value(value: &TypedValue, out: &mut Vec<u8>) -> Result<(), Error> {
         }
     };
 
-    let header = ValueHeader {
-        value_type: ty.as_u16(),
-        flags: 0,
-        payload_len: payload.len() as u32,
-    };
+    let header = ValueHeader { value_type: ty.as_u16(), flags: 0, payload_len: payload.len() as u32 };
 
     push_struct(out, &header);
     out.extend_from_slice(&payload);
@@ -283,9 +264,7 @@ pub struct TypedReader<R> {
 }
 
 impl<R: Read> TypedReader<R> {
-    pub fn new(source: R) -> Self {
-        Self { source }
-    }
+    pub fn new(source: R) -> Self { Self { source } }
 
     pub fn next_value(&self) -> Result<Option<ShellValue>, Error> {
         let mut header = PacketHeader::default();
@@ -302,9 +281,7 @@ impl<R: Read> TypedReader<R> {
 
         match header.packet_type {
             x if x == PacketType::RecordSchema as u32 => Ok(Some(self.read_record_schema()?)),
-            x if x == PacketType::RecordPresentation as u32 => {
-                Ok(Some(self.read_record_presentation()?))
-            }
+            x if x == PacketType::RecordPresentation as u32 => Ok(Some(self.read_record_presentation()?)),
             x if x == PacketType::Value as u32 => {
                 let mut payload = Vec::new();
                 payload.resize(header.payload_len as usize, 0);
@@ -317,9 +294,7 @@ impl<R: Read> TypedReader<R> {
             }
             x if x == PacketType::StreamEnd as u32 => {
                 if header.payload_len != 0 {
-                    return Err(Error::invalid_argument(
-                        "stream_end packet had payload".into(),
-                    ));
+                    return Err(Error::invalid_argument("stream_end packet had payload".into()));
                 }
                 Ok(Some(ShellValue::StreamEnd))
             }
@@ -332,56 +307,35 @@ impl<R: Read> TypedReader<R> {
     }
 
     fn read_record_schema(&self) -> Result<ShellValue, Error> {
-        let mut header = RecordSchemaHeader {
-            schema_id: 0,
-            field_count: 0,
-            reserved: 0,
-        };
+        let mut header = RecordSchemaHeader { schema_id: 0, field_count: 0, reserved: 0 };
         self.read_struct(&mut header)?;
 
         let mut fields = Vec::new();
 
         for _ in 0..header.field_count {
-            let mut field = RecordField {
-                value_type: ValueType::String.as_u16(),
-                name_len: 0,
-                reserved: 0,
-                name: [0; RECORD_FIELD_NAME_MAX],
-            };
+            let mut field =
+                RecordField { value_type: ValueType::String.as_u16(), name_len: 0, reserved: 0, name: [0; RECORD_FIELD_NAME_MAX] };
             self.read_struct(&mut field)?;
 
             let name_len = field.name_len as usize;
             if name_len > RECORD_FIELD_NAME_MAX {
-                return Err(Error::invalid_argument(
-                    "invalid record field name length".into(),
-                ));
+                return Err(Error::invalid_argument("invalid record field name length".into()));
             }
 
             let name = str::from_utf8(&field.name[..name_len])
                 .map_err(|_| Error::invalid_argument("record field name was not utf-8".into()))?
                 .into();
 
-            let value_type = ValueType::from_u16(field.value_type)
-                .ok_or_else(|| Error::invalid_argument("unknown record field type".into()))?;
-            fields.push(RecordFieldInfo {
-                name,
-                ty: value_type,
-            });
+            let value_type =
+                ValueType::from_u16(field.value_type).ok_or_else(|| Error::invalid_argument("unknown record field type".into()))?;
+            fields.push(RecordFieldInfo { name, ty: value_type });
         }
 
-        Ok(ShellValue::RecordSchema {
-            schema_id: header.schema_id,
-            fields,
-        })
+        Ok(ShellValue::RecordSchema { schema_id: header.schema_id, fields })
     }
 
     fn read_record_presentation(&self) -> Result<ShellValue, Error> {
-        let mut header = RecordPresentationHeader {
-            schema_id: 0,
-            presentation: 0,
-            field_count: 0,
-            reserved: 0,
-        };
+        let mut header = RecordPresentationHeader { schema_id: 0, presentation: 0, field_count: 0, reserved: 0 };
 
         self.read_struct(&mut header)?;
 
@@ -393,11 +347,7 @@ impl<R: Read> TypedReader<R> {
             fields.push(field);
         }
 
-        Ok(ShellValue::RecordPresentation {
-            schema_id: header.schema_id,
-            presentation: header.presentation,
-            fields,
-        })
+        Ok(ShellValue::RecordPresentation { schema_id: header.schema_id, presentation: header.presentation, fields })
     }
 
     fn read_string(&self, len: u32) -> Result<String, Error> {
@@ -406,13 +356,11 @@ impl<R: Read> TypedReader<R> {
 
         self.source.read_exact(&mut buf)?;
 
-        String::from_utf8(buf)
-            .map_err(|_| Error::invalid_argument("typed string was not utf-8".into()))
+        String::from_utf8(buf).map_err(|_| Error::invalid_argument("typed string was not utf-8".into()))
     }
 
     fn read_struct<T: Copy>(&self, value: &mut T) -> Result<(), Error> {
-        let bytes =
-            unsafe { slice::from_raw_parts_mut(value as *mut _ as *mut u8, size_of::<T>()) };
+        let bytes = unsafe { slice::from_raw_parts_mut(value as *mut _ as *mut u8, size_of::<T>()) };
 
         self.source.read_exact(bytes)
     }
@@ -433,13 +381,11 @@ fn decode_value(buf: &[u8]) -> Result<(TypedValue, usize), Error> {
 
     let payload = &buf[start..end];
 
-    let value_type = ValueType::from_u16(header.value_type)
-        .ok_or_else(|| Error::invalid_argument("unknown value type".into()))?;
+    let value_type = ValueType::from_u16(header.value_type).ok_or_else(|| Error::invalid_argument("unknown value type".into()))?;
 
     let value = match value_type {
         ValueType::String => TypedValue::String(
-            String::from_utf8(payload.to_vec())
-                .map_err(|_| Error::invalid_argument("typed string was not utf-8".into()))?,
+            String::from_utf8(payload.to_vec()).map_err(|_| Error::invalid_argument("typed string was not utf-8".into()))?,
         ),
         ValueType::Integer => read_copy::<i128>(payload).map(TypedValue::Integer)?,
         ValueType::Float => read_copy::<f64>(payload).map(TypedValue::Float)?,
@@ -462,9 +408,7 @@ fn decode_value(buf: &[u8]) -> Result<(TypedValue, usize), Error> {
 
 fn read_copy<T: Copy>(buf: &[u8]) -> Result<T, Error> {
     if buf.len() != size_of::<T>() {
-        return Err(Error::invalid_argument(
-            "typed payload size mismatch".into(),
-        ));
+        return Err(Error::invalid_argument("typed payload size mismatch".into()));
     }
     Ok(unsafe { read_unaligned(buf.as_ptr() as *const T) })
 }
@@ -474,9 +418,7 @@ fn decode_list(payload: &[u8]) -> Result<TypedValue, Error> {
     let mut offset = size_of::<ListHeader>();
     let end = offset + header.payload_len as usize;
     if end > payload.len() {
-        return Err(Error::invalid_argument(
-            "typed list payload was truncated".into(),
-        ));
+        return Err(Error::invalid_argument("typed list payload was truncated".into()));
     }
     let mut items = Vec::new();
 
@@ -486,13 +428,10 @@ fn decode_list(payload: &[u8]) -> Result<TypedValue, Error> {
         items.push(item);
     }
 
-    let element_type = ValueType::from_u16(header.element_type)
-        .ok_or_else(|| Error::invalid_argument("unknown list element type".into()))?;
+    let element_type =
+        ValueType::from_u16(header.element_type).ok_or_else(|| Error::invalid_argument("unknown list element type".into()))?;
 
-    Ok(TypedValue::List {
-        element_type,
-        items,
-    })
+    Ok(TypedValue::List { element_type, items })
 }
 
 fn decode_record(payload: &[u8]) -> Result<TypedValue, Error> {
@@ -500,9 +439,7 @@ fn decode_record(payload: &[u8]) -> Result<TypedValue, Error> {
     let mut offset = size_of::<RecordValueHeader>();
     let end = offset + header.payload_len as usize;
     if end > payload.len() {
-        return Err(Error::invalid_argument(
-            "typed record payload was truncated".into(),
-        ));
+        return Err(Error::invalid_argument("typed record payload was truncated".into()));
     }
     let mut fields = Vec::new();
 
@@ -512,17 +449,12 @@ fn decode_record(payload: &[u8]) -> Result<TypedValue, Error> {
         fields.push(field);
     }
 
-    Ok(TypedValue::Record {
-        schema_id: header.schema_id,
-        fields,
-    })
+    Ok(TypedValue::Record { schema_id: header.schema_id, fields })
 }
 
 fn read_prefix<T: Copy>(buf: &[u8]) -> Result<T, Error> {
     if buf.len() < size_of::<T>() {
-        return Err(Error::invalid_argument(
-            "typed payload header too short".into(),
-        ));
+        return Err(Error::invalid_argument("typed payload header too short".into()));
     }
     Ok(unsafe { read_unaligned(buf.as_ptr() as *const T) })
 }
@@ -535,14 +467,7 @@ pub struct TerminalRenderer<W> {
 }
 
 impl<W: Write> TerminalRenderer<W> {
-    pub fn new(out: W) -> Self {
-        Self {
-            out,
-            schemas: BTreeMap::new(),
-            presentations: BTreeMap::new(),
-            needs_separator: false,
-        }
-    }
+    pub fn new(out: W) -> Self { Self { out, schemas: BTreeMap::new(), presentations: BTreeMap::new(), needs_separator: false } }
 
     fn begin_visible_value(&mut self) -> Result<(), Error> {
         if self.needs_separator {
@@ -559,11 +484,7 @@ impl<W: Write> TerminalRenderer<W> {
                 self.schemas.insert(schema_id, fields);
                 Ok(())
             }
-            ShellValue::RecordPresentation {
-                schema_id,
-                presentation,
-                fields,
-            } => {
+            ShellValue::RecordPresentation { schema_id, presentation, fields } => {
                 self.presentations.insert((schema_id, presentation), fields);
                 Ok(())
             }
@@ -589,10 +510,7 @@ impl<W: Write> TerminalRenderer<W> {
     }
 
     fn render_record(&mut self, schema_id: u64, values: &[TypedValue]) -> Result<(), Error> {
-        if let Some(fields) = self
-            .presentations
-            .get(&(schema_id, RECORD_PRESENTATION_DEFAULT))
-        {
+        if let Some(fields) = self.presentations.get(&(schema_id, RECORD_PRESENTATION_DEFAULT)) {
             let mut printed = false;
 
             for field in fields {
@@ -635,9 +553,7 @@ pub fn render_typed_stream<R: Read, W: Write>(source: R, sink: W) -> Result<(), 
 }
 
 impl TypedWriter<HandleWriter> {
-    pub fn out() -> Self {
-        Self::new(HandleWriter::new(env::sink()))
-    }
+    pub fn out() -> Self { Self::new(HandleWriter::new(env::sink())) }
 }
 
 pub struct RecordStream<W> {
@@ -648,15 +564,9 @@ pub struct RecordStream<W> {
 }
 
 impl RecordStream<HandleWriter> {
-    pub fn out(schema_id: u64, fields: &[&str]) -> Result<Self, Error> {
-        Self::new(TypedWriter::out(), schema_id, fields)
-    }
+    pub fn out(schema_id: u64, fields: &[&str]) -> Result<Self, Error> { Self::new(TypedWriter::out(), schema_id, fields) }
 
-    pub fn default_out(
-        schema_id: u64,
-        fields: &[&str],
-        default_fields: &[&str],
-    ) -> Result<Self, Error> {
+    pub fn default_out(schema_id: u64, fields: &[&str], default_fields: &[&str]) -> Result<Self, Error> {
         let stream = Self::out(schema_id, fields)?;
         stream.default(default_fields)?;
         Ok(stream)
@@ -666,11 +576,7 @@ impl RecordStream<HandleWriter> {
         Self::new_typed(TypedWriter::out(), schema_id, fields)
     }
 
-    pub fn typed_default_out(
-        schema_id: u64,
-        fields: &[(&str, ValueType)],
-        default_fields: &[&str],
-    ) -> Result<Self, Error> {
+    pub fn typed_default_out(schema_id: u64, fields: &[(&str, ValueType)], default_fields: &[&str]) -> Result<Self, Error> {
         let stream = Self::typed_out(schema_id, fields)?;
         stream.default(default_fields)?;
         Ok(stream)
@@ -679,55 +585,31 @@ impl RecordStream<HandleWriter> {
 
 impl<W: Write> RecordStream<W> {
     pub fn new(writer: TypedWriter<W>, schema_id: u64, fields: &[&str]) -> Result<Self, Error> {
-        let specs = fields
-            .iter()
-            .map(|field| (*field, ValueType::String))
-            .collect::<Vec<_>>();
+        let specs = fields.iter().map(|field| (*field, ValueType::String)).collect::<Vec<_>>();
 
         Self::new_typed(writer, schema_id, &specs)
     }
 
-    pub fn new_typed(
-        writer: TypedWriter<W>,
-        schema_id: u64,
-        fields: &[(&str, ValueType)],
-    ) -> Result<Self, Error> {
+    pub fn new_typed(writer: TypedWriter<W>, schema_id: u64, fields: &[(&str, ValueType)]) -> Result<Self, Error> {
         writer.record_schema(schema_id, fields)?;
 
-        Ok(Self {
-            writer,
-            schema_id,
-            fields: fields.iter().map(|(name, _)| String::from(*name)).collect(),
-            finished: false,
-        })
+        Ok(Self { writer, schema_id, fields: fields.iter().map(|(name, _)| String::from(*name)).collect(), finished: false })
     }
 
-    pub fn default(&self, fields: &[&str]) -> Result<(), Error> {
-        self.presentation(RECORD_PRESENTATION_DEFAULT, fields)
-    }
+    pub fn default(&self, fields: &[&str]) -> Result<(), Error> { self.presentation(RECORD_PRESENTATION_DEFAULT, fields) }
 
-    pub fn table(&self, fields: &[&str]) -> Result<(), Error> {
-        self.presentation(RECORD_PRESENTATION_TABLE, fields)
-    }
+    pub fn table(&self, fields: &[&str]) -> Result<(), Error> { self.presentation(RECORD_PRESENTATION_TABLE, fields) }
 
     pub fn row_values(&self, values: &[TypedValue]) -> Result<(), Error> {
         if values.len() != self.fields.len() {
-            return Err(Error::invalid_argument(
-                "record row has wrong field count".into(),
-            ));
+            return Err(Error::invalid_argument("record row has wrong field count".into()));
         }
 
-        self.writer.value(&TypedValue::Record {
-            schema_id: self.schema_id,
-            fields: values.to_vec(),
-        })
+        self.writer.value(&TypedValue::Record { schema_id: self.schema_id, fields: values.to_vec() })
     }
 
     pub fn row(&self, values: &[&str]) -> Result<(), Error> {
-        let values = values
-            .iter()
-            .map(|value| TypedValue::String(String::from(*value)))
-            .collect::<Vec<_>>();
+        let values = values.iter().map(|value| TypedValue::String(String::from(*value))).collect::<Vec<_>>();
         self.row_values(&values)
     }
 
@@ -744,13 +626,10 @@ impl<W: Write> RecordStream<W> {
 
         for field in fields {
             let Some(idx) = self.fields.iter().position(|known| known == field) else {
-                return Err(Error::invalid_argument(
-                    "unknown record presentation format".into(),
-                ));
+                return Err(Error::invalid_argument("unknown record presentation format".into()));
             };
             indices.push(idx as u16);
         }
-        self.writer
-            .record_presentation(self.schema_id, presentation, &indices)
+        self.writer.record_presentation(self.schema_id, presentation, &indices)
     }
 }

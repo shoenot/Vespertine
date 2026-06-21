@@ -1,8 +1,13 @@
 use core::fmt;
 
-use vespertine_abi::{FileOp, HandleID, Invocation};
+use vespertine_abi::{
+    FileOp,
+    HandleID,
+    Invocation,
+};
 
-use crate::{get_init_pkg, syscall::sys_invoke};
+use crate::get_init_pkg;
+use crate::syscall::sys_invoke;
 
 pub struct SinkWriter {
     buf: [u8; 1024],
@@ -10,12 +15,7 @@ pub struct SinkWriter {
 }
 
 impl SinkWriter {
-    pub const fn new() -> Self {
-        Self {
-            buf: [0u8; 1024],
-            pos: 0,
-        }
-    }
+    pub const fn new() -> Self { Self { buf: [0u8; 1024], pos: 0 } }
 
     fn flush(&mut self) {
         if self.pos == 0 {
@@ -23,17 +23,9 @@ impl SinkWriter {
         }
 
         let pkg = get_init_pkg();
-        let handle = if pkg.is_null() {
-            HandleID(3)
-        } else {
-            unsafe { (*pkg).sink_handle }
-        };
+        let handle = if pkg.is_null() { HandleID(3) } else { unsafe { (*pkg).sink_handle } };
 
-        let op = FileOp::Write {
-            offset: 0,
-            buffer_ptr: self.buf.as_ptr() as *mut u8 as usize,
-            len: self.pos,
-        };
+        let op = FileOp::Write { offset: 0, buffer_ptr: self.buf.as_ptr() as *mut u8 as usize, len: self.pos };
         let _ = sys_invoke(handle, &Invocation::File(op));
         self.pos = 0;
     }
@@ -59,9 +51,7 @@ impl fmt::Write for SinkWriter {
 }
 
 impl Drop for SinkWriter {
-    fn drop(&mut self) {
-        self.flush();
-    }
+    fn drop(&mut self) { self.flush(); }
 }
 
 #[macro_export]

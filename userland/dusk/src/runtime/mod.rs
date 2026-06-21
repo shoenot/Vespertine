@@ -1,44 +1,55 @@
 pub mod env;
-use core::sync::atomic::{AtomicU32, Ordering};
+use alloc::string::{
+    String,
+    ToString,
+};
+use core::sync::atomic::{
+    AtomicU32,
+    Ordering,
+};
 
-use alloc::string::{String, ToString};
 use vespertine_abi::app::hesper::HESPER_STATUS_OK;
 use vespertine_abi::tag::CAP_LAUNCHER_EXEC;
-use vespertine_rt::{print, println};
+use vespertine_rt::{
+    print,
+    println,
+};
 use vespertine_std::hesper::{
-    AppMetadataResponse, HesperResponse, recv_hesper_response, send_app_metadata_request,
+    AppMetadataResponse,
+    HesperResponse,
+    recv_hesper_response,
+    send_app_metadata_request,
 };
 use vespertine_std::socket::Socket;
-use vespertine_std::{Error, term};
+use vespertine_std::{
+    Error,
+    term,
+};
 
-use crate::sys::launch_base;
-use crate::{
-    error::ShellError,
-    lexer::Tokenizer,
-    parser::{
-        Parser,
-        ast::{BaseNode, CommandNode},
-    },
-    runtime::env::ShellContext,
-    sys::{ShellResult, launch_command},
+use crate::error::ShellError;
+use crate::lexer::Tokenizer;
+use crate::parser::Parser;
+use crate::parser::ast::{
+    BaseNode,
+    CommandNode,
+};
+use crate::runtime::env::ShellContext;
+use crate::sys::{
+    ShellResult,
+    launch_base,
+    launch_command,
 };
 
 static NEXT_HESPER_REQUEST: AtomicU32 = AtomicU32::new(1);
 
-fn next_hesper_request_id() -> u32 {
-    NEXT_HESPER_REQUEST.fetch_add(1, Ordering::Relaxed)
-}
+fn next_hesper_request_id() -> u32 { NEXT_HESPER_REQUEST.fetch_add(1, Ordering::Relaxed) }
 
 pub struct ShellRuntime {
     pub context: ShellContext,
 }
 
 impl ShellRuntime {
-    pub fn new() -> Self {
-        Self {
-            context: ShellContext::new(),
-        }
-    }
+    pub fn new() -> Self { Self { context: ShellContext::new() } }
 
     pub fn eval(&mut self, line: String) -> Result<ShellResult, ShellError> {
         let mut tokenizer = Tokenizer;
@@ -48,7 +59,7 @@ impl ShellRuntime {
 
         let res = match base {
             BaseNode::Cmd(cmd) => self.run_command(cmd),
-            BaseNode::Pipe(_, _) => launch_base(base, &self.context),
+            BaseNode::Pipe(..) => launch_base(base, &self.context),
         };
 
         self.context.last_result = res.clone();
@@ -56,11 +67,7 @@ impl ShellRuntime {
     }
 
     pub fn draw_prompt(&self) {
-        print!(
-            "{} \x1b[35m{} >> \x1b[0m",
-            self.context.cwd().to_string(),
-            self.context.status()
-        );
+        print!("{} \x1b[35m{} >> \x1b[0m", self.context.cwd().to_string(), self.context.status());
     }
 
     pub fn run_command(&mut self, cmd: CommandNode) -> ShellResult {
@@ -84,10 +91,7 @@ impl ShellRuntime {
             },
             CommandNode::GetMetadata { app } => match get_app_metadata(app.as_str()) {
                 Ok(md) => {
-                    println!(
-                        "id: {}; input: {}; output: {};",
-                        md.app_id, md.input as u8, md.output as u8
-                    );
+                    println!("id: {}; input: {}; output: {};", md.app_id, md.input as u8, md.output as u8);
                     ShellResult::None
                 }
                 Err(error) => ShellResult::InternalError(error),
@@ -98,8 +102,8 @@ impl ShellRuntime {
 }
 
 pub fn get_app_metadata(name: &str) -> Result<AppMetadataResponse, Error> {
-    let capability = vespertine_std::env::capability(CAP_LAUNCHER_EXEC)
-        .ok_or_else(|| Error::access_denied("launcher capability not found".into()))?;
+    let capability =
+        vespertine_std::env::capability(CAP_LAUNCHER_EXEC).ok_or_else(|| Error::access_denied("launcher capability not found".into()))?;
 
     let socket = Socket::borrow_handle(capability.id);
     let request_id = next_hesper_request_id();
@@ -107,21 +111,14 @@ pub fn get_app_metadata(name: &str) -> Result<AppMetadataResponse, Error> {
     send_app_metadata_request(&socket, request_id, name)?;
 
     match recv_hesper_response(&socket)? {
-        HesperResponse::AppMetadata {
-            request_id: response_id,
-            response,
-        } => {
+        HesperResponse::AppMetadata { request_id: response_id, response } => {
             if response_id != request_id {
-                return Err(Error::invalid_argument(
-                    "Hesper response ID mismatch".into(),
-                ));
+                return Err(Error::invalid_argument("Hesper response ID mismatch".into()));
             }
             if response.status != HESPER_STATUS_OK {
                 return Err(match response.status {
                     _HESPER_STATUS_NOT_FOUND => Error::not_found("application was not found".into()),
-                    _HESPER_STATUS_INVALID_REQUEST => {
-                        Error::invalid_argument("application manifest is invalid".into())
-                    }
+                    _HESPER_STATUS_INVALID_REQUEST => Error::invalid_argument("application manifest is invalid".into()),
                     _ => Error::unknown("Hesper returned an unknown status".into()),
                 });
             }

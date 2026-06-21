@@ -1,13 +1,30 @@
-pub use crate::path::*;
-use crate::{Error, fs::resolve};
-use crate::{
-    ErrorKind,
-    io::{Read, Write},
-};
 use core::ops::Drop;
-use vespertine_abi::{AccessRights, FileOp, FileStat, HandleID, Invocation};
+
+use vespertine_abi::{
+    AccessRights,
+    FileOp,
+    FileStat,
+    HandleID,
+    Invocation,
+};
 use vespertine_rt::syscall::{
-    sys_close, sys_create_file, sys_invoke, sys_read, sys_stat, sys_write,
+    sys_close,
+    sys_create_file,
+    sys_invoke,
+    sys_read,
+    sys_stat,
+    sys_write,
+};
+
+use crate::fs::resolve;
+use crate::io::{
+    Read,
+    Write,
+};
+pub use crate::path::*;
+use crate::{
+    Error,
+    ErrorKind,
 };
 
 extern crate alloc;
@@ -23,21 +40,13 @@ pub struct File {
 }
 
 impl File {
-    pub fn open(path: &Path<'_>) -> Result<Self, Error> {
-        Self::open_with_rights(path, AccessRights::READ)
-    }
+    pub fn open(path: &Path<'_>) -> Result<Self, Error> { Self::open_with_rights(path, AccessRights::READ) }
 
-    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> {
-        resolve(path, rights).map(File::from_handle)
-    }
+    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> { resolve(path, rights).map(File::from_handle) }
 
-    pub fn handle(&self) -> HandleID {
-        self.handle
-    }
+    pub fn handle(&self) -> HandleID { self.handle }
 
-    pub fn from_handle(handle: HandleID) -> Self {
-        Self { handle }
-    }
+    pub fn from_handle(handle: HandleID) -> Self { Self { handle } }
 
     pub fn stat(&self) -> Result<FileStat, Error> {
         let mut stat = FileStat::zeroed();
@@ -47,22 +56,14 @@ impl File {
 
     pub fn seek(&self, from: SeekFrom) -> Result<usize, Error> {
         let (offset, whence) = match from {
-            SeekFrom::Start(offset) => (
-                i64::try_from(offset).map_err(|_| Error {
-                    kind: ErrorKind::InvalidArgument,
-                    message: "".into(),
-                })?,
-                0,
-            ),
+            SeekFrom::Start(offset) => {
+                (i64::try_from(offset).map_err(|_| Error { kind: ErrorKind::InvalidArgument, message: "".into() })?, 0)
+            }
             SeekFrom::Current(offset) => (offset, 1),
             SeekFrom::End(offset) => (offset, 2),
         };
 
-        sys_invoke(
-            self.handle,
-            &Invocation::File(FileOp::Seek { offset, whence }),
-        )
-        .map_err(Error::from)
+        sys_invoke(self.handle, &Invocation::File(FileOp::Seek { offset, whence })).map_err(Error::from)
     }
 
     pub fn create(path: &Path<'_>) -> Result<Self, Error> {
@@ -89,13 +90,9 @@ impl Read for File {
 }
 
 impl Write for File {
-    fn write(&self, buf: &[u8]) -> Result<usize, Error> {
-        sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from)
-    }
+    fn write(&self, buf: &[u8]) -> Result<usize, Error> { sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from) }
 }
 
 impl Drop for File {
-    fn drop(&mut self) {
-        let _ = sys_close(self.handle);
-    }
+    fn drop(&mut self) { let _ = sys_close(self.handle); }
 }

@@ -7,12 +7,27 @@ mod read;
 mod write;
 
 use alloc::format;
-use vespertine_abi::{HandleID, ProcessInitPackage};
-use vespertine_rt::syscall::{sys_close, sys_read, sys_write};
-use vespertine_std::env;
-use vespertine_std::fs::{File, Path};
+
+use vespertine_abi::{
+    HandleID,
+    ProcessInitPackage,
+};
+use vespertine_rt::syscall::{
+    sys_close,
+    sys_read,
+    sys_write,
+};
+use vespertine_std::fs::{
+    File,
+    Path,
+};
 use vespertine_std::typed::TypedWriter;
-use vespertine_std::{Error, Read, Write};
+use vespertine_std::{
+    Error,
+    Read,
+    Write,
+    env,
+};
 
 pub enum Input {
     File(File),
@@ -34,9 +49,7 @@ impl Read for Source {
 }
 
 impl Write for Sink {
-    fn write(&self, buf: &[u8]) -> Result<usize, Error> {
-        sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from)
-    }
+    fn write(&self, buf: &[u8]) -> Result<usize, Error> { sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from) }
 }
 
 impl Read for Input {
@@ -50,9 +63,7 @@ impl Read for Input {
 
 pub fn input_from_path(path: Option<&str>) -> Result<Input, Error> {
     match path {
-        None | Some("-") => Ok(Input::Source(Source {
-            handle: env::source(),
-        })),
+        None | Some("-") => Ok(Input::Source(Source { handle: env::source() })),
         Some(path) => File::open(&Path::new(path)).map(Input::File),
     }
 }
@@ -83,9 +94,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         "head" => read::head(command_args)?,
         "tail" => read::tail(command_args)?,
         "write" => write::run(command_args)?,
-        _ => Err(Error::invalid_argument(
-            "not a valid `stream` command".into(),
-        ))?,
+        _ => Err(Error::invalid_argument("not a valid `stream` command".into()))?,
     }
 
     Ok(())

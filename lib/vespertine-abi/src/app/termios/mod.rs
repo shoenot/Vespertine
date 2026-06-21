@@ -14,9 +14,7 @@ pub struct Termios {
     pub c_ospeed: u32,
 }
 
-pub fn check_flag(field: u32, flag: u32) -> bool {
-    (field & flag) != 0
-}
+pub fn check_flag(field: u32, flag: u32) -> bool { (field & flag) != 0 }
 
 impl Termios {
     pub const fn new() -> Self {
@@ -37,9 +35,7 @@ impl Termios {
 }
 
 impl Default for Termios {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 #[repr(C)]

@@ -1,13 +1,27 @@
 #![no_main]
 #![no_std]
 
-use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
-use vespertine_abi::{ProcessInitPackage, typed::RECORD_PRESENTATION_TABLE};
-use vespertine_rt::{println, syscall::sys_close};
+use alloc::collections::btree_map::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use vespertine_abi::ProcessInitPackage;
+use vespertine_abi::typed::RECORD_PRESENTATION_TABLE;
+use vespertine_rt::println;
+use vespertine_rt::syscall::sys_close;
+use vespertine_std::typed::{
+    DisplayOptions,
+    RecordFieldInfo,
+    ShellValue,
+    TypedReader,
+    TypedValue,
+};
 use vespertine_std::{
-    Error, HandleReader, HandleWriter, Write, env,
-    typed::{DisplayOptions, TypedValue},
-    typed::{RecordFieldInfo, ShellValue, TypedReader},
+    Error,
+    HandleReader,
+    HandleWriter,
+    Write,
+    env,
 };
 
 extern crate alloc;
@@ -40,11 +54,7 @@ fn run() -> Result<(), Error> {
                 active_schema = Some(schema_id);
                 schemas.insert(schema_id, fields);
             }
-            ShellValue::RecordPresentation {
-                schema_id,
-                presentation,
-                fields,
-            } => {
+            ShellValue::RecordPresentation { schema_id, presentation, fields } => {
                 presentations.insert((schema_id, presentation), fields);
             }
             ShellValue::Value(TypedValue::Record { schema_id, fields }) => {
@@ -76,13 +86,7 @@ fn run() -> Result<(), Error> {
 
     if !rows.is_empty() {
         if let Some(schema_id) = active_schema {
-            render_table(
-                &out,
-                schemas.get(&schema_id),
-                presentations.get(&(schema_id, RECORD_PRESENTATION_TABLE)),
-                requested,
-                &rows,
-            )?;
+            render_table(&out, schemas.get(&schema_id), presentations.get(&(schema_id, RECORD_PRESENTATION_TABLE)), requested, &rows)?;
         }
     }
 
@@ -90,11 +94,7 @@ fn run() -> Result<(), Error> {
 }
 
 fn render_table<W: Write>(
-    out: &W,
-    schema: Option<&Vec<RecordFieldInfo>>,
-    table_presentation: Option<&Vec<u16>>,
-    requested: &[String],
-    rows: &[Vec<TypedValue>],
+    out: &W, schema: Option<&Vec<RecordFieldInfo>>, table_presentation: Option<&Vec<u16>>, requested: &[String], rows: &[Vec<TypedValue>],
 ) -> Result<(), Error> {
     let Some(schema) = schema else {
         return Ok(());
@@ -131,10 +131,7 @@ fn render_table<W: Write>(
             out.write_all(b" ")?;
         }
 
-        let name = schema
-            .get(*field_idx as usize)
-            .map(|f| f.name.as_str())
-            .unwrap_or("");
+        let name = schema.get(*field_idx as usize).map(|f| f.name.as_str()).unwrap_or("");
         write_padded(out, name.as_bytes(), widths[pos])?;
     }
 
@@ -146,10 +143,7 @@ fn render_table<W: Write>(
                 out.write_all(b" ")?;
             }
 
-            let rendered = row
-                .get(*field_idx as usize)
-                .map(|v| v.display_with(opts))
-                .unwrap_or_else(String::new);
+            let rendered = row.get(*field_idx as usize).map(|v| v.display_with(opts)).unwrap_or_else(String::new);
             write_padded(out, rendered.as_bytes(), widths[pos])?;
         }
         out.write_all(b"\n")?;
@@ -158,11 +152,7 @@ fn render_table<W: Write>(
     Ok(())
 }
 
-fn resolve_columns(
-    schema: &[RecordFieldInfo],
-    table_presentation: Option<&Vec<u16>>,
-    requested: &[String],
-) -> Result<Vec<u16>, Error> {
+fn resolve_columns(schema: &[RecordFieldInfo], table_presentation: Option<&Vec<u16>>, requested: &[String]) -> Result<Vec<u16>, Error> {
     if !requested.is_empty() {
         let mut columns = Vec::new();
 

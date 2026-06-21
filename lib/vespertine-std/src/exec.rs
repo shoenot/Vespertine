@@ -1,22 +1,38 @@
 use alloc::format;
+
+use vespertine_abi::tag::CAP_PROCMAN;
 use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcManOp, ProcOp,
-    ProcessExitInfo, Signal, WaitOp, tag::CAP_PROCMAN,
+    AccessRights,
+    CapabilityGrant,
+    CapabilityID,
+    HandleID,
+    Invocation,
+    ProcManOp,
+    ProcOp,
+    ProcessExitInfo,
+    Signal,
+    WaitOp,
 };
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use vespertine_rt::{
-    once::OnceCell,
-    syscall::{sys_close, sys_invoke},
+
+use vespertine_rt::once::OnceCell;
+use vespertine_rt::syscall::{
+    sys_close,
+    sys_invoke,
 };
 
+use crate::broker::Broker;
+use crate::fs::{
+    Path,
+    resolve,
+};
+use crate::socket::Socket;
 use crate::{
-    Error, ErrorKind,
-    broker::Broker,
+    Error,
+    ErrorKind,
     env,
-    fs::{Path, resolve},
-    socket::Socket,
 };
 
 struct ProcManager {
@@ -25,34 +41,25 @@ struct ProcManager {
 
 impl ProcManager {
     pub fn request() -> Result<Self, Error> {
-        let broker_handle = resolve(
-            &Path::new("/System/Services/ProcManager"),
-            AccessRights::READ,
-        )
-        .map_err(Error::from)?;
+        let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
         let handle = broker.request(CAP_PROCMAN, AccessRights::CREATE | AccessRights::EXECUTE)?;
         Ok(Self { handle })
     }
 
     pub fn spawn(&self, op: ProcManOp) -> Result<HandleID, Error> {
-        let result =
-            sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
+        let result = sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
         Ok(HandleID(result))
     }
 }
 
 impl Drop for ProcManager {
-    fn drop(&mut self) {
-        let _ = sys_close(self.handle);
-    }
+    fn drop(&mut self) { let _ = sys_close(self.handle); }
 }
 
 static PROC_MANAGER: OnceCell<ProcManager> = OnceCell::new();
 
-fn process_manager() -> Result<&'static ProcManager, Error> {
-    PROC_MANAGER.get_or_try_init(ProcManager::request)
-}
+fn process_manager() -> Result<&'static ProcManager, Error> { PROC_MANAGER.get_or_try_init(ProcManager::request) }
 
 #[allow(dead_code)]
 pub struct Process {
@@ -61,21 +68,11 @@ pub struct Process {
 
 impl Process {
     pub fn wait(&self) -> Result<ProcessExitInfo, Error> {
-        sys_invoke(
-            self.handle,
-            &Invocation::Wait(WaitOp::One(Signal::TERMINATED)),
-        )
-        .map_err(Error::from)?;
+        sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
 
         let mut info = ProcessExitInfo::running();
 
-        sys_invoke(
-            self.handle,
-            &Invocation::Proc(ProcOp::GetExitInfo {
-                info_ptr: &mut info as *mut _ as usize,
-            }),
-        )
-        .map_err(Error::from)?;
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetExitInfo { info_ptr: &mut info as *mut _ as usize })).map_err(Error::from)?;
 
         Ok(info)
     }
@@ -152,24 +149,13 @@ impl Exec {
     }
 
     pub fn grant(self, capability: CapabilityID, rights: AccessRights) -> Result<Self, Error> {
-        let grant = env::capability(capability).ok_or(Error {
-            kind: ErrorKind::NotFound,
-            message: "Must own capability to grant it".into(),
-        })?;
+        let grant =
+            env::capability(capability).ok_or(Error { kind: ErrorKind::NotFound, message: "Must own capability to grant it".into() })?;
         self.grant_new(grant.id, capability, rights)
     }
 
-    pub fn grant_new(
-        mut self,
-        id: HandleID,
-        capability: CapabilityID,
-        rights: AccessRights,
-    ) -> Result<Self, Error> {
-        let grant = CapabilityGrant {
-            id,
-            capability,
-            rights,
-        };
+    pub fn grant_new(mut self, id: HandleID, capability: CapabilityID, rights: AccessRights) -> Result<Self, Error> {
+        let grant = CapabilityGrant { id, capability, rights };
         self.capabilities.push(grant);
         Ok(self)
     }
@@ -231,7 +217,5 @@ impl Exec {
 }
 
 impl Drop for Process {
-    fn drop(&mut self) {
-        let _ = sys_close(self.handle);
-    }
+    fn drop(&mut self) { let _ = sys_close(self.handle); }
 }

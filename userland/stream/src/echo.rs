@@ -1,18 +1,20 @@
 use alloc::string::String;
-use vespertine_cli::args::{Command, Opt};
+
+use vespertine_cli::args::{
+    Command,
+    Opt,
+};
 use vespertine_rt::println;
-use vespertine_std::{
-    Error,
-    typed::{TypedValue, TypedWriter},
+use vespertine_std::Error;
+use vespertine_std::typed::{
+    TypedValue,
+    TypedWriter,
 };
 
 static ECHO_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
 
 pub fn run(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("echo")
-        .options(ECHO_OPTIONS)
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("echo").options(ECHO_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         println!("usage: stream echo [-n/--no-newline] [text..]");

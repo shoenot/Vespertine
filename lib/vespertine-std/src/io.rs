@@ -1,9 +1,16 @@
-use crate::{Error, ErrorKind};
+use crate::{
+    Error,
+    ErrorKind,
+};
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
+
 use vespertine_abi::HandleID;
-use vespertine_rt::syscall::{sys_read, sys_write};
+use vespertine_rt::syscall::{
+    sys_read,
+    sys_write,
+};
 
 pub trait Read {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error>;
@@ -23,20 +30,14 @@ pub trait Read {
 
     fn read_to_string(&self) -> Result<String, Error> {
         let bytes = self.read_to_end()?;
-        String::from_utf8(bytes).map_err(|_| Error {
-            kind: ErrorKind::InvalidArgument,
-            message: "Stream contains invalid UTF-8".into(),
-        })
+        String::from_utf8(bytes).map_err(|_| Error { kind: ErrorKind::InvalidArgument, message: "Stream contains invalid UTF-8".into() })
     }
 
     fn read_exact(&self, mut buf: &mut [u8]) -> Result<(), Error> {
         while !buf.is_empty() {
             match self.read(buf) {
                 Ok(0) => {
-                    return Err(Error {
-                        kind: ErrorKind::OutOfMemory,
-                        message: "Unexpected end of stream during read".into(),
-                    });
+                    return Err(Error { kind: ErrorKind::OutOfMemory, message: "Unexpected end of stream during read".into() });
                 }
                 Ok(n) => buf = &mut buf[n..],
                 Err(e) => return Err(e),
@@ -54,10 +55,7 @@ pub trait Write {
         while total < buf.len() {
             match self.write(&buf[total..]) {
                 Ok(0) => {
-                    return Err(Error {
-                        kind: ErrorKind::OutOfMemory,
-                        message: "Write failed".into(),
-                    });
+                    return Err(Error { kind: ErrorKind::OutOfMemory, message: "Write failed".into() });
                 }
                 Ok(n) => total += n,
                 Err(e) => return Err(e),
@@ -78,9 +76,7 @@ pub struct HandleReader {
 }
 
 impl HandleReader {
-    pub fn new(handle: HandleID) -> Self {
-        Self { handle }
-    }
+    pub fn new(handle: HandleID) -> Self { Self { handle } }
 }
 
 impl Read for HandleReader {
@@ -95,13 +91,9 @@ pub struct HandleWriter {
 }
 
 impl HandleWriter {
-    pub fn new(handle: HandleID) -> Self {
-        Self { handle }
-    }
+    pub fn new(handle: HandleID) -> Self { Self { handle } }
 }
 
 impl Write for HandleWriter {
-    fn write(&self, buf: &[u8]) -> Result<usize, Error> {
-        sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from)
-    }
+    fn write(&self, buf: &[u8]) -> Result<usize, Error> { sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from) }
 }
