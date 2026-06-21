@@ -18,6 +18,7 @@ pub enum Invocation {
     MemPool(MemPoolOp),
     Clock(ClockOp),
     Socket(SocketOp),
+    Portal(PortalOp),
     Wait(WaitOp),
 }
 
@@ -68,6 +69,7 @@ impl Invocation {
             Invocation::Socket(SocketOp::SetNB { .. }) => AccessRights::WRITE,
             Invocation::Socket(SocketOp::SetReadPolicy { .. }) => AccessRights::WRITE,
             Invocation::Wait(..) => AccessRights::READ,
+            Invocation::Portal(PortalOp::Create { .. }) => AccessRights::CREATE,
             Invocation::Broker(BrokerOp::Request { .. }) => AccessRights::READ,
         }
     }

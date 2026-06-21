@@ -2,9 +2,7 @@ use alloc::sync::Arc;
 
 use vespertine_abi::AccessRights;
 use vespertine_abi::tag::{
-    CAP_CLOCK,
-    CAP_PROCMAN,
-    CAP_SOCKFAC,
+    CAP_CLOCK, CAP_PORTAL_FACTORY, CAP_PROCMAN, CAP_SOCKFAC
 };
 
 use crate::core::object::models::broker::Broker;
@@ -18,6 +16,7 @@ use crate::core::object::models::namespace::{
     kernel_namespace_authority,
     resolve_kernel_object,
 };
+use crate::core::object::models::portal::PortalFactory;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
@@ -77,6 +76,10 @@ pub async fn init_vfs() {
     let mut sockfac_broker = Broker::new();
     sockfac_broker.publish(CAP_SOCKFAC, socket_fac, AccessRights::CREATE);
     mount_kernel_object(srv_dir.clone(), "Socket", Arc::new(sockfac_broker)).await.expect("Failed to mount Socket");
+
+    let mut portal_broker = Broker::new();
+    portal_broker.publish(CAP_PORTAL_FACTORY, Arc::new(PortalFactory), AccessRights::CREATE);
+    mount_kernel_object(srv_dir.clone(), "Portal", Arc::new(portal_broker)).await.expect("Failed to mount Portal");
 
     let log_obj = Arc::new(Log {});
     mount_kernel_object(srv_dir, "Log", log_obj).await.expect("Failed to mount Log");

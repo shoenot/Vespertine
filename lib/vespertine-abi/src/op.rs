@@ -124,3 +124,12 @@ pub enum WaitOp {
 pub enum BrokerOp {
     Request { capability: CapabilityID, requested_rights: AccessRights },
 }
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum PortalOp {
+    Create {
+        capability: CapabilityID,
+        max_rights: AccessRights,
+    }
+}

@@ -127,21 +127,20 @@ impl Socket {
         Ok((header, decoded))
     }
 
-    pub fn send_frame(&self, packet_type: u32, request_id: u32, payload: &[u8]) -> Result<(), Error> {
+    pub fn send_frame(&self, packet_type: u32, payload: &[u8]) -> Result<(), Error> {
         let payload_len = u32::try_from(payload.len()).map_err(|_| Error::invalid_argument("packet payload is too large".into()))?;
 
         if payload.len() > MAX_PACKET_PAYLOAD {
             return Err(Error::invalid_argument("packet payload exceeds limit".into()));
         }
 
-        // hesper uses the reserved field in the header for request id
         let header = PacketHeader {
             magic: VESPER_MAGIC,
             version: 1,
             packet_flags: PacketFlags::IS_BUFFER,
             packet_type,
             payload_len,
-            reserved: request_id,
+            reserved: 0,
         };
 
         let header_bytes = unsafe { slice::from_raw_parts(&header as *const PacketHeader as *const u8, size_of::<PacketHeader>()) };

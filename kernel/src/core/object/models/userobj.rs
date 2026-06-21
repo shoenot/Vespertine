@@ -78,7 +78,7 @@ impl KernelObject for UserObject {
     }
 }
 
-struct InternalWriteFuture<'a> {
+pub struct InternalWriteFuture<'a> {
     channel: &'a SocketEndpoint,
     data: &'a [u8],
     waiter: Arc<AsyncWaiter>,
@@ -110,7 +110,7 @@ impl Future for InternalWriteFuture<'_> {
     }
 }
 
-struct InternalReadFuture<'a> {
+pub struct InternalReadFuture<'a> {
     channel: &'a SocketEndpoint,
     data: &'a mut [u8],
     waiter: Arc<AsyncWaiter>,
@@ -142,7 +142,7 @@ impl Future for InternalReadFuture<'_> {
     }
 }
 
-async fn write_internal(channel: &Arc<SocketEndpoint>, data: &[u8]) -> Result<(), InvocationError> {
+pub async fn write_internal(channel: &Arc<SocketEndpoint>, data: &[u8]) -> Result<(), InvocationError> {
     let mut sent = 0;
     while sent < data.len() {
         let to_send = cmp::min(data.len() - sent, 512);
@@ -152,7 +152,7 @@ async fn write_internal(channel: &Arc<SocketEndpoint>, data: &[u8]) -> Result<()
     Ok(())
 }
 
-async fn read_internal(channel: &Arc<SocketEndpoint>, data: &mut [u8]) -> Result<(), InvocationError> {
+pub async fn read_internal(channel: &Arc<SocketEndpoint>, data: &mut [u8]) -> Result<(), InvocationError> {
     let mut received = 0;
     while received < data.len() {
         let to_read = cmp::min(data.len() - received, 512);

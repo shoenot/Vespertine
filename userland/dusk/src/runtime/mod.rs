@@ -8,7 +8,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use vespertine_abi::app::hesper::HESPER_STATUS_OK;
+use vespertine_abi::app::hesper::{HESPER_STATUS_INVALID_REQUEST, HESPER_STATUS_NOT_FOUND, HESPER_STATUS_OK};
 use vespertine_abi::tag::CAP_LAUNCHER_EXEC;
 use vespertine_rt::{
     print,
@@ -117,8 +117,8 @@ pub fn get_app_metadata(name: &str) -> Result<AppMetadataResponse, Error> {
             }
             if response.status != HESPER_STATUS_OK {
                 return Err(match response.status {
-                    _HESPER_STATUS_NOT_FOUND => Error::not_found("application was not found".into()),
-                    _HESPER_STATUS_INVALID_REQUEST => Error::invalid_argument("application manifest is invalid".into()),
+                    HESPER_STATUS_NOT_FOUND => Error::not_found("application was not found".into()),
+                    HESPER_STATUS_INVALID_REQUEST => Error::invalid_argument("application manifest is invalid".into()),
                     _ => Error::unknown("Hesper returned an unknown status".into()),
                 });
             }
