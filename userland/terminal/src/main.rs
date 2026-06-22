@@ -90,7 +90,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     log.write_string("Launching dusk".into())?;
 
-    Exec::new("dusk".into())
+    Exec::open_canonical("dusk".into())?
         .source(app_stdin.handle())
         .sink(app_stdout.handle())
         .cwd(env::cwd(), AccessRights::all())

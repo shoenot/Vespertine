@@ -37,7 +37,7 @@ pub trait Read {
         while !buf.is_empty() {
             match self.read(buf) {
                 Ok(0) => {
-                    return Err(Error { kind: ErrorKind::OutOfMemory, message: "Unexpected end of stream during read".into() });
+                    return Err(Error::end_of_stream("Unexpected end of stream during read".into()));
                 }
                 Ok(n) => buf = &mut buf[n..],
                 Err(e) => return Err(e),

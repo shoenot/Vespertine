@@ -22,7 +22,7 @@ use vespertine_std::portal::PortalFactory;
 use vespertine_std::proc::Waiter;
 use vespertine_std::socket::Socket;
 use vespertine_std::{
-    Error, Exec, Read, Write, env
+    Error, ErrorKind, Exec, Read, Write, env
 };
 
 use crate::launcher::handle_request;
@@ -50,8 +50,11 @@ fn spawn_launcher_session(handle: HandleID) -> Result<(), Error> {
         loop {
             let request = match recv_hesper_request(&socket) {
                 Ok(r) => r,
+                Err(e) if e.kind == ErrorKind::EndOfStream => {
+                    break;
+                },
                 Err(e) => {
-                    let _ = log.write_string(format!("launcher session ended: {:?}", e));
+                    let _ = log.write_string(format!("launcher session failed: {:?}", e));
                     break;
                 },
             };
@@ -90,7 +93,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     println!("[INFO] Launching terminal...");
     log.write_string("Launching terminal".into())?;
 
-    Exec::new("terminal".into())
+    Exec::open_canonical("terminal")?
         .source(env::source())
         .sink(env::sink())
         .cwd(env::cwd(), AccessRights::all())

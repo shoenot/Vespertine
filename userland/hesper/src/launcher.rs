@@ -5,6 +5,7 @@ use vespertine_abi::app::hesper::{
     AppIoMode, HESPER_STATUS_INVALID_REQUEST, HESPER_STATUS_LAUNCH_FAILED, HESPER_STATUS_NOT_FOUND, HESPER_STATUS_NOT_IMPLEMENTED, HESPER_STATUS_OK
 };
 use vespertine_rt::syscall::sys_close;
+use vespertine_std::fs::Path;
 use vespertine_std::hesper::{
     ExecuteRequest, HesperRequest, decode_io_mode_string, send_app_metadata_response, send_execute_response
 };
@@ -74,8 +75,8 @@ pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog) 
         },
         HesperRequest::Execute { request_id, request } => {
             log.write_string(format!("execute requested: {} with {} arguments", request.app_name, request.arguments.len()))?;
-            send_execute_response(socket, request_id, HESPER_STATUS_NOT_IMPLEMENTED, None, "unimplemented rn")
-        }
+            handle_execute(socket, request_id, request, log)
+        },
     }
 }
 
@@ -130,7 +131,9 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
 
     log.write_string(format!("launching {} as {}", request.app_name, metadata.application.binary))?;
 
-    let process = match Exec::new(metadata.application.binary)
+    let binary_path = format!("/Programs/{}.app/bin/{}", request.app_name, metadata.application.binary);
+
+    let process = match Exec::open(&Path::new(&binary_path), metadata.application.binary)?
         .args(&request.arguments)
         .source(source.handle())
         .sink(sink.handle())

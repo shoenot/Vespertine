@@ -84,7 +84,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
                 pm_broker_handle,
                 Invocation::Broker(BrokerOp::Request {
                     capability: CAP_PROCMAN,
-                    requested_rights: AccessRights::CREATE | AccessRights::EXECUTE,
+                    requested_rights: AccessRights::CREATE | AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE,
                 }),
             )
             .await
@@ -100,7 +100,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
 
         // init package
-        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0), AccessRights::READ).await.expect("[FATAL] No program found");
+        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0), AccessRights::READ | AccessRights::EXECUTE)
+            .await.expect("[FATAL] No program found");
         let root_handle = HandleID(0);
         let root_rights = AccessRights::all();
         let source = kbd_source_handle;
@@ -123,7 +124,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         };
 
         let child_handle_id =
-            kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op)).await.expect("[FATAL] Failed to spawn process");
+            kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
+                .await.expect("[FATAL] Failed to spawn process");
 
         klogln!("[SUCCESS] Process spawn success. Handle: {}", child_handle_id);
         klogln!("[INFO] Logger switched to log file");

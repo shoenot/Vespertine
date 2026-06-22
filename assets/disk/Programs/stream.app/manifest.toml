@@ -1,0 +1,8 @@
+[application]
+name = "stream"
+binary = "stream"
+id = "os.vespertine.stream"
+
+[io]
+input = "any"
+output = "typed"

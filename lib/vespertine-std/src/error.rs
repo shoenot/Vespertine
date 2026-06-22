@@ -31,6 +31,7 @@ pub enum ErrorKind {
     PathEmpty,
     PathContainsNull,
     Unknown,
+    EndOfStream,
 }
 
 impl From<SysError> for Error {
@@ -110,5 +111,6 @@ error_constructors! {
     unsupported_operation => UnsupportedOperation,
     path_empty => PathEmpty,
     path_contains_null => PathContainsNull,
+    end_of_stream => EndOfStream,
     unknown => Unknown,
 }

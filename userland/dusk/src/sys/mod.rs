@@ -4,6 +4,7 @@ use alloc::{
     format,
     vec,
 };
+use vespertine_std::hesper::Launcher;
 use core::fmt::Display;
 
 use vespertine_abi::tag::CAP_APP_TERMCTRL;
@@ -25,7 +26,6 @@ use vespertine_std::typed::render_typed_stream;
 use vespertine_std::{
     Error,
     ErrorKind,
-    Exec,
     HandleWriter,
     Process,
     Read,
@@ -206,53 +206,57 @@ fn wait_process(name: &str, proc: Process) -> ShellResult {
     res
 }
 
-pub fn build_exec(name: &str, args: &[String], context: &ShellContext) -> Result<Exec, Error> {
-    let child_fs_rights = AccessRights::READ |
-        AccessRights::WRITE |
-        AccessRights::CREATE |
-        AccessRights::EXECUTE |
-        AccessRights::TRAVERSE |
-        AccessRights::REMOVE |
-        AccessRights::LIST;
-
-    let exec = Exec::new(name.into())
-        .source(env::source())
-        .cwd(context.cwd_handle(), AccessRights::TRAVERSE)
-        .args(args)
-        .root_rights(child_fs_rights);
-
-    Ok(exec)
-}
-
-pub fn spawn_command(
-    name: &str, args: &[String], context: &ShellContext, source: HandleID, sink: CommandSink,
-) -> Result<SpawnedCommand, ShellResult> {
+pub fn spawn_command(name: &str, args: &[String], context: &ShellContext, source: HandleID, sink: CommandSink) -> Result<SpawnedCommand, ShellResult> {
     let manifest = load_manifest(name).unwrap_or_default();
-
     if manifest.output == ProgramOutput::Direct && !matches!(sink, CommandSink::Terminal) {
-        return Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("direct program cannot be piped".into())));
+        return Err(ShellResult::FailedToLaunch(
+            name.into(),
+            Error::invalid_argument("direct program cannot be piped".into()),
+        ));
     }
 
-    let mut exec = build_exec(name, args, context)
-        .map_err(|e| {
-            if e.kind == ErrorKind::NotFound { ShellResult::NotFound(name.into()) } else { ShellResult::FailedToLaunch(name.into(), e) }
-        })?
-        .source(source);
-
-    for grant in manifest.grants {
-        exec = exec.grant(grant.0, grant.1).map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
+    if !manifest.grants.is_empty() {
+        return Err(ShellResult::FailedToLaunch(
+            name.into(),
+            Error::unsupported_operation("application capability offers are not implemented yet".into()),
+        ));
     }
+
+    let mut launcher = Launcher::connect().map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
 
     match sink {
         CommandSink::Terminal => {
-            let process = exec.sink(env::sink()).spawn().map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
-
+            let process = launcher
+                .launch(name, args, source, env::sink(), context.cwd_handle())
+                .map_err(|error| {
+                    if error.kind == ErrorKind::NotFound {
+                        ShellResult::NotFound(name.into())
+                    } else {
+                        ShellResult::FailedToLaunch(name.into(), error)
+                    }
+                })?;
             Ok(SpawnedCommand { process, output: SpawnedOutput::Terminal })
-        }
+        },
         CommandSink::Pipe => {
-            let (process, socket) = exec.spawn_piped_sink().map_err(|e| ShellResult::FailedToLaunch(name.into(), e))?;
+            let (read_end, child_sink) = Socket::new_pair()
+                .map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
 
-            Ok(SpawnedCommand { process, output: SpawnedOutput::Piped { kind: manifest.output, socket } })
+            let process = launcher
+                .launch(name, args, source, child_sink.handle(), context.cwd_handle())
+                .map_err(|error| {
+                    if error.kind == ErrorKind::NotFound {
+                        ShellResult::NotFound(name.into())
+                    } else {
+                        ShellResult::FailedToLaunch(name.into(), error)
+                    }
+                })?;
+
+            drop(child_sink);
+
+            Ok(SpawnedCommand {
+                process,
+                output: SpawnedOutput::Piped { kind: manifest.output, socket: read_end },
+            })
         }
     }
 }

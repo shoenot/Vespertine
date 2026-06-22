@@ -60,6 +60,9 @@ impl KernelObject for ProcessManager {
             }) => {
                 calling_rights.err_if_no(AccessRights::CREATE)?;
                 let parent_proc = get_current_process().ok_or(InvocationError::OutOfMemory)?;
+
+                let executable = parent_proc.proc_handles.read().resolve(exec_handle, AccessRights::READ | AccessRights::EXECUTE)?;
+
                 let new_proc_root = parent_proc.proc_handles.read().resolve(root_handle, root_rights)?;
                 let new_proc_cwd = parent_proc.proc_handles.read().resolve(cwd_handle, cwd_rights)?;
 
@@ -86,9 +89,7 @@ impl KernelObject for ProcessManager {
                 new_proc_table.insert_at(HandleID(5), new_proc_cwd, cwd_rights);
 
                 // keep executable file alive for page faults
-                if let Ok(exec_obj) = parent_proc.proc_handles.read().resolve(exec_handle, AccessRights::READ) {
-                    new_proc_table.insert(exec_obj, AccessRights::READ);
-                }
+                new_proc_table.insert(executable, AccessRights::READ);
 
                 // extract handles safely
                 let mut child_capabilities = Vec::with_capacity(capabilities_len);

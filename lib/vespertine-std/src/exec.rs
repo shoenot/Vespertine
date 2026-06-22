@@ -87,7 +87,9 @@ impl Process {
 }
 
 pub struct Exec {
-    exec_name: String,
+    exec_handle: HandleID,
+    owns_exec_handle: bool,
+    argv0: String,
     args: Vec<String>,
     root: HandleID,
     cwd: HandleID,
@@ -109,20 +111,19 @@ pub struct Exec {
 // --------------------------------------------------------//
 
 impl Exec {
-    pub fn new(name: String) -> Self {
-        // common case with child inheriting root/source/sink from parent
-        // but no extra handles and no rights
-        Self {
-            exec_name: name,
-            args: Vec::new(),
-            root: env::root(),
-            cwd: env::cwd(),
-            source: env::source(),
-            sink: env::sink(),
-            capabilities: Vec::new(),
-            root_rights: AccessRights::new(),
-            cwd_rights: AccessRights::READ,
-        }
+    pub fn from_handle(exec_handle: HandleID, argv0: String) -> Self {
+        Self::build(exec_handle, false, argv0)
+    }
+
+    pub fn open(path: &Path<'_>, argv0: String) -> Result<Self, Error> {
+        let exec_handle = resolve(path, AccessRights::READ | AccessRights::EXECUTE)?;
+        Ok(Self::build(exec_handle, true, argv0))
+    }
+
+    pub fn open_canonical(name: &str) -> Result<Self, Error> {
+        let path_str = format!("/Programs/{}.app/bin/{}", name, name);
+        let path = Path::new(&path_str);
+        Self::open(&path, name.into())
     }
 
     pub fn arg(mut self, arg: String) -> Self {
@@ -179,20 +180,11 @@ impl Exec {
     }
 
     pub fn spawn(self) -> Result<Process, Error> {
-        let exec_path = format!("/Programs/{}", self.exec_name);
-        let exec = resolve(&Path::new(exec_path.as_str()), AccessRights::READ)?;
-
         // null terminated args buffer
         let mut args_buf = Vec::new();
-        args_buf.extend_from_slice(self.exec_name.as_bytes()); // append program name as arg[0]
-        args_buf.push(0);
-        for arg in &self.args {
-            args_buf.extend_from_slice(arg.as_bytes());
-            args_buf.push(0);
-        }
-
+        args_buf.extend_from_slice(self.argv0.as_bytes()); // append program name as arg[0]
         let op = ProcManOp::Spawn {
-            exec_handle: exec,
+            exec_handle: self.exec_handle,
             root_handle: self.root,
             root_rights: self.root_rights,
             source: self.source,
@@ -221,6 +213,30 @@ impl Exec {
         let proc = self.sink(tx.handle()).spawn()?;
         drop(tx);
         Ok((proc, rx))
+    }
+
+    pub fn build(exec_handle: HandleID, owns_exec_handle: bool, argv0: String) -> Self {
+        Self { 
+            exec_handle, 
+            owns_exec_handle, 
+            argv0, 
+            args: Vec::new(),
+            root: env::root(),
+            cwd: env::cwd(),
+            source: env::source(),
+            sink: env::sink(),
+            capabilities: Vec::new(),
+            root_rights: AccessRights::new(),
+            cwd_rights: AccessRights::READ 
+        }
+    }
+}
+
+impl Drop for Exec {
+    fn drop(&mut self) {
+        if self.owns_exec_handle {
+            let _ = sys_close(self.exec_handle);
+        }
     }
 }
 
