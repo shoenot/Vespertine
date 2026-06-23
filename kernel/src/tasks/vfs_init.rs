@@ -47,6 +47,9 @@ pub async fn init_vfs() {
     let root_location = kernel_root_location();
 
     let sys_obj = resolve_kernel_object(&authority, root_location, "/System").await.expect("System directory missing");
+    let sys_location = sys_obj.as_any().downcast_ref::<DirLocation>().expect("[FATAL] System directory not found");
+    let sys_dir = sys_location.directory();
+
     let sys_mount = Arc::new(MountDirectory::new(sys_obj));
     mount_kernel_object(root_dir.clone(), "System", sys_mount.clone()).await.expect("Failed to mount /System");
 
@@ -56,8 +59,8 @@ pub async fn init_vfs() {
 
     // mount all dirs
     mount_kernel_object(root_dir, "Devices", dev_dir.clone()).await.expect("Failed to mount /Devices");
-    mount_kernel_object(sys_mount.clone(), "Services", srv_dir.clone()).await.expect("Failed to mount /System/Services");
-    mount_kernel_object(sys_mount, "Logs", log_dir).await.expect("Failed to mount /System/Logs");
+    mount_kernel_object(sys_dir.clone(), "Services", srv_dir.clone()).await.expect("Failed to mount /System/Services");
+    mount_kernel_object(sys_dir, "Logs", log_dir).await.expect("Failed to mount /System/Logs");
 
     let proc_man = Arc::new(ProcessManager {});
     let mut proc_man_broker = Broker::new();

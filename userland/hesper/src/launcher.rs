@@ -110,7 +110,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         let cwd = AcceptedHandle::accept(
             session,
             request.cwd_offer,
-            AccessRights::TRAVERSE,
+            AccessRights::TRAVERSE | AccessRights::LIST | AccessRights::READ,
         )?;
         Ok::<_, Error>((source, sink, cwd))
     })();
@@ -137,7 +137,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         .args(&request.arguments)
         .source(source.handle())
         .sink(sink.handle())
-        .cwd(cwd.handle(), AccessRights::TRAVERSE)
+        .cwd(cwd.handle(), AccessRights::TRAVERSE | AccessRights::READ | AccessRights::LIST)
         .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE | 
             AccessRights::TRAVERSE | AccessRights::LIST | AccessRights::REMOVE)
         .spawn()

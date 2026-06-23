@@ -1,2 +1,0 @@
-output: direct
-grant: CAP_APP_TERMCTRL

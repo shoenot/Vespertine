@@ -156,8 +156,10 @@ impl KernelObject for MountDirectory {
                     entry.name[..len].copy_from_slice(&name_str.as_bytes()[..len]);
 
                     let mut flags = PacketFlags::IS_STREAM;
-                    // set has next because the underlying disk will stream aftter the overlays
-                    flags = flags.insert(PacketFlags::HAS_NEXT);
+                    // set has next because the underlying disk will stream after the overlays
+                    if iter.peek().is_some() {
+                        flags = flags.insert(PacketFlags::HAS_NEXT);
+                    }
 
                     let header = PacketHeader {
                         magic: VESPER_MAGIC,

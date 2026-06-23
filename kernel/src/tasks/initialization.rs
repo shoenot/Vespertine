@@ -100,7 +100,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
 
         // init package
-        let exec_handle = kernel_walk("/Programs/hesper", HandleID(0), AccessRights::READ | AccessRights::EXECUTE)
+        let exec_handle = kernel_walk("/System/Core/hesper", HandleID(0), AccessRights::READ | AccessRights::EXECUTE)
             .await.expect("[FATAL] No program found");
         let root_handle = HandleID(0);
         let root_rights = AccessRights::all();
