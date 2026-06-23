@@ -2,22 +2,21 @@
 MAKEFLAGS += -rR --silent
 .SUFFIXES:
 
-USER_PROGS  := hesper ns terminal dusk stream table
-TARGET_NAME := x86_64-unknown-none
-DISK_DIR    := ../target/build_deps/disk/Programs
+# Every userland package owns a Makefile. Adding a new application only
+# requires adding its directory here (Cargo workspace membership) and giving
+# it a Makefile that includes ../app.mk.
+PACKAGES := $(sort $(patsubst %/Makefile,%,$(wildcard */Makefile)))
 
-.PHONY: all
-all:
-	mkdir -p $(DISK_DIR)
-	for prog in $(USER_PROGS); do \
-		echo "[INFO] Building userland program: $$prog"; \
-		RUSTFLAGS="-C relocation-model=static -C link-arg=-T$(abspath ../scripts/userland.ld)" \
-			cargo build --manifest-path ../Cargo.toml -p $$prog --release --target $(TARGET_NAME) || exit 1; \
-		cp ../target/$(TARGET_NAME)/release/$$prog $(DISK_DIR)/$$prog; \
+.PHONY: all package clean
+all: package
+
+package:
+	for package in $(PACKAGES); do \
+		echo "[INFO] Packaging userland application: $$package"; \
+		$(MAKE) -C $$package package || exit 1; \
 	done
 
-.PHONY: clean
 clean:
-	for prog in $(USER_PROGS); do \
-		cargo clean -p $$prog; \
+	for package in $(PACKAGES); do \
+		$(MAKE) -C $$package clean || exit 1; \
 	done

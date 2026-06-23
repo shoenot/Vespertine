@@ -183,6 +183,11 @@ impl Exec {
         // null terminated args buffer
         let mut args_buf = Vec::new();
         args_buf.extend_from_slice(self.argv0.as_bytes()); // append program name as arg[0]
+        args_buf.push(0);
+        for arg in &self.args {
+            args_buf.extend_from_slice(arg.as_bytes());
+            args_buf.push(0);
+        }
         let op = ProcManOp::Spawn {
             exec_handle: self.exec_handle,
             root_handle: self.root,

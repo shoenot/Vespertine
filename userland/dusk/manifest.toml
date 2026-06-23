@@ -1,0 +1,8 @@
+[application]
+name = "dusk"
+binary = "dusk"
+id = "os.vespertine.dusk"
+
+[io]
+input = "direct"
+output = "direct"

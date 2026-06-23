@@ -50,11 +50,11 @@ static FROM_OPTIONS: &[Opt] = &[Opt::value("display", Some('d'), Some("display")
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let pkg = unsafe { &*pkg_ptr };
+    let out = TypedWriter::out();
     if let Err(e) = run(pkg) {
-        let out = TypedWriter::out();
         let _ = out.error(&*format!("dt error: {:?}", e));
-        let _ = out.stream_end();
     }
+    let _ = out.stream_end();
     let _ = sys_close(env::sink());
 }
 

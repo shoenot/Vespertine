@@ -1,0 +1,8 @@
+[application]
+name = "table"
+binary = "table"
+id = "os.vespertine.table"
+
+[io]
+input = "typed"
+output = "text"

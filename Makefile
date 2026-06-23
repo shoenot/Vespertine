@@ -14,10 +14,13 @@ AS := nasm
 
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
-USER_PROGS := shell hesper ns terminal dt dusk
 
 PART_START    := 2048
 PART_SECTORS  := 128991
+
+DISK_ASSETS := assets/disk
+DISK_STAGE  := target/build_deps/disk
+DISK_EXPORT := target/build/disk-extract
 
 .PHONY: all
 all: target/build/$(IMAGE_NAME).iso
@@ -39,7 +42,7 @@ userland:
 	$(MAKE) -C userland
 
 .PHONY: run
-run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso target/disk.img
+run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -52,7 +55,7 @@ run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).
 		-serial stdio 
 
 .PHONY: run-debug
-run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso target/disk.img
+run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -76,29 +79,34 @@ target/disk.img:
 	echo "[INFO] Creating new target/disk.img"
 	dd if=/dev/zero of=target/disk.img bs=1M count=64 status=none
 	sgdisk -n 1:$(PART_START):$$(($(PART_START) + $(PART_SECTORS) - 1)) -t 1:8300 target/disk.img > /dev/null
-	$(MAKE) update-disk
+
+.PHONY: stage-disk
+stage-disk: userland ports
+	echo "[INFO] Mirroring assets/disk into the disk staging tree"
+	rm -rf $(DISK_STAGE)
+	mkdir -p $(DISK_STAGE)
+	cp -a $(DISK_ASSETS)/. $(DISK_STAGE)/
 
 .PHONY: update-disk
-update-disk: userland ports target/disk.img
-	echo "[INFO] Rebuilding ext2 partition from target/build_deps/disk/"
+update-disk: target/disk.img stage-disk
+	echo "[INFO] Rebuilding ext2 partition from $(DISK_STAGE)"
 	mkdir -p target/build
-	# Copy static assets to target/build_deps/disk before creating the image
-	cp -r assets/disk/* target/build_deps/disk/
 	dd if=/dev/zero of=target/build/partition.img bs=512 count=$(PART_SECTORS) status=none
-	mke2fs -q -F -t ext2 -d target/build_deps/disk target/build/partition.img
+	mke2fs -q -F -t ext2 -d $(DISK_STAGE) target/build/partition.img
 	dd if=target/build/partition.img of=target/disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
 	rm -f target/build/partition.img
-	echo "[SUCCESS] target/disk.img updated successfully from target/build_deps/disk/."
+	echo "[SUCCESS] target/disk.img updated successfully from $(DISK_STAGE)."
 
 .PHONY: sync-from-disk
 sync-from-disk:
-	echo "[INFO] Extracting files from ext2 partition to target/build_deps/disk/"
+	echo "[INFO] Extracting files from ext2 partition to $(DISK_EXPORT)"
 	mkdir -p target/build
-	mkdir -p target/build_deps/disk
+	rm -rf $(DISK_EXPORT)
+	mkdir -p $(DISK_EXPORT)
 	dd if=target/disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
-	debugfs -R "rdump / target/build_deps/disk" target/build/partition.img 2>/dev/null || true
+	debugfs -R "rdump / $(DISK_EXPORT)" target/build/partition.img 2>/dev/null || true
 	rm -f target/build/partition.img
-	echo "[SUCCESS] target/build_deps/disk/ updated from target/disk.img."
+	echo "[SUCCESS] $(DISK_EXPORT) updated from target/disk.img."
 
 # ISO Creation (Hybrid BIOS/UEFI)
 target/build/$(IMAGE_NAME).iso: target/build_deps/limine/limine kernel
@@ -139,26 +147,10 @@ copy-out:
 .PHONY: sync-to-assets
 sync-to-assets: sync-from-disk
 	echo "[INFO] Syncing persistent changes back to assets/disk/"
-	rsync -av --exclude='/Programs' --exclude='/System' target/build_deps/disk/ assets/disk/
+	rsync -av --exclude='/Programs' --exclude='/System' $(DISK_EXPORT)/ $(DISK_ASSETS)/
 
 .PHONY: update-programs
-update-programs: userland ports
-	@if [ ! -f target/disk.img ]; then \
-		echo "[ERROR] target/disk.img does not exist. Run 'make update-disk' first."; \
-		exit 1; \
-	fi
-	echo "[INFO] Updating Programs folder inside target/disk.img"
-	mkdir -p target/build
-	dd if=target/disk.img of=target/build/partition.img bs=512 skip=$(PART_START) count=$(PART_SECTORS) status=none
-	for prog in $$(ls target/build_deps/disk/Programs); do \
-		echo "  Updating $$prog..."; \
-		debugfs -w -R "rm /Programs/$$prog" target/build/partition.img 2>/dev/null || true; \
-		debugfs -w -R "write target/build_deps/disk/Programs/$$prog /Programs/$$prog" target/build/partition.img 2>/dev/null || true; \
-	done
-	dd if=target/build/partition.img of=target/disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
-	rm -f target/build/partition.img
-	echo "[SUCCESS] Programs folder in target/disk.img updated."
-
+update-programs: update-disk
 
 # External Dependencies (Limine and OVMF)
 target/build_deps/limine/limine:

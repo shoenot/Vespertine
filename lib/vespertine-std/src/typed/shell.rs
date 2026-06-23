@@ -4,6 +4,7 @@ use core::{
     str,
 };
 extern crate alloc;
+use alloc::format;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -271,7 +272,7 @@ impl<R: Read> TypedReader<R> {
 
         match self.read_struct(&mut header) {
             Ok(()) => {}
-            Err(error) if error.kind == ErrorKind::OutOfMemory => return Ok(None),
+            Err(error) if error.kind == ErrorKind::EndOfStream => return Ok(None),
             Err(error) => return Err(error),
         }
 
@@ -298,11 +299,11 @@ impl<R: Read> TypedReader<R> {
                 }
                 Ok(Some(ShellValue::StreamEnd))
             }
-            x if x == PacketType::StreamEnd as u32 => {
+            x if x == PacketType::ShellError as u32 => {
                 let message = self.read_string(header.payload_len)?;
                 Ok(Some(ShellValue::Error(message)))
             }
-            _ => Err(Error::invalid_argument("unknown typed packet type".into())),
+            _ => Err(Error::invalid_argument(format!("unknown typed packet type: {}", header.packet_type).into())),
         }
     }
 
