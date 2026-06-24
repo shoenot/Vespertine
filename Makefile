@@ -86,6 +86,9 @@ stage-disk: userland ports
 	rm -rf $(DISK_STAGE)
 	mkdir -p $(DISK_STAGE)
 	cp -a $(DISK_ASSETS)/. $(DISK_STAGE)/
+	mkdir -p $(DISK_STAGE)/Devices
+	mkdir -p $(DISK_STAGE)/System/Services
+	mkdir -p $(DISK_STAGE)/System/Logs
 
 .PHONY: update-disk
 update-disk: target/disk.img stage-disk

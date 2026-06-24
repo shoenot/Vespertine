@@ -17,6 +17,7 @@ use vespertine_abi::{
 };
 
 use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::mount::mount;
 use crate::core::object::models::namespace::DirLocation;
 use crate::core::object::models::process::Process;
 use crate::core::object::obj::KernelObject;
@@ -54,8 +55,20 @@ pub fn debug_dump_handles() {
     klogln!("{:#?}", *table);
 }
 
-pub async fn mount_kernel_object(parent: Arc<dyn KernelObject>, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
-    parent.as_directory().ok_or(InvocationError::UnsupportedOperation)?.link_child(name, object).await
+pub async fn mount_kernel_object(parent: Arc<dyn KernelObject>, name: &str, root: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
+    let covered = parent.as_directory()
+        .ok_or(InvocationError::UnsupportedOperation)?
+        .lookup_child(name)
+        .await?;
+
+    mount(covered, root)
+}
+
+pub async fn link_kernel_object(parent: Arc<dyn KernelObject>, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
+    parent.as_directory()
+        .ok_or(InvocationError::UnsupportedOperation)?
+        .link_child(name, object)
+        .await
 }
 
 pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights) -> Result<HandleID, InvocationError> {

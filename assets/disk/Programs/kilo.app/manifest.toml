@@ -1,0 +1,11 @@
+[application]
+name = "Kilo"
+binary = "kilo"
+id = "org.antirez.kilo"
+
+[io]
+input = "direct"
+output = "direct"
+
+[permissions]
+filesystem = "mutable"

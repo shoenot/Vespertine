@@ -439,7 +439,7 @@ impl Launcher {
                 return Err(error);
             },
         };
-        let cwd_offer = match self.offer(cwd, AccessRights::TRAVERSE | AccessRights::LIST | AccessRights::READ) {
+        let cwd_offer = match self.offer(cwd, AccessRights::TRAVERSE | AccessRights::LIST) {
             Ok(offer) => offer,
             Err(error) => {
                 let _ = self.revoke(source_offer);

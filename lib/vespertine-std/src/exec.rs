@@ -232,7 +232,7 @@ impl Exec {
             sink: env::sink(),
             capabilities: Vec::new(),
             root_rights: AccessRights::new(),
-            cwd_rights: AccessRights::READ 
+            cwd_rights: AccessRights::TRAVERSE | AccessRights::LIST 
         }
     }
 }

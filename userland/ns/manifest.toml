@@ -6,3 +6,6 @@ id = "os.vespertine.ns"
 [io]
 input = "any"
 output = "typed"
+
+[permissions]
+filesystem = "mutable"

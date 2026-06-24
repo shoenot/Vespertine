@@ -1,0 +1,8 @@
+[application]
+name = "cowsay"
+binary = "cowsay"
+id = "org.cowsay.cowsay"
+
+[io]
+input = "any"
+output = "text"

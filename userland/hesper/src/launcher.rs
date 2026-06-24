@@ -16,7 +16,8 @@ use vespertine_std::{
     Error, Exec, Write
 };
 
-use crate::meta::get_metadata;
+use crate::meta::{AppManifest, get_metadata};
+use crate::policy::launch_policy;
 
 struct AcceptedHandle {
     handle: HandleID
@@ -43,15 +44,8 @@ pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog) 
     match request {
         HesperRequest::AppMetadata { request_id, request } => match get_metadata(&request.app_name) {
             Ok(metadata) => {
-                let input = match decode_io_mode_string(&metadata.io.input) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        send_launcher_invalid_request(socket, request_id);
-                        return Err(error);
-                    }
-                };
-                let output = match decode_io_mode_string(&metadata.io.output) {
-                    Ok(value) => value,
+                let (input, output) = match manifest_io_modes(&metadata) {
+                    Ok(modes) => modes,
                     Err(error) => {
                         send_launcher_invalid_request(socket, request_id);
                         return Err(error);
@@ -85,15 +79,16 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
     let metadata = match get_metadata(&request.app_name) {
         Ok(metadata) => metadata,
         Err(error) => {
-            let _ = send_execute_response(
-                socket,
-                request_id,
-                HESPER_STATUS_NOT_FOUND,
-                None,
-                "application was not found",
-            );
+            let _ = send_execute_response(socket, request_id, HESPER_STATUS_NOT_FOUND, None, "application was not found");
             return Err(error);
         },
+    };
+    let policy = match launch_policy(&request.app_name, &metadata) {
+        Ok(policy) => policy,
+        Err(error) => {
+            let _ = send_execute_response(socket, request_id, HESPER_STATUS_INVALID_REQUEST, None, "application launch policy denied the request");
+            return Err(error);
+        }
     };
     let session = socket.handle();
     let accepted = (|| {
@@ -110,7 +105,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         let cwd = AcceptedHandle::accept(
             session,
             request.cwd_offer,
-            AccessRights::TRAVERSE | AccessRights::LIST | AccessRights::READ,
+            policy.cwd_rights,
         )?;
         Ok::<_, Error>((source, sink, cwd))
     })();
@@ -137,9 +132,8 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         .args(&request.arguments)
         .source(source.handle())
         .sink(sink.handle())
-        .cwd(cwd.handle(), AccessRights::TRAVERSE | AccessRights::READ | AccessRights::LIST)
-        .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE | AccessRights::EXECUTE | 
-            AccessRights::TRAVERSE | AccessRights::LIST | AccessRights::REMOVE)
+        .cwd(cwd.handle(), policy.cwd_rights)
+        .root_rights(policy.root_rights)
         .spawn()
     {
         Ok(process) => process,
@@ -186,4 +180,15 @@ fn send_launcher_not_found(sock: &Socket, id: u32) {
 
 fn send_launcher_invalid_request(sock: &Socket, id: u32) {
     let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_INVALID_REQUEST, AppIoMode::Any, AppIoMode::Any, "", "");
+}
+
+fn manifest_io_modes(metadata: &AppManifest) -> Result<(AppIoMode, AppIoMode), Error> {
+    let input = decode_io_mode_string(&metadata.io.input)?;
+    let output = decode_io_mode_string(&metadata.io.output)?;
+
+    if output == AppIoMode::Any {
+        return Err(Error::invalid_argument("application output mode cannot be \'any\'".into()));
+    }
+
+    Ok((input, output))
 }

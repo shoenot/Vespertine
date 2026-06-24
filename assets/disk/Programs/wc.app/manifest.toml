@@ -1,0 +1,8 @@
+[application]
+name = "wc"
+binary = "wc"
+id = "org.openbsd.wc"
+
+[io]
+input = "text"
+output = "text"

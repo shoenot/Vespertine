@@ -4,6 +4,7 @@
 extern crate alloc;
 mod launcher;
 mod meta;
+mod policy;
 use alloc::format;
 
 use vespertine_abi::tag::{

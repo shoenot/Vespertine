@@ -1,11 +1,9 @@
 use core::fmt::Display;
 use core::ptr::copy_nonoverlapping;
+use core::slice;
 
 use vespertine_abi::protocol::{
-    AbiDirEntry,
-    PacketFlags,
-    PacketHeader,
-    VESPER_MAGIC,
+    AbiDirEntry, PacketFlags, PacketHeader, PacketType, VESPER_MAGIC
 };
 use vespertine_abi::{
     AccessRights,
@@ -79,76 +77,65 @@ impl Display for EntryKind {
 pub struct ReadDir {
     read_end: Socket,
     finished: bool,
-    buffer: [u8; 4096],
-    cursor: usize,
-    limit: usize,
 }
-
-pub static FULL_ENTRY: usize = size_of::<PacketHeader>() + size_of::<AbiDirEntry>();
 
 impl Iterator for ReadDir {
     type Item = DirEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
+        if self.finished { return None };
+
+        let mut header = PacketHeader::default();
+        let header_bytes = unsafe {
+            slice::from_raw_parts_mut(
+                &mut header as *mut PacketHeader as *mut u8, 
+                size_of::<PacketHeader>()
+            )
         };
 
-        let remaining = self.limit - self.cursor;
-        // ensure buffer holds at least one complete entry
-        if remaining < FULL_ENTRY {
-            // shift unparsed leftovers to front
-            if remaining > 0 {
-                self.buffer.copy_within(self.cursor..self.limit, 0);
-            }
-            self.cursor = 0;
-            self.limit = remaining;
-
-            match self.read_end.read(&mut self.buffer[self.limit..]) {
-                Ok(n) if n > 0 => {
-                    self.limit += n;
-                }
-                _ => {
-                    // eof or read error
-                    if self.limit - self.cursor < FULL_ENTRY {
-                        self.finished = true;
-                        return None;
-                    }
-                }
-            }
-        }
-
-        let mut header =
-            PacketHeader { magic: 0, version: 0, packet_flags: PacketFlags::new(), packet_type: 0, payload_len: 0, reserved: 0 };
-
-        // read header
-        let header_len = size_of::<PacketHeader>();
-
-        unsafe {
-            copy_nonoverlapping(self.buffer.as_ptr().add(self.cursor), &mut header as *mut _ as *mut u8, header_len);
-        }
-        self.cursor += header_len;
-
-        // verify magic number
-        if header.magic != VESPER_MAGIC {
+        if self.read_end.read_exact(header_bytes).is_err() {
             self.finished = true;
             return None;
         }
 
-        // read payload
-        let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0u8; 254] };
-        let entry_len = size_of::<AbiDirEntry>();
-        unsafe {
-            copy_nonoverlapping(self.buffer.as_ptr().add(self.cursor), &mut entry as *mut _ as *mut u8, entry_len);
+        if header.magic != VESPER_MAGIC
+            || header.version != 1
+            || header.packet_type != PacketType::DirEntry as u32
+            || header.payload_len as usize != size_of::<AbiDirEntry>() {
+                self.finished = true;
+                return None;
         }
-        self.cursor += entry_len;
+
+        let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0; 254] };
+        let entry_bytes = unsafe {
+            slice::from_raw_parts_mut(
+                &mut entry as *mut AbiDirEntry as *mut u8, 
+                size_of::<AbiDirEntry>()
+            )
+        };
+
+        if self.read_end.read_exact(entry_bytes).is_err() {
+            self.finished = true;
+            return None;
+        }
 
         if !header.packet_flags.contains(PacketFlags::HAS_NEXT) {
             self.finished = true;
         }
 
-        let name_bytes = &entry.name[..entry.name_len as usize];
-        let name = str::from_utf8(name_bytes).unwrap_or("Invalid UTF-8").into();
+        let name_len = entry.name_len as usize;
+        if name_len > entry.name.len() {
+            self.finished = true;
+            return None;
+        }
+
+        let name = match core::str::from_utf8(&entry.name[..name_len]) {
+            Ok(name) => name.into(),
+            Err(_) => {
+                self.finished = true;
+                return None;
+            }
+        };
 
         let kind = match entry.entry_type {
             1 => EntryKind::Directory,
@@ -178,7 +165,7 @@ impl Dir {
 
         write_end.close();
 
-        Ok(ReadDir { read_end, finished: false, buffer: [0u8; 4096], cursor: 0, limit: 0 })
+        Ok(ReadDir { read_end, finished: false })
     }
 
     pub fn subdir(&self, name: &str) -> Result<Dir, Error> {

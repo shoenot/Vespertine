@@ -23,6 +23,7 @@ use vespertine_common::path::{
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::mount::follow_mount;
 use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::{
     FilePermissions,
@@ -69,7 +70,7 @@ impl DirLocation {
 
     pub fn id(&self) -> usize { self.id }
 
-    pub fn directory(&self) -> Arc<dyn KernelObject> { self.dir.clone() }
+    pub fn directory(&self) -> Arc<dyn KernelObject> { follow_mount(self.dir.clone()) }
 
     pub fn parent(&self) -> Option<Arc<DirLocation>> { self.parent.clone() }
 
@@ -143,6 +144,7 @@ impl DirLocation {
 
                     let directory = current.directory();
                     let child = directory.as_directory().ok_or(InvocationError::InvalidArgument)?.lookup_child(name).await?;
+                    let child = follow_mount(child);
 
                     if child.object_type() == ObjectType::Directory {
                         let child_location = DirLocation::child(child, current.clone());
@@ -193,6 +195,7 @@ impl DirLocation {
             _ => {
                 let directory = self.directory();
                 let child = directory.as_directory().ok_or(InvocationError::InvalidArgument)?.lookup_child(name).await?;
+                let child = follow_mount(child);
 
                 let child_user_rights = allowed_rights(&child)?;
                 let child_effective_rights = capability_rights & child_user_rights;
@@ -210,6 +213,7 @@ impl DirLocation {
         let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
         let directory = self.directory();
         let child = directory.as_directory().ok_or(InvocationError::InvalidArgument)?.create_child_dir(&filename.name, owner).await?;
+        let child = follow_mount(child);
 
         if child.object_type() != ObjectType::Directory {
             return Err(InvocationError::InvalidArgument);
@@ -237,11 +241,11 @@ impl KernelObject for DirLocation {
             }
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len, rights).await,
             Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => self.create_dir(name, name_len).await,
-            other => self.dir.invoke(other, rights).await,
+            other => self.directory().invoke(other, rights).await,
         }
     }
 
-    fn permissions(&self) -> Option<FilePermissions> { self.dir.permissions() }
+    fn permissions(&self) -> Option<FilePermissions> { self.directory().permissions() }
 }
 
 fn resolve_location(handle: HandleID, required_rights: AccessRights) -> Result<(Arc<DirLocation>, AccessRights), InvocationError> {
@@ -338,6 +342,7 @@ pub async fn resolve_kernel_object(
 
                 let directory = current.directory();
                 let child = directory.as_directory().ok_or(InvocationError::InvalidArgument)?.lookup_child(name).await?;
+                let child = follow_mount(child);
 
                 if child.object_type() == ObjectType::Directory {
                     let location = DirLocation::child(child, current.clone());

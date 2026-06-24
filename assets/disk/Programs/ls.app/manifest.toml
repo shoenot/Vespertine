@@ -1,0 +1,8 @@
+[application]
+name = "ls"
+binary = "ls"
+id = "org.openbsd.ls"
+
+[io]
+input = "any"
+output = "text"

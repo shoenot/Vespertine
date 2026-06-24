@@ -1,0 +1,8 @@
+[application]
+name = "grep"
+binary = "grep"
+id = "org.openbsd.grep"
+
+[io]
+input = "text"
+output = "text"
