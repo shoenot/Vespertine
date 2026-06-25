@@ -17,7 +17,7 @@ use crate::core::object::models::process::{
 use crate::core::sync::TicketLock;
 use crate::core::thread::schedule::get_new_tid;
 use crate::core::thread::wait::WaitQueue;
-use crate::core::time::callout::ThreadWakeRegistration;
+use crate::core::thread::block::ThreadWakeRegistration;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

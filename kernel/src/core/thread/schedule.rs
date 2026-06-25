@@ -367,17 +367,6 @@ impl SchedulerState {
 
     pub fn get_current_thread(&self) -> *mut ThreadControlBlock { self.current_thread }
 
-    pub fn unblock(&mut self, thread: *mut ThreadControlBlock) {
-        if unsafe { (*thread).transition(ThreadState::Blocked, ThreadState::Ready) }.is_ok() {
-            self.push(thread);
-        }
-    }
-
-    pub fn block(&mut self, thread: *mut ThreadControlBlock) {
-        unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("blocked thread was not running");
-        self.schedule(ScheduleReason::Blocked);
-    }
-
     pub fn terminate_current_thread(&mut self, exit_code: u32) -> ! {
         disable_interrupts();
 

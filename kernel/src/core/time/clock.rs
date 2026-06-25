@@ -16,8 +16,9 @@ use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::schedule::ScheduleReason;
 use crate::core::time::callout::{
     Callout,
-    CalloutPayload, ThreadWakeRegistration,
+    CalloutPayload,
 };
+use crate::core::thread::block::ThreadWakeRegistration;
 use crate::core::time::{
     GET_TIME_FN,
     IA32_TSC_DEADLINE,

@@ -24,6 +24,7 @@ use crate::arch::{
 };
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_invoke;
+use crate::core::thread::block::ThreadWakeRegistration;
 use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
     wake_thread,
@@ -35,7 +36,7 @@ use crate::core::thread::{
 };
 
 struct ThreadWaker {
-    thread: *mut ThreadControlBlock,
+    registration: Arc<ThreadWakeRegistration>,
     awoken: AtomicBool,
 }
 
@@ -43,11 +44,14 @@ unsafe impl Send for ThreadWaker {}
 unsafe impl Sync for ThreadWaker {}
 
 impl Wake for ThreadWaker {
-    fn wake(self: Arc<Self>) { self.wake_by_ref(); }
+    fn wake(self: Arc<Self>) { 
+        self.awoken.store(true, Ordering::Release);
+        self.registration.wake(); 
+    }
 
     fn wake_by_ref(self: &Arc<Self>) {
         self.awoken.store(true, Ordering::Release);
-        wake_thread(self.thread);
+        self.registration.wake(); 
     }
 }
 

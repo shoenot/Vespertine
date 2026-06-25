@@ -13,48 +13,18 @@ use crate::arch::{
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
-    wake_thread,
 };
 use crate::core::thread::{
-    ThreadControlBlock,
     ThreadState,
 };
 use crate::core::time::get_time;
+use crate::core::thread::block::ThreadWakeRegistration;
 
 pub struct TimerRegistration {
     active: AtomicBool,
     fired: AtomicBool,
     waker: TicketLock<Option<Waker>>,
 }
-
-#[derive(Clone, Debug)]
-pub struct ThreadWakeRegistration {
-    active: AtomicBool,
-    fired: AtomicBool,
-    thread: *mut ThreadControlBlock,
-}
-
-impl ThreadWakeRegistration {
-    pub fn new(thread: *mut ThreadControlBlock) -> Arc<Self> {
-        Arc::new(Self { active: AtomicBool::new(true), fired: AtomicBool::new(false), thread })
-    }
-
-    pub fn cancel(&self) -> bool {
-        self.active.swap(false, Ordering::AcqRel)
-    }
-
-    fn fire(&self) {
-        if !self.active.swap(false, Ordering::AcqRel) {
-            return;
-        }
-
-        self.fired.store(true, Ordering::Release);
-        wake_thread(self.thread);
-    }
-}
-
-unsafe impl Send for ThreadWakeRegistration {}
-unsafe impl Sync for ThreadWakeRegistration {}
 
 impl TimerRegistration {
     pub fn new() -> Arc<Self> {
@@ -123,7 +93,9 @@ unsafe impl Send for Callout {}
 
 pub fn dispatch_callout_payload(payload: CalloutPayload) {
     match payload {
-        CalloutPayload::WakeThread(registration) => registration.fire(),
+        CalloutPayload::WakeThread(registration) => {
+            registration.wake();
+        },
         CalloutPayload::WakeTimer(registration) => {
             if let Some(waker) = registration.fire() {
                 waker.wake();
