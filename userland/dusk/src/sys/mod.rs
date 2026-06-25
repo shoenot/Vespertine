@@ -1,17 +1,15 @@
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
-use alloc::{
-    vec,
-};
-use vespertine_abi::app::hesper::AppIoMode;
-use vespertine_std::hesper::Launcher;
 use core::fmt::Display;
 
+use vespertine_abi::app::hesper::AppIoMode;
 use vespertine_abi::{
     HandleID,
     ProcessExitInfo,
 };
 use vespertine_rt::thread as rt_thread;
+use vespertine_std::hesper::Launcher;
 use vespertine_std::socket::Socket;
 use vespertine_std::term::unset_raw_mode;
 use vespertine_std::typed::render_typed_stream;
@@ -69,10 +67,7 @@ pub enum CommandSink {
 
 pub enum SpawnedOutput {
     Terminal,
-    Piped { 
-        kind: AppIoMode, 
-        socket: Socket 
-    },
+    Piped { kind: AppIoMode, socket: Socket },
 }
 
 pub struct SpawnedCommand {
@@ -87,37 +82,26 @@ pub struct ProgramMetadata {
 }
 
 fn load_program_metadata(name: &str) -> Result<ProgramMetadata, ShellResult> {
-    let mut launcher = Launcher::connect()
-        .map_err(|error| { ShellResult::FailedToLaunch(name.into(), error) })?;
+    let mut launcher = Launcher::connect().map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
 
-    let response = launcher
-        .metadata(name)
-        .map_err(|error| { ShellResult::FailedToLaunch(name.into(), error) })?;
+    let response = launcher.metadata(name).map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
 
     match response.status {
         HESPER_STATUS_OK => {
             if response.output == AppIoMode::Any {
                 return Err(ShellResult::FailedToLaunch(
                     name.into(),
-                    Error::invalid_argument("application manifest cannot declare output = any".into())
+                    Error::invalid_argument("application manifest cannot declare output = any".into()),
                 ));
             }
 
             Ok(ProgramMetadata { input: response.input, output: response.output })
-        },
-        HESPER_STATUS_NOT_FOUND => { Err(ShellResult::NotFound(name.into())) },
-        HESPER_STATUS_INVALID_REQUEST => {
-            Err(ShellResult::FailedToLaunch(
-                name.into(),
-                Error::invalid_argument("application bundle contains an invalid manifest".into())
-            ))
-        },
-        _ => {
-            Err(ShellResult::FailedToLaunch(
-                name.into(),
-                Error::unknown("Hesper failed to return application metadata".into())
-            ))
         }
+        HESPER_STATUS_NOT_FOUND => Err(ShellResult::NotFound(name.into())),
+        HESPER_STATUS_INVALID_REQUEST => {
+            Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application bundle contains an invalid manifest".into())))
+        }
+        _ => Err(ShellResult::FailedToLaunch(name.into(), Error::unknown("Hesper failed to return application metadata".into()))),
     }
 }
 
@@ -129,44 +113,39 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
 
     match metadata.output {
         AppIoMode::Direct | AppIoMode::Text => {
-            let spawned = match spawn_command(
-                name, args, context, env::source(), CommandSink::Terminal, metadata
-            ) {
+            let spawned = match spawn_command(name, args, context, env::source(), CommandSink::Terminal, metadata) {
                 Ok(spawned) => spawned,
                 Err(result) => return result,
             };
             wait_process(name, spawned.process)
-        },
+        }
         AppIoMode::Typed => {
-            let spawned = match spawn_command(
-                name, args, context, env::source(), CommandSink::Pipe, metadata
-            ) {
+            let spawned = match spawn_command(name, args, context, env::source(), CommandSink::Pipe, metadata) {
                 Ok(spawned) => spawned,
                 Err(result) => return result,
             };
-    
+
             let SpawnedOutput::Piped { socket, .. } = spawned.output else {
                 return ShellResult::FailedToLaunch(
                     name.into(),
-                    Error::invalid_argument( "typed application did not produce a pipe".into()),
+                    Error::invalid_argument("typed application did not produce a pipe".into()),
                 );
             };
-    
+
             let render_result = render_typed_stream(socket, HandleWriter::new(env::sink()));
-    
+
             let wait_result = spawned.process.wait();
             let _ = unset_raw_mode();
-    
+
             match (render_result, wait_result) {
                 (Ok(()), Ok(exit)) => ShellResult::Launched(exit),
-                (_, Err(error)) => { ShellResult::FailedToLaunch(name.into(), error) }
-                (Err(error), _) => { ShellResult::FailedToRender(name.into(), error) }
+                (_, Err(error)) => ShellResult::FailedToLaunch(name.into(), error),
+                (Err(error), _) => ShellResult::FailedToRender(name.into(), error),
             }
-        },
-        AppIoMode::Any => ShellResult::FailedToLaunch(
-            name.into(),
-            Error::invalid_argument( "application has an invalid output mode".into()),
-        ),
+        }
+        AppIoMode::Any => {
+            ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application has an invalid output mode".into()))
+        }
     }
 }
 
@@ -180,49 +159,40 @@ fn wait_process(name: &str, proc: Process) -> ShellResult {
     res
 }
 
-pub fn spawn_command(name: &str, args: &[String], context: &ShellContext, source: HandleID, sink: CommandSink, metadata: ProgramMetadata) -> Result<SpawnedCommand, ShellResult> {
+pub fn spawn_command(
+    name: &str, args: &[String], context: &ShellContext, source: HandleID, sink: CommandSink, metadata: ProgramMetadata,
+) -> Result<SpawnedCommand, ShellResult> {
     if metadata.output == AppIoMode::Direct && !matches!(sink, CommandSink::Terminal) {
-        return Err(ShellResult::FailedToLaunch(
-            name.into(),
-            Error::invalid_argument("direct application cannot be piped".into()),
-        ));
+        return Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("direct application cannot be piped".into())));
     }
 
     let mut launcher = Launcher::connect().map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
 
     match sink {
         CommandSink::Terminal => {
-            let process = launcher
-                .launch(name, args, source, env::sink(), context.cwd_handle())
-                .map_err(|error| {
-                    if error.kind == ErrorKind::NotFound {
-                        ShellResult::NotFound(name.into())
-                    } else {
-                        ShellResult::FailedToLaunch(name.into(), error)
-                    }
-                })?;
+            let process = launcher.launch(name, args, source, env::sink(), context.cwd_handle()).map_err(|error| {
+                if error.kind == ErrorKind::NotFound {
+                    ShellResult::NotFound(name.into())
+                } else {
+                    ShellResult::FailedToLaunch(name.into(), error)
+                }
+            })?;
             Ok(SpawnedCommand { process, output: SpawnedOutput::Terminal })
-        },
+        }
         CommandSink::Pipe => {
-            let (read_end, child_sink) = Socket::new_pair()
-                .map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
+            let (read_end, child_sink) = Socket::new_pair().map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
 
-            let process = launcher
-                .launch(name, args, source, child_sink.handle(), context.cwd_handle())
-                .map_err(|error| {
-                    if error.kind == ErrorKind::NotFound {
-                        ShellResult::NotFound(name.into())
-                    } else {
-                        ShellResult::FailedToLaunch(name.into(), error)
-                    }
-                })?;
+            let process = launcher.launch(name, args, source, child_sink.handle(), context.cwd_handle()).map_err(|error| {
+                if error.kind == ErrorKind::NotFound {
+                    ShellResult::NotFound(name.into())
+                } else {
+                    ShellResult::FailedToLaunch(name.into(), error)
+                }
+            })?;
 
             drop(child_sink);
 
-            Ok(SpawnedCommand {
-                process,
-                output: SpawnedOutput::Piped { kind: metadata.output, socket: read_end },
-            })
+            Ok(SpawnedCommand { process, output: SpawnedOutput::Piped { kind: metadata.output, socket: read_end } })
         }
     }
 }
@@ -339,32 +309,27 @@ fn spawn_command_node(cmd: &CommandNode, context: &ShellContext, source: HandleI
 }
 
 fn check_pipe_compat(left_output: AppIoMode, right_input: Option<AppIoMode>) -> Result<(), ShellResult> {
-    let Some(input) = right_input else { return Ok(()); };
+    let Some(input) = right_input else {
+        return Ok(());
+    };
 
     let accepted = match input {
         AppIoMode::Any => true,
-        AppIoMode::Typed => {
-            left_output == AppIoMode::Typed
-        },
-        AppIoMode::Text => {
-            left_output == AppIoMode::Text || left_output == AppIoMode::Typed
-        },
+        AppIoMode::Typed => left_output == AppIoMode::Typed,
+        AppIoMode::Text => left_output == AppIoMode::Text || left_output == AppIoMode::Typed,
         AppIoMode::Direct => false,
     };
 
-    if accepted { Ok(()) } else {
-        Err(ShellResult::FailedToLaunch(
-            "pipeline".into(),
-            Error::invalid_argument( "pipeline type mismatch".into()),
-        ))
+    if accepted {
+        Ok(())
+    } else {
+        Err(ShellResult::FailedToLaunch("pipeline".into(), Error::invalid_argument("pipeline type mismatch".into())))
     }
 }
 
 fn first_input_mode(node: &BaseNode) -> Result<Option<AppIoMode>, ShellResult> {
     match node {
-        BaseNode::Cmd(CommandNode::Run { exec, .. }) => {
-            Ok(Some(load_program_metadata(exec.as_str())?.input))
-        },
+        BaseNode::Cmd(CommandNode::Run { exec, .. }) => Ok(Some(load_program_metadata(exec.as_str())?.input)),
         BaseNode::Pipe(left, _) => first_input_mode(left),
         _ => Ok(None),
     }

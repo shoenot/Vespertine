@@ -101,7 +101,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
         // init package
         let exec_handle = kernel_walk("/System/Core/hesper", HandleID(0), AccessRights::READ | AccessRights::EXECUTE)
-            .await.expect("[FATAL] No program found");
+            .await
+            .expect("[FATAL] No program found");
         let root_handle = HandleID(0);
         let root_rights = AccessRights::all();
         let source = kbd_source_handle;
@@ -124,8 +125,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         };
 
         let child_handle_id =
-            kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
-                .await.expect("[FATAL] Failed to spawn process");
+            kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op)).await.expect("[FATAL] Failed to spawn process");
 
         klogln!("[SUCCESS] Process spawn success. Handle: {}", child_handle_id);
         klogln!("[INFO] Logger switched to log file");

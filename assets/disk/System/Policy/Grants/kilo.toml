@@ -1,0 +1,9 @@
+[application]
+id = "org.antirez.kilo"
+bundle = "kilo"
+archetype = "text-editor"
+
+[grants]
+root-rights = []
+cwd-rights = []
+capabilities = []

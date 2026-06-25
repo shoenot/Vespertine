@@ -4,29 +4,46 @@
 extern crate alloc;
 mod launcher;
 mod meta;
+mod parse;
 mod policy;
 use alloc::format;
+use alloc::sync::Arc;
 
 use vespertine_abi::tag::{
-    CAP_LAUNCHER_CONNECT, CAP_LOGGER
+    CAP_LAUNCHER_CONNECT,
+    CAP_LOGGER,
 };
 use vespertine_abi::{
-    AccessRights, HandleID, ProcessInitPackage
+    AccessRights,
+    HandleID,
+    ProcessInitPackage,
 };
-use vespertine_rt::println;
 use vespertine_rt::syscall::sys_close;
-use vespertine_rt::thread as rt_thread;
-use vespertine_std::fs::{Path, link_object, resolve};
+use vespertine_rt::{
+    println,
+    thread as rt_thread,
+};
+use vespertine_std::fs::{
+    Path,
+    link_object,
+    resolve,
+};
 use vespertine_std::hesper::recv_hesper_request;
 use vespertine_std::log::SystemLog;
 use vespertine_std::portal::PortalFactory;
 use vespertine_std::proc::Waiter;
 use vespertine_std::socket::Socket;
 use vespertine_std::{
-    Error, ErrorKind, Exec, Read, Write, env
+    Error,
+    ErrorKind,
+    Exec,
+    Read,
+    Write,
+    env,
 };
 
 use crate::launcher::handle_request;
+use crate::policy::PolicyStore;
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
@@ -43,24 +60,25 @@ fn recv_launcher_accept(socket: &Socket) -> Result<HandleID, Error> {
     Ok(HandleID(u32::from_le_bytes(bytes) as usize))
 }
 
-fn spawn_launcher_session(handle: HandleID) -> Result<(), Error> {
+fn spawn_launcher_session(handle: HandleID, policy: Arc<PolicyStore>) -> Result<(), Error> {
     rt_thread::spawn(move || {
         let log = SystemLog::connect();
         let socket = Socket::from_handle(handle);
 
         loop {
             let request = match recv_hesper_request(&socket) {
-                Ok(r) => r,
-                Err(e) if e.kind == ErrorKind::EndOfStream => {
+                Ok(request) => request,
+                Err(error) if error.kind == ErrorKind::EndOfStream => {
                     break;
-                },
-                Err(e) => {
-                    let _ = log.write_string(format!("launcher session failed: {:?}", e));
+                }
+                Err(error) => {
+                    let _ = log.write_string(format!("launcher session failed: {:?}", error,));
                     break;
-                },
+                }
             };
-            if let Err(e) = handle_request(&socket, request, &log) {
-                let _ = log.write_string(format!("Hesper request failed: {:?}", e));
+
+            if let Err(error) = handle_request(&socket, request, &log, &policy) {
+                let _ = log.write_string(format!("Hesper request failed: {:?}", error,));
             }
         }
     })
@@ -69,19 +87,14 @@ fn spawn_launcher_session(handle: HandleID) -> Result<(), Error> {
 }
 
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
+    let launcher_policy = Arc::new(PolicyStore::load()?);
     let log = SystemLog::connect();
     println!("[INFO] Hesper init system online");
     log.write_string("Hesper init system online".into())?;
 
     let portal_factory = PortalFactory::request()?;
-    let (launcher_portal, launcher_accept) = portal_factory.create(
-        CAP_LAUNCHER_CONNECT, 
-        AccessRights::READ | AccessRights::WRITE
-    )?;
-    let services = resolve(
-        &Path::new("/System/Services"), 
-        AccessRights::CREATE
-    )?;
+    let (launcher_portal, launcher_accept) = portal_factory.create(CAP_LAUNCHER_CONNECT, AccessRights::READ | AccessRights::WRITE)?;
+    let services = resolve(&Path::new("/System/Services"), AccessRights::CREATE)?;
     link_object(services, "Launcher", launcher_portal)?;
 
     // namespace owns an arc to the portal so closing it here is safe
@@ -112,13 +125,13 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         if waiter.ready(0) {
             match recv_launcher_accept(&launcher_accept) {
                 Ok(session) => {
-                    if let Err(e) = spawn_launcher_session(session) {
+                    if let Err(e) = spawn_launcher_session(session, launcher_policy.clone()) {
                         let _ = log.write_string(format!("failed to spawn launcher. session: {:?}", e));
                     }
-                },
+                }
                 Err(e) => {
                     let _ = log.write_string(format!("invalid launcher accept. message: {:?}", e));
-                },
+                }
             }
         }
 

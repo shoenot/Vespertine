@@ -1,0 +1,9 @@
+[application]
+id = "os.vespertine.dusk"
+bundle = "dusk"
+archetype = "shell"
+
+[grants]
+root-rights = []
+cwd-rights = []
+capabilities = []

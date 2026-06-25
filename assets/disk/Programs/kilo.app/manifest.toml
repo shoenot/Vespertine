@@ -9,3 +9,4 @@ output = "direct"
 
 [permissions]
 filesystem = "mutable"
+capabilities = [ "term-control" ]

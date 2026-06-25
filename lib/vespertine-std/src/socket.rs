@@ -134,14 +134,8 @@ impl Socket {
             return Err(Error::invalid_argument("packet payload exceeds limit".into()));
         }
 
-        let header = PacketHeader {
-            magic: VESPER_MAGIC,
-            version: 1,
-            packet_flags: PacketFlags::IS_BUFFER,
-            packet_type,
-            payload_len,
-            reserved: 0,
-        };
+        let header =
+            PacketHeader { magic: VESPER_MAGIC, version: 1, packet_flags: PacketFlags::IS_BUFFER, packet_type, payload_len, reserved: 0 };
 
         let header_bytes = unsafe { slice::from_raw_parts(&header as *const PacketHeader as *const u8, size_of::<PacketHeader>()) };
 

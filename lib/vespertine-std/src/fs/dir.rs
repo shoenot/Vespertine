@@ -3,7 +3,11 @@ use core::ptr::copy_nonoverlapping;
 use core::slice;
 
 use vespertine_abi::protocol::{
-    AbiDirEntry, PacketFlags, PacketHeader, PacketType, VESPER_MAGIC
+    AbiDirEntry,
+    PacketFlags,
+    PacketHeader,
+    PacketType,
+    VESPER_MAGIC,
 };
 use vespertine_abi::{
     AccessRights,
@@ -83,36 +87,29 @@ impl Iterator for ReadDir {
     type Item = DirEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished { return None };
+        if self.finished {
+            return None;
+        };
 
         let mut header = PacketHeader::default();
-        let header_bytes = unsafe {
-            slice::from_raw_parts_mut(
-                &mut header as *mut PacketHeader as *mut u8, 
-                size_of::<PacketHeader>()
-            )
-        };
+        let header_bytes = unsafe { slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>()) };
 
         if self.read_end.read_exact(header_bytes).is_err() {
             self.finished = true;
             return None;
         }
 
-        if header.magic != VESPER_MAGIC
-            || header.version != 1
-            || header.packet_type != PacketType::DirEntry as u32
-            || header.payload_len as usize != size_of::<AbiDirEntry>() {
-                self.finished = true;
-                return None;
+        if header.magic != VESPER_MAGIC ||
+            header.version != 1 ||
+            header.packet_type != PacketType::DirEntry as u32 ||
+            header.payload_len as usize != size_of::<AbiDirEntry>()
+        {
+            self.finished = true;
+            return None;
         }
 
         let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0; 254] };
-        let entry_bytes = unsafe {
-            slice::from_raw_parts_mut(
-                &mut entry as *mut AbiDirEntry as *mut u8, 
-                size_of::<AbiDirEntry>()
-            )
-        };
+        let entry_bytes = unsafe { slice::from_raw_parts_mut(&mut entry as *mut AbiDirEntry as *mut u8, size_of::<AbiDirEntry>()) };
 
         if self.read_end.read_exact(entry_bytes).is_err() {
             self.finished = true;

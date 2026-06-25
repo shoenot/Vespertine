@@ -1,5 +1,6 @@
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use vespertine_std::fs::{
     File,
@@ -14,7 +15,7 @@ use vespertine_std::{
 pub struct AppManifest {
     pub application: AppMetadata,
     pub io: IoMetadata,
-    
+
     #[serde(default)]
     pub permissions: PermissionMetadata,
 }
@@ -36,21 +37,20 @@ pub struct IoMetadata {
 pub struct PermissionMetadata {
     #[serde(default = "default_filesystem_access")]
     pub filesystem: String,
+
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 impl Default for PermissionMetadata {
-    fn default() -> Self {
-        Self { filesystem: default_filesystem_access() }
-    }
+    fn default() -> Self { Self { filesystem: default_filesystem_access(), capabilities: Vec::new() } }
 }
 
-fn default_filesystem_access() -> String {
-    String::from("read-only")
-}
+fn default_filesystem_access() -> String { String::from("read-only") }
 
 fn validate_component(value: &str, desc: &str) -> Result<(), Error> {
     if value.is_empty() || value == "." || value == ".." || value.contains('/') || value.as_bytes().contains(&0) {
-            return Err(Error::invalid_argument(format!("invalid {}", desc).into()));
+        return Err(Error::invalid_argument(format!("invalid {}", desc).into()));
     }
     if value.len() > 254 {
         return Err(Error::name_too_long(format!("{} is too long", desc).into()));

@@ -95,7 +95,7 @@ update-disk: target/disk.img stage-disk
 	echo "[INFO] Rebuilding ext2 partition from $(DISK_STAGE)"
 	mkdir -p target/build
 	dd if=/dev/zero of=target/build/partition.img bs=512 count=$(PART_SECTORS) status=none
-	mke2fs -q -F -t ext2 -d $(DISK_STAGE) target/build/partition.img
+	fakeroot sh -c 'chown -R 0:0 "$(DISK_STAGE)" && mke2fs -q -F -t ext2 -d "$(DISK_STAGE)" target/build/partition.img'
 	dd if=target/build/partition.img of=target/disk.img bs=512 seek=$(PART_START) count=$(PART_SECTORS) conv=notrunc status=none
 	rm -f target/build/partition.img
 	echo "[SUCCESS] target/disk.img updated successfully from $(DISK_STAGE)."

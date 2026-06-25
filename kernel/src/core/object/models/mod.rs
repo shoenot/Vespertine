@@ -5,13 +5,12 @@ pub mod file;
 pub mod framebuffer;
 pub mod log;
 pub mod memman;
-pub mod mount;
 pub mod mempool;
+pub mod mount;
 pub mod namespace;
+pub mod portal;
 pub mod process;
 pub mod procman;
 pub mod socket;
 pub mod thread;
-pub mod portal;
 pub mod vmo;
-

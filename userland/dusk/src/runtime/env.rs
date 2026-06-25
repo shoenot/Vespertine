@@ -35,9 +35,7 @@ impl ShellContext {
     pub fn cwd_handle(&self) -> HandleID { self.cwd_handle }
 
     pub fn change_dir(&mut self, path: PathBuf) -> Result<(), Error> {
-        let new_handle = resolve_from(&path.as_path(), env::root(), self.cwd_handle, 
-            AccessRights::TRAVERSE | AccessRights::LIST
-        )?;
+        let new_handle = resolve_from(&path.as_path(), env::root(), self.cwd_handle, AccessRights::TRAVERSE | AccessRights::LIST)?;
         let new_display_path = self.cwd.join(&path.as_path());
 
         if self.cwd_handle != env::cwd() {

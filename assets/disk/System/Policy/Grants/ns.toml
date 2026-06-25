@@ -1,0 +1,9 @@
+[application]
+id = "core.vespertine.ns"
+bundle = "ns"
+archetype = "mutable-coreutil"
+
+[grants]
+root-rights = []
+cwd-rights = []
+capabilities = []

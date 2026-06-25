@@ -1,0 +1,19 @@
+version = 1
+
+[defaults]
+root-rights = ["read", "traverse", "list"]
+cwd-rights = ["traverse", "list"]
+
+[archetype.mutable-coreutil]
+root-rights = [ "read", "write", "create", "remove", "traverse", "list" ]
+cwd-rights = ["traverse", "list"]
+
+[archetype.text-editor]
+root-rights = [ "read", "write", "traverse", "list", "create", "remove" ]
+cwd-rights = [ "traverse", "list" ]
+capabilities = [ "term-control" ]
+
+[archetype.shell]
+root-rights = [ "read", "write", "traverse", "list", "create", "remove" ]
+cwd-rights = [ "traverse", "list", "create", "remove" ]
+capabilities = [ "term-control" ]

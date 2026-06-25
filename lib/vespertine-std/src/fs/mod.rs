@@ -35,12 +35,6 @@ pub fn stat(path: &Path<'_>) -> Result<FileStat, Error> {
 }
 
 pub fn link_object(parent: HandleID, name: &str, object: HandleID) -> Result<(), Error> {
-    let op = DirectoryOp::Link { 
-        name: name.as_ptr() as usize, 
-        name_len: name.len(), 
-        handle_id: object 
-    };
-    sys_invoke(parent, &Invocation::Directory(op))
-        .map(|_| ())
-        .map_err(Error::from)
+    let op = DirectoryOp::Link { name: name.as_ptr() as usize, name_len: name.len(), handle_id: object };
+    sys_invoke(parent, &Invocation::Directory(op)).map(|_| ()).map_err(Error::from)
 }

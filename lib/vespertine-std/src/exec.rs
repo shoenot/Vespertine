@@ -67,21 +67,14 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn from_handle(handle: HandleID) -> Self {
-        Self { handle }
-    }
+    pub fn from_handle(handle: HandleID) -> Self { Self { handle } }
 
-    pub fn handle(&self) -> HandleID {
-        self.handle
-    }
+    pub fn handle(&self) -> HandleID { self.handle }
 
     pub fn wait(&self) -> Result<ProcessExitInfo, Error> {
         sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
         let mut info = ProcessExitInfo::running();
-        sys_invoke(
-            self.handle, 
-            &Invocation::Proc(ProcOp::GetExitInfo { info_ptr: &mut info as *mut _ as usize })
-        ).map_err(Error::from)?;
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetExitInfo { info_ptr: &mut info as *mut _ as usize })).map_err(Error::from)?;
         Ok(info)
     }
 }
@@ -111,9 +104,7 @@ pub struct Exec {
 // --------------------------------------------------------//
 
 impl Exec {
-    pub fn from_handle(exec_handle: HandleID, argv0: String) -> Self {
-        Self::build(exec_handle, false, argv0)
-    }
+    pub fn from_handle(exec_handle: HandleID, argv0: String) -> Self { Self::build(exec_handle, false, argv0) }
 
     pub fn open(path: &Path<'_>, argv0: String) -> Result<Self, Error> {
         let exec_handle = resolve(path, AccessRights::READ | AccessRights::EXECUTE)?;
@@ -221,10 +212,10 @@ impl Exec {
     }
 
     pub fn build(exec_handle: HandleID, owns_exec_handle: bool, argv0: String) -> Self {
-        Self { 
-            exec_handle, 
-            owns_exec_handle, 
-            argv0, 
+        Self {
+            exec_handle,
+            owns_exec_handle,
+            argv0,
             args: Vec::new(),
             root: env::root(),
             cwd: env::cwd(),
@@ -232,7 +223,7 @@ impl Exec {
             sink: env::sink(),
             capabilities: Vec::new(),
             root_rights: AccessRights::new(),
-            cwd_rights: AccessRights::TRAVERSE | AccessRights::LIST 
+            cwd_rights: AccessRights::TRAVERSE | AccessRights::LIST,
         }
     }
 }

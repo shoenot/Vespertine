@@ -16,7 +16,7 @@ pub mod clock;
 pub mod fb;
 pub mod hesper;
 pub mod log;
+pub mod portal;
 pub mod proc;
 pub mod term;
 pub mod typed;
-pub mod portal;

@@ -38,6 +38,7 @@ use crate::arch::x86_64::task::syscall::{
     safe_copy_from,
     safe_copy_to,
 };
+use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::{
     KernelDirectory,
@@ -46,8 +47,6 @@ use crate::core::object::obj::{
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::memory::NORMAL_PAGE_SIZE;
-
-use crate::core::object::help::RightsWrapper;
 
 pub const FILENAME_LEN_MAX: usize = 254;
 
@@ -123,7 +122,7 @@ impl KernelObject for Directory {
 
                 KernelDirectory::link_child(self, &filename.name, object).await?;
                 Ok(0)
-            },
+            }
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 KernelDirectory::unlink_child(self, &filename.name).await?;

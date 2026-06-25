@@ -1,8 +1,9 @@
-use alloc::{sync::Arc, vec::Vec};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
-use crate::core::{object::{invoke::InvocationError, obj::KernelObject}, sync::RwLock};
-
-
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::obj::KernelObject;
+use crate::core::sync::RwLock;
 
 #[derive(Debug)]
 struct Mount {
@@ -29,9 +30,7 @@ pub fn follow_mount(object: Arc<dyn KernelObject>) -> Arc<dyn KernelObject> {
     loop {
         let mounted = {
             let mounts = MOUNTS.read();
-            mounts.iter()
-                .find(|mount| Arc::ptr_eq(&mount.covered, &current))
-                .map(|mount| mount.root.clone())
+            mounts.iter().find(|mount| Arc::ptr_eq(&mount.covered, &current)).map(|mount| mount.root.clone())
         };
         match mounted {
             Some(root) => current = root,

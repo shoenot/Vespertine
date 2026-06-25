@@ -199,7 +199,7 @@ impl KernelObject for ScreenWriter {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Write { offset: _, buffer_ptr, len }) => {
-                calling_rights.err_if_no(AccessRights::WRITE)?; 
+                calling_rights.err_if_no(AccessRights::WRITE)?;
 
                 if len > 1024 {
                     return Err(InvocationError::BufferFull);

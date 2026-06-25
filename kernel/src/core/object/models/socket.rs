@@ -480,11 +480,7 @@ impl SocketEndpoint {
     pub(crate) async fn write_all_internal(&self, data: &[u8]) -> Result<(), InvocationError> {
         let mut written = 0;
         while written < data.len() {
-            let count = InternalSocketWrite {
-                endpoint: self,
-                data: &data[written..],
-                waiter: AsyncWaiter::new(),
-            }.await?;
+            let count = InternalSocketWrite { endpoint: self, data: &data[written..], waiter: AsyncWaiter::new() }.await?;
 
             if count == 0 {
                 return Err(InvocationError::UnsupportedOperation);
@@ -527,7 +523,6 @@ impl Future for InternalSocketWrite<'_> {
         Poll::Ready(Ok(count))
     }
 }
-
 
 #[derive(Debug)]
 pub struct SocketFactory {}

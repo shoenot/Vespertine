@@ -2,7 +2,10 @@ use alloc::sync::Arc;
 
 use vespertine_abi::AccessRights;
 use vespertine_abi::tag::{
-    CAP_CLOCK, CAP_PORTAL_FACTORY, CAP_PROCMAN, CAP_SOCKFAC
+    CAP_CLOCK,
+    CAP_PORTAL_FACTORY,
+    CAP_PROCMAN,
+    CAP_SOCKFAC,
 };
 
 use crate::core::object::models::broker::Broker;
@@ -20,7 +23,10 @@ use crate::core::object::models::portal::PortalFactory;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
-    ROOT_DIRECTORY, kernel_root_location, link_kernel_object, mount_kernel_object
+    ROOT_DIRECTORY,
+    kernel_root_location,
+    link_kernel_object,
+    mount_kernel_object,
 };
 use crate::core::sync::KernelOnceCell;
 use crate::drivers::video::init_framebuffer;
@@ -43,8 +49,7 @@ pub async fn init_vfs() {
 
     let authority = kernel_namespace_authority();
 
-    let sys_dir = resolve_kernel_object(&authority, root_location, "/System").await
-        .expect("[FATAL] /System directory missing");
+    let sys_dir = resolve_kernel_object(&authority, root_location, "/System").await.expect("[FATAL] /System directory missing");
 
     let dev_dir = Arc::new(Directory::new());
     let srv_dir = Arc::new(Directory::new());

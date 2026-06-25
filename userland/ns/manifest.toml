@@ -1,7 +1,7 @@
 [application]
 name = "ns"
 binary = "ns"
-id = "os.vespertine.ns"
+id = "core.vespertine.ns"
 
 [io]
 input = "any"

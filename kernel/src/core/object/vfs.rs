@@ -56,19 +56,13 @@ pub fn debug_dump_handles() {
 }
 
 pub async fn mount_kernel_object(parent: Arc<dyn KernelObject>, name: &str, root: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
-    let covered = parent.as_directory()
-        .ok_or(InvocationError::UnsupportedOperation)?
-        .lookup_child(name)
-        .await?;
+    let covered = parent.as_directory().ok_or(InvocationError::UnsupportedOperation)?.lookup_child(name).await?;
 
     mount(covered, root)
 }
 
 pub async fn link_kernel_object(parent: Arc<dyn KernelObject>, name: &str, object: Arc<dyn KernelObject>) -> Result<(), InvocationError> {
-    parent.as_directory()
-        .ok_or(InvocationError::UnsupportedOperation)?
-        .link_child(name, object)
-        .await
+    parent.as_directory().ok_or(InvocationError::UnsupportedOperation)?.link_child(name, object).await
 }
 
 pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights) -> Result<HandleID, InvocationError> {

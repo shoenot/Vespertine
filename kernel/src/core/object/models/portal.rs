@@ -1,13 +1,27 @@
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
 use core::task::Waker;
 
-use alloc::{collections::btree_map::BTreeMap, sync::Arc};
-use alloc::boxed::Box;
 use async_trait::async_trait;
-use vespertine_abi::{AccessRights, BrokerOp, CapabilityID, HandleID, Invocation, PortalOp, Signal};
+use vespertine_abi::{
+    AccessRights,
+    BrokerOp,
+    CapabilityID,
+    HandleID,
+    Invocation,
+    PortalOp,
+    Signal,
+};
 
 use crate::core::asynchronous::waiter::AsyncWaiter;
+use crate::core::object::help::RightsWrapper;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::process::Process;
+use crate::core::object::models::socket::SocketEndpoint;
+use crate::core::object::obj::KernelObject;
 use crate::core::sync::Mutex;
-use crate::core::{object::{help::RightsWrapper, invoke::InvocationError, models::{process::Process, socket::SocketEndpoint}, obj::KernelObject}, thread::get_current_process};
+use crate::core::thread::get_current_process;
 
 const MAX_SESSION_OFFERS: usize = 64;
 
@@ -27,20 +41,18 @@ enum PortalSessionRole {
 
 #[derive(Debug)]
 struct OfferedHandle {
-    object: Arc<dyn KernelObject>, 
+    object: Arc<dyn KernelObject>,
     max_rights: AccessRights,
 }
 
 #[derive(Debug)]
 struct OfferTable {
-    next_id: usize, 
+    next_id: usize,
     entries: BTreeMap<usize, OfferedHandle>,
 }
 
 impl OfferTable {
-    fn new() -> Self {
-        Self { next_id: 1, entries: BTreeMap::new() }
-    }
+    fn new() -> Self { Self { next_id: 1, entries: BTreeMap::new() } }
 }
 
 #[derive(Debug)]
@@ -61,24 +73,15 @@ struct PortalSession {
 impl PortalSession {
     fn new_pair(ce: Arc<SocketEndpoint>, se: Arc<SocketEndpoint>, c: Process, s: Process) -> (Arc<Self>, Arc<Self>) {
         let shared = Arc::new(PortalSessionShared {
-            client: c, 
-            server: s, 
+            client: c,
+            server: s,
             client_offers: Mutex::new(OfferTable::new()),
             server_offers: Mutex::new(OfferTable::new()),
         });
-        let client_session = Arc::new(Self {
-            role: PortalSessionRole::Client,
-            endpoint: ce,
-            shared: shared.clone(),
-        });
-        let server_session = Arc::new(Self {
-            role: PortalSessionRole::Server,
-            endpoint: se,
-            shared: shared,
-        });
+        let client_session = Arc::new(Self { role: PortalSessionRole::Client, endpoint: ce, shared: shared.clone() });
+        let server_session = Arc::new(Self { role: PortalSessionRole::Server, endpoint: se, shared });
         (client_session, server_session)
     }
-
 
     fn expected_process(&self) -> &Process {
         match self.role {
@@ -136,10 +139,7 @@ impl PortalSession {
 
         offers.next_id = offers.next_id.checked_add(1).ok_or(InvocationError::OutOfMemory)?;
 
-        offers.entries.insert(
-            offer_id,
-            OfferedHandle { object, max_rights },
-        );
+        offers.entries.insert(offer_id, OfferedHandle { object, max_rights });
 
         Ok(offer_id)
     }
@@ -186,23 +186,18 @@ impl KernelObject for Portal {
             return Err(InvocationError::InvalidArgument);
         }
 
-        let granted_rights = requested_rights &self.max_rights;
+        let granted_rights = requested_rights & self.max_rights;
         if granted_rights == AccessRights::new() {
             return Err(InvocationError::AccessDenied);
         }
 
         let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
         let (client_endpoint, server_endpoint) = SocketEndpoint::new_pair();
-        let (client_session, server_session) = PortalSession::new_pair(
-            client_endpoint,
-            server_endpoint,
-            caller.clone(),
-            self.owner.clone(),
-        );
+        let (client_session, server_session) =
+            PortalSession::new_pair(client_endpoint, server_endpoint, caller.clone(), self.owner.clone());
         let client_handle = caller.proc_handles.write().insert(client_session, granted_rights);
-        let server_handle = self.owner.proc_handles.write()
-            .insert(server_session, AccessRights::READ | AccessRights::WRITE);
-        
+        let server_handle = self.owner.proc_handles.write().insert(server_session, AccessRights::READ | AccessRights::WRITE);
+
         if let Err(error) = write_accept_message(&self.accept_tx, server_handle).await {
             let _ = caller.proc_handles.write().close(client_handle);
             let _ = self.owner.proc_handles.write().close(server_handle);
@@ -217,9 +212,7 @@ pub struct PortalFactory;
 
 #[async_trait]
 impl KernelObject for PortalFactory {
-    fn type_name(&self) -> &'static str {
-        "PortalFactory"
-    }
+    fn type_name(&self) -> &'static str { "PortalFactory" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         calling_rights.err_if_no(AccessRights::CREATE)?;
@@ -231,12 +224,7 @@ impl KernelObject for PortalFactory {
 
         let (accept_rx, accept_tx) = SocketEndpoint::new_pair();
 
-        let portal = Arc::new(Portal {
-            owner: owner.clone(),
-            accept_tx,
-            capability,
-            max_rights,
-        });
+        let portal = Arc::new(Portal { owner: owner.clone(), accept_tx, capability, max_rights });
 
         let mut handles = owner.proc_handles.write();
         let portal_handle = handles.insert(portal, AccessRights::READ);
@@ -246,13 +234,12 @@ impl KernelObject for PortalFactory {
 }
 
 async fn write_accept_message(socket: &SocketEndpoint, handle: HandleID) -> Result<(), InvocationError> {
-    let raw = u32::try_from(handle.0)
-        .map_err(|_| InvocationError::InvalidHandle)?;
+    let raw = u32::try_from(handle.0).map_err(|_| InvocationError::InvalidHandle)?;
     socket.write_all_internal(&raw.to_le_bytes()).await
 }
 
 #[async_trait]
-impl KernelObject for PortalSession { 
+impl KernelObject for PortalSession {
     fn type_name(&self) -> &'static str { "PortalSession" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
@@ -260,15 +247,15 @@ impl KernelObject for PortalSession {
             Invocation::Portal(PortalOp::Offer { handle, max_rights }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.offer(handle, max_rights)
-            },
+            }
             Invocation::Portal(PortalOp::Accept { offer_id, requested_rights }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.accept(offer_id, requested_rights)
-            },
+            }
             Invocation::Portal(PortalOp::Revoke { offer_id }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.revoke(offer_id)
-            },
+            }
             Invocation::Portal(PortalOp::Create { .. }) => Err(InvocationError::UnsupportedOperation),
             other => self.endpoint.invoke(other, calling_rights).await,
         }

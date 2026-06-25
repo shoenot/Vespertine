@@ -4,8 +4,8 @@ use core::{
     str,
 };
 extern crate alloc;
-use alloc::format;
 use alloc::collections::BTreeMap;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 

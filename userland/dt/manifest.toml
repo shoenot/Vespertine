@@ -1,7 +1,7 @@
 [application]
 name = "dt"
 binary = "dt"
-id = "os.vespertine.dt"
+id = "core.vespertine.dt"
 
 [io]
 input = "any"
