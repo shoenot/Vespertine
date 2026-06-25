@@ -44,7 +44,7 @@ impl ThreadState {
 pub enum ThreadBlockState {
     None,
     WaitQueue { queue: *const TicketLock<WaitQueue> },
-    Sleep { registration: Arc<ThreadWakeRegistration> },
+    Registration { registration: Arc<ThreadWakeRegistration> },
     Futex { addr: usize },
 }
 

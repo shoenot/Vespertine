@@ -167,7 +167,7 @@ pub fn sleep(ns: usize) {
 
     unsafe {
         (*current_thread).wake_time = target_time;
-        (*current_thread).set_block_state(ThreadBlockState::Sleep { registration: registration.clone() });
+        (*current_thread).set_block_state(ThreadBlockState::Registration { registration: registration.clone() });
     }
 
     let callout = Callout { wake_time: target_time, payload: CalloutPayload::WakeThread(registration) };

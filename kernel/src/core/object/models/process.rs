@@ -42,7 +42,7 @@ use crate::core::object::obj::{
 };
 use crate::core::security::credentials::Credentials;
 use crate::core::sync::RwLock;
-use crate::core::thread::dispatch::{reschedule_thread_core, spawn_user_thread, wake_thread};
+use crate::core::thread::dispatch::{cancel_blocked_thread, reschedule_thread_core, spawn_user_thread, wake_thread};
 use crate::core::thread::{ThreadControlBlock, ThreadState, get_current_process};
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::wait::WaitQueue;
@@ -275,7 +275,7 @@ impl ProcessControlBlock {
                 (*thread).request_cancel();
                 match (*thread).state() {
                     ThreadState::Blocked => {
-                        reschedule_thread_core(thread);
+                        cancel_blocked_thread(thread);
                     },
                     ThreadState::Running | ThreadState::Ready => {
                         reschedule_thread_core(thread);

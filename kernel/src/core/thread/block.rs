@@ -1,10 +1,13 @@
-use core::sync::atomic::{AtomicBool, Ordering};
-
 use alloc::sync::Arc;
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
+};
 
-use crate::core::thread::{ThreadControlBlock, dispatch::wake_thread};
-
-
+use crate::core::thread::{
+    ThreadControlBlock,
+    dispatch::wake_thread,
+};
 
 #[derive(Debug)]
 pub struct ThreadWakeRegistration {
@@ -21,15 +24,12 @@ impl ThreadWakeRegistration {
         Arc::new(Self { active: AtomicBool::new(true), fired: AtomicBool::new(false), thread })
     }
 
-    pub fn cancel(&self) -> bool {
-        self.active.swap(false, Ordering::AcqRel)
-    }
+    pub fn cancel(&self) -> bool { self.active.swap(false, Ordering::AcqRel) }
 
     pub fn wake(&self) -> bool {
         if !self.active.swap(false, Ordering::AcqRel) {
             return false;
         }
-
         self.fired.store(true, Ordering::Release);
         wake_thread(self.thread);
         true

@@ -16,7 +16,6 @@ use crate::core::cpu::{
 };
 use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;
-use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
     ThreadBlockState, ThreadControlBlock, ThreadError, ThreadState
 };
@@ -95,45 +94,6 @@ pub fn spawn_user_thread(
     tcb_ptr
 }
 
-pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
-    unsafe {
-        if (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
-            return false;
-        }
-
-        (*thread).effective_priority = (*thread).base_priority.boosted(2);
-        true
-    }
-}
-
-pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) -> bool {
-    awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked, ThreadState::Running).is_ok()
-}
-
-pub fn wake_thread(thread: *mut ThreadControlBlock) {
-    unsafe {
-        if !try_wake_thread(thread) {
-            return;
-        }
-
-        let this_core = get_core_data().logical_id;
-        let target_core = (*thread).assigned_core();
-
-        if this_core == target_core {
-            // local thread wakeup
-            get_core_data().scheduler.push(thread);
-        } else {
-            let target_data = get_core_data_for(target_core);
-
-            let mut mailbox = target_data.scheduler.mailbox.lock();
-            mailbox.push(thread);
-            drop(mailbox);
-
-            get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
-        }
-    }
-}
-
 pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> Result<*mut ThreadControlBlock, ThreadError> {
     let stack_size = 4096 * 4;
     // alloc memory for structs
@@ -208,13 +168,75 @@ pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
     }
 }
 
+pub fn enqueue_ready_thread(thread: *mut ThreadControlBlock) {
+    if thread.is_null() {
+        return;
+    }
+
+    unsafe {
+        let this_core = get_core_data().logical_id;
+        let target_core = (*thread).assigned_core();
+
+        if this_core == target_core {
+            get_core_data().scheduler.push(thread);
+        } else {
+            let target_data = get_core_data_for(target_core);
+            let mut mailbox = target_data.scheduler.mailbox.lock();
+            mailbox.push(thread);
+            drop(mailbox);
+            get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
+        }
+    }
+}
+
+pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
+    unsafe {
+        if (*thread).state() == ThreadState::Terminated {
+            return false;
+        }
+
+        if (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
+            return false;
+        }
+
+        (*thread).clear_block_state();
+        (*thread).effective_priority = (*thread).base_priority.boosted(2);
+        true
+    }
+}
+
+pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) -> bool {
+    if awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked,
+    ThreadState::Running).is_ok() {
+        thread.clear_block_state();
+        true
+    } else {
+        false
+    }
+}
+
+pub fn wake_thread(thread: *mut ThreadControlBlock) {
+    if !try_wake_thread(thread) {
+        return;
+    }
+
+    enqueue_ready_thread(thread);
+}
+
 pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
-    if thread.is_null() { return false; }
+    if thread.is_null() {
+        return false;
+    }
 
     unsafe {
         (*thread).request_cancel();
 
+        if (*thread).state() != ThreadState::Blocked {
+            return false;
+        }
+
         let state = (*thread).take_block_state();
+
         let removed = match state {
             ThreadBlockState::None => false,
             ThreadBlockState::WaitQueue { queue } => {
@@ -224,7 +246,7 @@ pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
                     (*queue).lock().remove(thread)
                 }
             },
-            ThreadBlockState::Sleep { registration } => registration.cancel(),
+            ThreadBlockState::Registration { registration } => registration.cancel(),
             ThreadBlockState::Futex { addr } => {
                 let proc = (*thread).process.clone();
                 let mut futexes = proc.futexes.write();
@@ -236,11 +258,15 @@ pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
             },
         };
 
-        if removed && (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_ok() {
-            wake_thread(thread);
-            true
-        } else {
-            false
+        if !removed {
+            return false;
         }
+
+        if (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
+            return false;
+        }
+
+        enqueue_ready_thread(thread);
+        true
     }
 }
