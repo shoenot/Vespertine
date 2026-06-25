@@ -53,13 +53,12 @@ pub enum VmoOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum ProcOp {
-    Kill,
-    GetStatus { status_ptr: usize },
-    GetExitInfo { info_ptr: usize },
-    Unmap { vaddr: usize, len: usize },
+    Terminate { reason: u32 },
+    GetInfo { info_ptr: usize },
     SpawnThread { entry: usize, stack_top: usize, arg: usize, priority: u8 },
-    SetFsBase { fs_base: usize },
     InsertHandle { source_handle: HandleID, rights: AccessRights },
+    SetFsBase { fs_base: usize },
+    Unmap { vaddr: usize, len: usize },
     Mprotect { vaddr: usize, len: usize, prot: usize },
 }
 

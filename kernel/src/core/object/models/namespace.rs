@@ -250,7 +250,7 @@ impl KernelObject for DirLocation {
 
 fn resolve_location(handle: HandleID, required_rights: AccessRights) -> Result<(Arc<DirLocation>, AccessRights), InvocationError> {
     let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-    let table = proc.proc_handles.read();
+    let table = proc.handles.read();
     let entry = table.resolve_entry(handle, required_rights)?;
 
     let location = entry.object.as_any().downcast_ref::<DirLocation>().ok_or(InvocationError::InvalidArgument)?;
@@ -295,7 +295,7 @@ fn wrap_child_directory(child: Arc<dyn KernelObject>, parent: Arc<DirLocation>) 
 
 fn register_result(object: Arc<dyn KernelObject>, rights: AccessRights) -> Result<usize, InvocationError> {
     let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-    Ok(proc.proc_handles.write().insert(object, rights).0)
+    Ok(proc.handles.write().insert(object, rights).0)
 }
 
 pub async fn resolve_kernel_object(

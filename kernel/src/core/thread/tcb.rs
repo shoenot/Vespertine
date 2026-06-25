@@ -43,6 +43,8 @@ pub struct ThreadControlBlock {
     pub thread_id: usize,
     pub state: AtomicU8,
 
+    pub cancel_requested: AtomicBool,
+
     pub base_priority: ThreadPriority,
     pub effective_priority: ThreadPriority,
 
@@ -77,6 +79,8 @@ impl ThreadControlBlock {
         unsafe {
             core::ptr::write(&mut self.thread_id, get_new_tid());
             core::ptr::write(&mut self.state, AtomicU8::new(ThreadState::Ready as u8));
+
+            core::ptr::write(&mut self.cancel_requested, AtomicBool::new(false));
 
             core::ptr::write(&mut self.base_priority, priority);
             core::ptr::write(&mut self.effective_priority, priority);
@@ -119,6 +123,10 @@ impl ThreadControlBlock {
         self.assigned_core.store(core, Ordering::Release);
         self.migration_disabled.store(true, Ordering::Release);
     }
+
+    pub fn request_cancel(&self) { self.cancel_requested.store(true, Ordering::Release); }
+
+    pub fn cancel_requested(&self) -> bool { self.cancel_requested.load(Ordering::Acquire) }
 }
 
 pub fn get_current_process<'a>() -> Option<&'a Process> {

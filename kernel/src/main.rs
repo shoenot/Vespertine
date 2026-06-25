@@ -79,8 +79,8 @@ pub fn init_kernel_process() {
                 DirLocation::root(root_mem)
             })
             .clone();
-        proc.proc_handles.write().insert_at(HandleID(0), root, AccessRights::all());
-        proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::all());
+        proc.handles.write().insert_at(HandleID(0), root, AccessRights::all());
+        proc.handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::all());
         proc
     });
 }

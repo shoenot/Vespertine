@@ -103,7 +103,7 @@ pub fn validate_child_name(name: &str) -> Result<(), InvocationError> {
 
 fn register_lookup_result(object: Arc<dyn KernelObject>) -> Result<usize, InvocationError> {
     let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-    Ok(proc.proc_handles.write().insert(object, AccessRights::all()).0)
+    Ok(proc.handles.write().insert(object, AccessRights::all()).0)
 }
 
 #[async_trait]
@@ -116,7 +116,7 @@ impl KernelObject for Directory {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let object = {
-                    let handles = proc.proc_handles.read();
+                    let handles = proc.handles.read();
                     handles.resolve(handle_id, AccessRights::READ)?
                 };
 
@@ -201,7 +201,7 @@ impl Directory {
     async fn list_contents(&self, _offset: usize, sink: HandleID) -> Result<usize, InvocationError> {
         let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
 
-        let sink_obj = proc.proc_handles.read().resolve(sink, AccessRights::WRITE)?;
+        let sink_obj = proc.handles.read().resolve(sink, AccessRights::WRITE)?;
 
         let entries: Vec<(String, &'static str)> = {
             let tree = self.tree.read();

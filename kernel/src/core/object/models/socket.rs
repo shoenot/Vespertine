@@ -538,7 +538,7 @@ impl KernelObject for SocketFactory {
                 let (ep1, ep2) = SocketEndpoint::new_pair();
                 let current_proc = crate::core::thread::get_current_process().ok_or(InvocationError::OutOfMemory)?;
 
-                let mut handles = current_proc.proc_handles.write();
+                let mut handles = current_proc.handles.write();
                 let h1 = handles.insert(ep1, AccessRights::all());
                 let h2 = handles.insert(ep2, AccessRights::all());
 
@@ -553,7 +553,7 @@ impl KernelObject for SocketFactory {
 pub fn init_ipc_pipeline() -> (HandleID, HandleID) {
     let (ep1, ep2) = SocketEndpoint::new_pair();
     let current_proc = crate::core::thread::get_current_process().expect("No current process during IPC init");
-    let mut handles = current_proc.proc_handles.write();
+    let mut handles = current_proc.handles.write();
     let h1 = handles.insert(ep1, AccessRights::all());
     let h2 = handles.insert(ep2, AccessRights::all());
     (h1, h2)

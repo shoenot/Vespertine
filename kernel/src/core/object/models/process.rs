@@ -5,11 +5,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::future::Future;
 use core::pin::Pin;
-use core::ptr::addr_of;
 use core::sync::atomic::{
-    AtomicBool,
-    AtomicUsize,
-    Ordering,
+    AtomicUsize, Ordering
 };
 use core::task::{
     Context,
@@ -20,15 +17,7 @@ use core::task::{
 use async_trait::async_trait;
 use vespertine_abi::op::ProcOp;
 use vespertine_abi::{
-    AccessRights,
-    HandleID,
-    Invocation,
-    ProcStatus,
-    ProcessExitInfo,
-    ProcessExitKind,
-    Signal,
-    WaitItem,
-    WaitOp,
+    AccessRights, HandleID, Invocation, ProcInfo, ProcState, ProcTermReason, Signal, WaitItem, WaitOp
 };
 use vespertine_common::lock::TicketLock;
 
@@ -53,8 +42,8 @@ use crate::core::object::obj::{
 };
 use crate::core::security::credentials::Credentials;
 use crate::core::sync::RwLock;
-use crate::core::thread::dispatch::spawn_user_thread;
-use crate::core::thread::get_current_process;
+use crate::core::thread::dispatch::{reschedule_thread_core, spawn_user_thread, wake_thread};
+use crate::core::thread::{ThreadControlBlock, ThreadState, get_current_process};
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::wait::WaitQueue;
 use crate::memory::ALLOCATOR;
@@ -72,14 +61,49 @@ pub type Process = Arc<ProcessControlBlock>;
 pub struct ProcessControlBlock {
     pub proc_id: usize,
     pub credentials: Credentials,
-    pub proc_handles: RwLock<HandleTable>,
+
+    pub handles: RwLock<HandleTable>,
     pub vmm: RwLock<VirtMemManager>,
     pub pml4_addr: usize,
+
+    pub threads: RwLock<Vec<*mut ThreadControlBlock>>,
     pub active_threads: AtomicUsize,
-    pub is_terminated: AtomicBool,
-    pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
+
+    pub lifecycle: TicketLock<ProcLifecycle>,
     pub completion_waiters: TicketLock<WaiterList>,
-    pub exit_info: RwLock<ProcessExitInfo>,
+
+    pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
+}
+
+unsafe impl Send for ProcessControlBlock {}
+unsafe impl Sync for ProcessControlBlock {}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ProcLifecycle {
+    Running,
+    Terminating(ProcTermination),
+    Terminated(ProcTermination),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct ProcTermination {
+    pub reason: ProcTermReason,
+    pub code: u32,
+    pub detail: usize,
+}
+
+impl ProcTermination {
+    pub const fn exited(code: u32) -> Self {
+        Self { reason: ProcTermReason::Exited, code, detail: 0 }
+    }
+
+    pub const fn terminated(reason: u32) -> Self {
+        Self { reason: ProcTermReason::Terminated, code: reason, detail: 0 }
+    }
+
+    pub const fn faulted(code: u32, detail: usize) -> Self {
+        Self { reason: ProcTermReason::Faulted, code, detail }
+    }
 }
 
 struct WaitManyFuture<'a> {
@@ -101,7 +125,7 @@ impl WaitManyFuture<'_> {
         }
 
         let mut objects = Vec::with_capacity(self.count);
-        let table = self.process.proc_handles.read();
+        let table = self.process.handles.read();
         for item in &items {
             objects.push(table.resolve(item.handle, AccessRights::READ)?);
         }
@@ -161,58 +185,158 @@ impl ProcessControlBlock {
         Arc::new(Self {
             proc_id: get_new_pid(),
             credentials,
-            proc_handles: RwLock::new(init_table),
+
+            handles: RwLock::new(init_table),
             vmm: RwLock::new(vmm),
             pml4_addr,
+
+            threads: RwLock::new(Vec::new()),
             active_threads: AtomicUsize::new(0),
-            is_terminated: AtomicBool::new(false),
-            futexes: RwLock::new(BTreeMap::new()),
+
+            lifecycle: TicketLock::new(ProcLifecycle::Running),
             completion_waiters: TicketLock::new(WaiterList::new()),
-            exit_info: RwLock::new(ProcessExitInfo::running()),
+
+            futexes: RwLock::new(BTreeMap::new()),
         })
     }
 
-    pub fn status(&self, ptr: *mut ProcStatus) -> Result<usize, InvocationError> {
-        let proc_status = ProcStatus {
+    pub fn info(&self, ptr: *mut ProcInfo) -> Result<usize, InvocationError> {
+        let lc = *self.lifecycle.lock();
+        let (state, term_reason, term_code, term_detail) = match lc {
+            ProcLifecycle::Running => (ProcState::Running, ProcTermReason::None, 0, 0),
+            ProcLifecycle::Terminating(t) => (ProcState::Terminating, t.reason, t.code, t.detail),
+            ProcLifecycle::Terminated(t) => (ProcState::Terminated, t.reason, t.code, t.detail),
+        };
+        let info = ProcInfo {
             pid: self.proc_id,
             user: self.credentials.user(),
-            active_threads: self.active_threads.load(Ordering::Relaxed),
-            is_terminated: self.is_terminated.load(Ordering::Relaxed),
+            state,
+            active_threads: self.active_threads.load(Ordering::Acquire),
             memory_usage: self.vmm.read().get_total_allocated_size(),
+
+            term_reason,
+            term_code,
+            term_detail,
         };
-        let src_ptr = addr_of!(proc_status) as *const u8;
-        safe_copy_to(ptr as *mut u8, src_ptr, size_of::<ProcStatus>());
+
+        if !safe_copy_to(ptr as *mut u8, &info as *const ProcInfo as *const u8, size_of::<ProcInfo>()) {
+            return Err(InvocationError::InvalidPointer);
+        }
         Ok(0)
     }
 
-    pub fn complete(&self, exit_info: ProcessExitInfo) -> bool {
+    // pub fn status(&self, ptr: *mut ProcStatus) -> Result<usize, InvocationError> {
+    //     let proc_status = ProcStatus {
+    //         pid: self.proc_id,
+    //         user: self.credentials.user(),
+    //         active_threads: self.active_threads.load(Ordering::Relaxed),
+    //         is_terminated: self.is_terminated.load(Ordering::Relaxed),
+    //         memory_usage: self.vmm.read().get_total_allocated_size(),
+    //     };
+    //     let src_ptr = addr_of!(proc_status) as *const u8;
+    //     safe_copy_to(ptr as *mut u8, src_ptr, size_of::<ProcStatus>());
+    //     Ok(0)
+    // }
+    //
+    // pub fn complete(&self, exit_info: ProcessExitInfo) -> bool {
+    //     {
+    //         let mut stored = self.exit_info.write();
+    //
+    //         if stored.kind != ProcessExitKind::Running {
+    //             return false;
+    //         }
+    //
+    //         *stored = exit_info;
+    //     }
+    //
+    //     self.is_terminated.store(true, Ordering::Release);
+    //     self.handles.write().clear();
+    //
+    //     let wakers = self.completion_waiters.lock().take_wakers();
+    //     wake_all(wakers);
+    //
+    //     true
+    // }
+
+    pub fn request_terminate(&self, termination: ProcTermination) -> bool {
         {
-            let mut stored = self.exit_info.write();
-
-            if stored.kind != ProcessExitKind::Running {
-                return false;
+            let mut lc = self.lifecycle.lock();
+            match *lc {
+                ProcLifecycle::Running => {
+                    *lc = ProcLifecycle::Terminating(termination);
+                },
+                ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_) => return false,
             }
-
-            *stored = exit_info;
         }
-
-        self.is_terminated.store(true, Ordering::Release);
-        self.proc_handles.write().clear();
-
-        let wakers = self.completion_waiters.lock().take_wakers();
-        wake_all(wakers);
-
+        let threads = self.thread_snapshot();
+        for thread in threads {
+            if thread.is_null() { continue; }
+            unsafe {
+                (*thread).request_cancel();
+                match (*thread).state() {
+                    ThreadState::Blocked => {
+                        reschedule_thread_core(thread);
+                    },
+                    ThreadState::Running | ThreadState::Ready => {
+                        reschedule_thread_core(thread);
+                    },
+                    ThreadState::Terminated => {},
+                }
+            }
+        }
         true
     }
 
-    pub fn get_exit_info(&self, ptr: *mut ProcessExitInfo) -> Result<usize, InvocationError> {
-        let exit_info = *self.exit_info.read();
-
-        if !safe_copy_to(ptr as *mut u8, &exit_info as *const ProcessExitInfo as *const u8, size_of::<ProcessExitInfo>()) {
-            return Err(InvocationError::InvalidPointer);
+    pub fn finish_thread_exit(&self, thread: *mut ThreadControlBlock, normal_exit_code: u32) -> bool {
+        if !self.unregister_thread(thread) {
+            return false;
         }
 
-        Ok(0)
+        let prev = self.active_threads.fetch_sub(1, Ordering::AcqRel);
+        if prev != 1 { return true; }
+
+        let mut lc = self.lifecycle.lock();
+
+        let termination = match *lc {
+            ProcLifecycle::Running => ProcTermination::exited(normal_exit_code),
+            ProcLifecycle::Terminating(t) => t,
+            ProcLifecycle::Terminated(_) => return false,
+        };
+
+        *lc = ProcLifecycle::Terminated(termination);
+        drop(lc);
+
+        self.handles.write().clear();
+        let wakers = self.completion_waiters.lock().take_wakers();
+        wake_all(wakers);
+        true
+    }
+
+    pub fn is_terminating(&self) -> bool {
+        matches!(*self.lifecycle.lock(), ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_))
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        matches!(*self.lifecycle.lock(), ProcLifecycle::Terminated(_))
+    }
+
+    pub fn register_thread(&self, thread: *mut ThreadControlBlock) {
+        if thread.is_null() { return; }
+        let mut threads = self.threads.write();
+        if !threads.iter().any(|&cd| cd == thread) {
+            threads.push(thread);
+        }
+    }
+
+    pub fn thread_snapshot(&self) -> Vec<*mut ThreadControlBlock> {
+        self.threads.read().clone()
+    }
+
+    pub fn unregister_thread(&self, thread: *mut ThreadControlBlock) -> bool {
+        let mut threads = self.threads.write();
+        let old_len = threads.len();
+        threads.retain(|&cd| cd != thread);
+        threads.len() != old_len
     }
 }
 
@@ -222,30 +346,33 @@ impl KernelObject for ProcessControlBlock {
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::Proc(ProcOp::Kill) => {
-                self.complete(ProcessExitInfo::killed(0));
+            Invocation::Proc(ProcOp::Terminate { reason }) => {
+                calling_rights.err_if_no(AccessRights::WRITE)?;
+                self.request_terminate(ProcTermination::terminated(reason));
                 Ok(0)
-            }
-            Invocation::Proc(ProcOp::GetStatus { status_ptr }) => self.status(status_ptr as *mut ProcStatus),
-            Invocation::Proc(ProcOp::GetExitInfo { info_ptr }) => self.get_exit_info(info_ptr as *mut ProcessExitInfo),
+            },
+            Invocation::Proc(ProcOp::GetInfo { info_ptr }) => {
+                calling_rights.err_if_no(AccessRights::READ)?;
+                self.info(info_ptr as *mut ProcInfo)
+            },
             Invocation::Proc(ProcOp::Unmap { vaddr, len }) => {
                 self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            }
+            },
             Invocation::Proc(ProcOp::SpawnThread { entry, stack_top, arg, priority }) => {
                 let tp = ThreadPriority::from(priority);
                 let proc = get_current_process().ok_or(InvocationError::ThreadSpawnFail)?;
                 let thread = spawn_user_thread(entry, stack_top, arg, tp, proc.clone());
                 let obj = Arc::new(Thread { tcb: thread });
-                let id = self.proc_handles.write().insert(obj, AccessRights::all());
+                let id = self.handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
-            }
+            },
             Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
                 WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
-            }
+            },
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
                 let current_thread = get_core_data().scheduler.get_current_thread();
                 if current_thread.is_null() {
@@ -256,22 +383,22 @@ impl KernelObject for ProcessControlBlock {
                     write_to_msr(fs_base as u64, 0xC000_0100);
                 }
                 Ok(0)
-            }
+            },
             Invocation::Proc(ProcOp::InsertHandle { source_handle, rights }) => {
                 calling_rights.err_if_no(AccessRights::MUTATE)?;
                 let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let obj = caller.proc_handles.read().resolve(source_handle, rights)?;
-                let new_handle_id = self.proc_handles.write().insert(obj, rights);
+                let obj = caller.handles.read().resolve(source_handle, rights)?;
+                let new_handle_id = self.handles.write().insert(obj, rights);
                 Ok(new_handle_id.0)
-            }
+            },
             Invocation::Proc(ProcOp::Mprotect { vaddr, len, prot }) => {
                 self.vmm.write().mprotect(vaddr, len, prot).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            }
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
 
-    fn current_signals(&self) -> Signal { if self.is_terminated.load(Ordering::Acquire) { Signal::TERMINATED } else { Signal(0) } }
+    fn current_signals(&self) -> Signal { if self.is_terminated() { Signal::TERMINATED } else { Signal(0) } }
 
     fn register_waiter(&self, requested: Signal, waiter: &Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
         if requested != Signal::TERMINATED {

@@ -40,7 +40,7 @@ impl KernelObject for VmoObject {
 
                     let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
 
-                    let handle_id = current_proc.proc_handles.write().insert(child_obj, AccessRights::all());
+                    let handle_id = current_proc.handles.write().insert(child_obj, AccessRights::all());
 
                     Ok(handle_id.0 as usize)
                 }

@@ -104,7 +104,7 @@ impl KernelObject for MemPool {
                 let vmo_obj = Arc::new(VmoObject::new(vmo_arc));
 
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle = proc.proc_handles.write().insert(vmo_obj, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+                let handle = proc.handles.write().insert(vmo_obj, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
 
                 Ok(handle.0)
             }
@@ -113,7 +113,7 @@ impl KernelObject for MemPool {
                 let sub_pool = Arc::new(MemPool::new(Some(limit), Some(self.state.clone())));
 
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle = proc.proc_handles.write().insert(sub_pool, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
+                let handle = proc.handles.write().insert(sub_pool, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
 
                 Ok(handle.0)
             }

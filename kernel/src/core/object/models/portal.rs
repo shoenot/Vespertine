@@ -124,7 +124,7 @@ impl PortalSession {
         // resolve and pin the exact object now. closing or
         // reusing the original handle cannot change the offer.
         let object = {
-            let handles = process.proc_handles.read();
+            let handles = process.handles.read();
             let entry = handles.resolve_entry(handle, max_rights)?;
             entry.object.clone()
         };
@@ -162,7 +162,7 @@ impl PortalSession {
             offers.entries.remove(&offer_id).ok_or(InvocationError::InvalidArgument)?
         };
 
-        let handle = process.proc_handles.write().insert(offered.object, requested_rights);
+        let handle = process.handles.write().insert(offered.object, requested_rights);
 
         Ok(handle.0)
     }
@@ -195,12 +195,12 @@ impl KernelObject for Portal {
         let (client_endpoint, server_endpoint) = SocketEndpoint::new_pair();
         let (client_session, server_session) =
             PortalSession::new_pair(client_endpoint, server_endpoint, caller.clone(), self.owner.clone());
-        let client_handle = caller.proc_handles.write().insert(client_session, granted_rights);
-        let server_handle = self.owner.proc_handles.write().insert(server_session, AccessRights::READ | AccessRights::WRITE);
+        let client_handle = caller.handles.write().insert(client_session, granted_rights);
+        let server_handle = self.owner.handles.write().insert(server_session, AccessRights::READ | AccessRights::WRITE);
 
         if let Err(error) = write_accept_message(&self.accept_tx, server_handle).await {
-            let _ = caller.proc_handles.write().close(client_handle);
-            let _ = self.owner.proc_handles.write().close(server_handle);
+            let _ = caller.handles.write().close(client_handle);
+            let _ = self.owner.handles.write().close(server_handle);
             return Err(error);
         }
         Ok(client_handle.0)
@@ -226,7 +226,7 @@ impl KernelObject for PortalFactory {
 
         let portal = Arc::new(Portal { owner: owner.clone(), accept_tx, capability, max_rights });
 
-        let mut handles = owner.proc_handles.write();
+        let mut handles = owner.handles.write();
         let portal_handle = handles.insert(portal, AccessRights::READ);
         let accept_handle = handles.insert(accept_rx, AccessRights::READ);
         Ok((portal_handle.0 & 0xffff_ffff) | ((accept_handle.0 & 0xffff_ffff) << 32))

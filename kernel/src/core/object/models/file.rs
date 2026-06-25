@@ -100,7 +100,7 @@ impl KernelObject for FileObj {
                 }
                 let vmo_obj = Arc::new(VmoObject::new(vmo));
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
-                let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
+                let handle_id = current_proc.handles.write().insert(vmo_obj, AccessRights::all());
                 Ok(handle_id.0 as usize)
             }
             Invocation::File(FileOp::Seek { offset, whence }) => {

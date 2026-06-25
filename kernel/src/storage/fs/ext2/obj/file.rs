@@ -93,7 +93,7 @@ impl KernelObject for Ext2File {
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
                 let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
-                let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
+                let handle_id = current_proc.handles.write().insert(vmo_obj, AccessRights::all());
 
                 Ok(handle_id.0 as usize)
             }

@@ -5,8 +5,7 @@ use core::fmt::Display;
 
 use vespertine_abi::app::hesper::AppIoMode;
 use vespertine_abi::{
-    HandleID,
-    ProcessExitInfo,
+    HandleID, ProcInfo,
 };
 use vespertine_rt::thread as rt_thread;
 use vespertine_std::hesper::Launcher;
@@ -31,7 +30,7 @@ use crate::runtime::env::ShellContext;
 pub enum ShellResult {
     None,
     InternalError(Error),
-    Launched(ProcessExitInfo),
+    Launched(ProcInfo),
     ChangeDirFail(String, Error),
     FailedToLaunch(String, Error),
     FailedToRender(String, Error),

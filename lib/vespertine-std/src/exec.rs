@@ -2,16 +2,7 @@ use alloc::format;
 
 use vespertine_abi::tag::CAP_PROCMAN;
 use vespertine_abi::{
-    AccessRights,
-    CapabilityGrant,
-    CapabilityID,
-    HandleID,
-    Invocation,
-    ProcManOp,
-    ProcOp,
-    ProcessExitInfo,
-    Signal,
-    WaitOp,
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcInfo, ProcManOp, ProcOp, ProcState, ProcTermReason, Signal, UserID, WaitOp
 };
 extern crate alloc;
 use alloc::string::String;
@@ -71,11 +62,31 @@ impl Process {
 
     pub fn handle(&self) -> HandleID { self.handle }
 
-    pub fn wait(&self) -> Result<ProcessExitInfo, Error> {
-        sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
-        let mut info = ProcessExitInfo::running();
-        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetExitInfo { info_ptr: &mut info as *mut _ as usize })).map_err(Error::from)?;
+    pub fn terminate(&self) -> Result<(), Error> {
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::Terminate { reason: 0 }))
+            .map(|_| ())
+            .map_err(Error::from)
+    }
+
+    pub fn info(&self) -> Result<ProcInfo, Error> {
+        let mut info = ProcInfo {
+            pid: 0,
+            user: UserID(0),
+            state: ProcState::Running,
+            active_threads: 0,
+            memory_usage: 0,
+            term_reason: ProcTermReason::None,
+            term_code: 0,
+            term_detail: 0,
+        };
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetInfo { info_ptr: &mut info as *mut _ as usize }))
+            .map_err(Error::from)?;
         Ok(info)
+    }
+
+    pub fn wait(&self) -> Result<ProcInfo, Error> {
+        sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
+        self.info()
     }
 }
 

@@ -11,9 +11,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use vespertine_abi::ProcessExitInfo;
-
-use crate::arch::get_core_data;
+use crate::arch::{get_core_data, hcf};
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
@@ -143,11 +141,15 @@ impl SchedulerState {
         unsafe { write_bytes(tcb_ptr as *mut u8, 0, size_of::<ThreadControlBlock>()) };
 
         let fpu_ptr = crate::arch::x86_64::task::context::allocate_fpu_context_bootstrap();
+        let kernel_proc = KERNEL_PROCESS.get().expect("[FATAL] Kernel process was not initialized before scheduler threads").clone();
 
         unsafe {
-            (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM, KERNEL_PROCESS.clone());
+            (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM, kernel_proc.clone());
             (*tcb_ptr).set_state(ThreadState::Running);
         }
+
+        kernel_proc.register_thread(tcb_ptr);
+        kernel_proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
         self.current_thread = tcb_ptr;
     }
@@ -159,10 +161,15 @@ impl SchedulerState {
 
         let now = get_time();
         let prev_thread = self.current_thread;
+        let mut prev_retired = false;
 
         if !prev_thread.is_null() {
             unsafe {
                 account_running_thread(&mut *prev_thread, reason, now);
+
+                if (*prev_thread).state() == ThreadState::Running && thread_should_exit(prev_thread) {
+                    prev_retired = retire_current_thread(prev_thread, 0)
+                }
             }
         }
 
@@ -179,13 +186,17 @@ impl SchedulerState {
             if candidate.is_null() {
                 break null_mut();
             }
+            if thread_should_exit(candidate) {
+                retire_queued_thread(candidate, 0);
+                continue;
+            }
             if unsafe { (*candidate).transition(ThreadState::Ready, ThreadState::Running) }.is_ok() {
                 break candidate;
             }
         };
 
         if next_thread.is_null() {
-            if !prev_thread.is_null() && unsafe { (*prev_thread).state() == ThreadState::Running } {
+            if !prev_retired && !prev_thread.is_null() && unsafe { (*prev_thread).state() == ThreadState::Running } {
                 next_thread = prev_thread;
                 if prev_thread == self.idle_thread {
                     self.request_stolen_work();
@@ -193,11 +204,15 @@ impl SchedulerState {
             } else {
                 self.request_stolen_work();
                 next_thread = self.idle_thread;
-                unsafe { (*next_thread).transition(ThreadState::Ready, ThreadState::Running) }.expect("idle thread was not ready");
+                unsafe {
+                    if (*next_thread).state() != ThreadState::Running {
+                        let _ = (*next_thread).transition(ThreadState::Ready, ThreadState::Running);
+                    }
+                }
             }
         }
 
-        if !prev_thread.is_null() && prev_thread != next_thread {
+        if !prev_retired && !prev_thread.is_null() && prev_thread != next_thread {
             unsafe {
                 if (*prev_thread).state() == ThreadState::Running {
                     if (*prev_thread).transition(ThreadState::Running, ThreadState::Ready).is_ok() && prev_thread != self.idle_thread {
@@ -227,22 +242,25 @@ impl SchedulerState {
 
         update_hardware_timer();
 
-        if prev_thread == next_thread {
-            return;
+        if prev_retired {
+            GRAVEYARD.lock().push(prev_thread);
         }
 
+        if prev_thread == next_thread { return; }
+
         unsafe {
-            let current_proc = &(*prev_thread).process;
-            let next_proc = &(*next_thread).process;
+            let should_switch_addr_space = {
+                if prev_thread.is_null() || prev_retired {
+                    true
+                } else {
+                    !Arc::ptr_eq(&(*prev_thread).process, &(*next_thread).process)
+                }
+            };
 
-            if !Arc::ptr_eq(current_proc, next_proc) {
-                load_cr3(next_proc.pml4_addr as u64);
-            }
+            if should_switch_addr_space { load_cr3((&*next_thread).process.pml4_addr as u64); }
 
-            if !next_thread.is_null() {
-                let base_target = (*next_thread).fs_base;
-                write_to_msr(base_target as u64, 0xC000_0100);
-            }
+            let base_target = (*next_thread).fs_base;
+            write_to_msr(base_target as u64, 0xC000_0100);
         }
 
         if !prev_thread.is_null() {
@@ -360,22 +378,20 @@ impl SchedulerState {
         self.schedule(ScheduleReason::Blocked);
     }
 
-    pub fn terminate(&mut self, exit_code: u32) {
-        unsafe {
-            let proc = &(*self.current_thread).process;
-            let active = proc.active_threads.fetch_sub(1, core::sync::atomic::Ordering::SeqCst);
+    pub fn terminate_current_thread(&mut self, exit_code: u32) -> ! {
+        disable_interrupts();
 
-            if active == 1 {
-                proc.complete(ProcessExitInfo::exited(exit_code));
-            }
-
-            disable_interrupts();
-            (*self.current_thread).set_state(ThreadState::Terminated);
-            {
-                GRAVEYARD.lock().push(self.current_thread);
-            }
-            self.schedule(ScheduleReason::Terminated);
+        let thread = self.current_thread;
+        if !thread.is_null() { 
+            retire_current_thread(thread, exit_code); 
         }
+
+        self.schedule(ScheduleReason::Terminated);
+        loop { hcf(); }
+    }
+
+    pub fn terminate(&mut self, exit_code: u32) -> ! {
+        self.terminate_current_thread(exit_code);
     }
 
     pub(crate) fn pop_lowest_priority_migratable(&mut self) -> *mut ThreadControlBlock {
@@ -471,5 +487,51 @@ impl SchedulerState {
         if victim.steal_requester.compare_exchange(NO_STEAL_REQUEST, this_core, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             get_core_data().apic_mode.send_ipi(victim.lapic_id as u32, 40);
         }
+    }
+}
+
+fn thread_should_exit(thread: *mut ThreadControlBlock) -> bool {
+    if thread.is_null() { return false; }
+    unsafe {
+        (*thread).cancel_requested() || (*thread).process.is_terminating()
+    }
+}
+
+fn retire_queued_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool {
+    if thread.is_null() { return false; }
+    unsafe {
+        if (*thread).state() == ThreadState::Terminated {
+            return false;
+        }
+
+        let proc = (*thread).process.clone();
+
+        if !proc.finish_thread_exit(thread, exit_code) {
+            return false;
+        }
+
+        (*thread).set_state(ThreadState::Terminated);
+        GRAVEYARD.lock().push(thread);
+
+        true
+    }
+}
+
+fn retire_current_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool {
+    if thread.is_null() { return false; }
+    unsafe {
+        if (*thread).state() == ThreadState::Terminated {
+            return false;
+        }
+
+        let proc = (*thread).process.clone();
+
+        if !proc.finish_thread_exit(thread, exit_code) {
+            return false;
+        }
+
+        (*thread).set_state(ThreadState::Terminated);
+
+        true
     }
 }

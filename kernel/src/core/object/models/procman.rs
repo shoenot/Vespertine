@@ -61,10 +61,10 @@ impl KernelObject for ProcessManager {
                 calling_rights.err_if_no(AccessRights::CREATE)?;
                 let parent_proc = get_current_process().ok_or(InvocationError::OutOfMemory)?;
 
-                let executable = parent_proc.proc_handles.read().resolve(exec_handle, AccessRights::READ | AccessRights::EXECUTE)?;
+                let executable = parent_proc.handles.read().resolve(exec_handle, AccessRights::READ | AccessRights::EXECUTE)?;
 
-                let new_proc_root = parent_proc.proc_handles.read().resolve(root_handle, root_rights)?;
-                let new_proc_cwd = parent_proc.proc_handles.read().resolve(cwd_handle, cwd_rights)?;
+                let new_proc_root = parent_proc.handles.read().resolve(root_handle, root_rights)?;
+                let new_proc_cwd = parent_proc.handles.read().resolve(cwd_handle, cwd_rights)?;
 
                 let mut new_proc_table = HandleTable::new(); // create a blank table
 
@@ -72,12 +72,12 @@ impl KernelObject for ProcessManager {
                 new_proc_table.insert_at(HandleID(0), new_proc_root, root_rights);
 
                 // source handle at 2
-                if let Ok(source_obj) = parent_proc.proc_handles.read().resolve(source, AccessRights::READ) {
+                if let Ok(source_obj) = parent_proc.handles.read().resolve(source, AccessRights::READ) {
                     new_proc_table.insert_at(HandleID(2), source_obj, AccessRights::READ);
                 }
 
                 // sink handle at 3
-                if let Ok(sink_obj) = parent_proc.proc_handles.read().resolve(sink, AccessRights::WRITE) {
+                if let Ok(sink_obj) = parent_proc.handles.read().resolve(sink, AccessRights::WRITE) {
                     new_proc_table.insert_at(HandleID(3), sink_obj, AccessRights::WRITE);
                 }
 
@@ -113,7 +113,7 @@ impl KernelObject for ProcessManager {
 
                     for grant in parent_grants {
                         // ensure parent itself has the rights its trying to grant
-                        let obj = parent_proc.proc_handles.read().resolve(grant.id, grant.rights)?;
+                        let obj = parent_proc.handles.read().resolve(grant.id, grant.rights)?;
                         // insert into child with attenuated rights
                         let chd = new_proc_table.insert(obj, grant.rights);
                         child_capabilities.push(CapabilityGrant { id: chd, rights: grant.rights, capability: grant.capability });
@@ -127,7 +127,7 @@ impl KernelObject for ProcessManager {
                 let load_result = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?;
 
                 // insert self handle at 0 after creating process
-                new_proc.proc_handles.write().insert_at(
+                new_proc.handles.write().insert_at(
                     HandleID(1),
                     new_proc.clone(),
                     AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE,
@@ -199,7 +199,7 @@ impl KernelObject for ProcessManager {
                 spawn_user_thread(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone());
 
                 let new_handle_id =
-                    parent_proc.proc_handles.write().insert(new_proc, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+                    parent_proc.handles.write().insert(new_proc, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
 
                 Ok(new_handle_id.0)
             }

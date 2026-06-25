@@ -13,6 +13,7 @@ use crate::core::cpu::get_core_data_for;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
+use crate::core::thread::dispatch::reschedule_thread_core;
 use crate::core::thread::schedule::{
     GRAVEYARD,
     ScheduleReason,
@@ -37,17 +38,9 @@ impl KernelObject for Thread {
             Invocation::Thread(ThreadOp::Kill) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 unsafe {
-                    (*self.tcb).set_state(ThreadState::Terminated);
-                    GRAVEYARD.lock().push(self.tcb);
-                    let assigned_core = (*self.tcb).assigned_core();
-                    let this_core = get_core_data().logical_id;
-                    if assigned_core != this_core {
-                        let tgt = get_core_data_for(assigned_core);
-                        get_core_data().apic_mode.send_ipi(tgt.lapic_id as u32, 40);
-                    } else {
-                        get_core_data().scheduler.schedule(ScheduleReason::Terminated);
-                    }
+                    (*self.tcb).request_cancel();
                 }
+                reschedule_thread_core(self.tcb);
                 Ok(0)
             }
             Invocation::Thread(ThreadOp::Join) => Err(InvocationError::UnsupportedOperation),

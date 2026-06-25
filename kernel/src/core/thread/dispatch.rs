@@ -16,6 +16,7 @@ use crate::core::cpu::{
 };
 use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;
+use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
     ThreadControlBlock,
     ThreadError,
@@ -158,6 +159,8 @@ pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc
     unsafe {
         (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc.clone());
     }
+
+    proc.register_thread(tcb_ptr);
     proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
     Ok(tcb_ptr)
@@ -187,7 +190,22 @@ pub fn create_user_tcb(
     unsafe {
         (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 0, priority, proc.clone());
     }
+
+    proc.register_thread(tcb_ptr);
     proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
     Ok(tcb_ptr)
+}
+
+pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
+    if thread.is_null() { return; }
+    unsafe {
+        let tgt_core = (*thread).assigned_core();
+        let this_core = get_core_data().logical_id;
+
+        if tgt_core != this_core { 
+            let tgt_data = get_core_data_for(tgt_core);
+            get_core_data().apic_mode.send_ipi(tgt_data.lapic_id as u32, 40);
+        }
+    }
 }

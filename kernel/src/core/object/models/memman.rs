@@ -29,7 +29,7 @@ impl KernelObject for MemoryManager {
                 let pool_limit = if limit == 0 { None } else { Some(limit) };
                 let pool = Arc::new(MemPool::new(pool_limit, None));
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle = proc.proc_handles.write().insert(pool, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
+                let handle = proc.handles.write().insert(pool, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
 
                 Ok(handle.0)
             }

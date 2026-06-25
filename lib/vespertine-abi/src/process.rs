@@ -1,4 +1,4 @@
-use core::slice;
+use core::{slice, sync::atomic::AtomicU8};
 
 use crate::{
     CapabilityGrant,
@@ -31,36 +31,33 @@ impl ProcessInitPackage {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct ProcStatus {
-    pub pid: usize,
-    pub user: UserID,
-    pub active_threads: usize,
-    pub is_terminated: bool,
-    pub memory_usage: usize,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcState {
+    Running = 0,
+    Terminating = 1,
+    Terminated = 2,
+    Suspended = 3,
 }
 
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProcessExitKind {
-    Running = 0,
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcTermReason {
+    None = 0,
     Exited = 1,
-    Killed = 2,
+    Terminated = 2,
     Faulted = 3,
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct ProcessExitInfo {
-    pub kind: ProcessExitKind,
-    pub code: u32,
-    pub detail: u64,
-}
+#[derive(Clone, Copy, Debug)]
+pub struct ProcInfo {
+    pub pid: usize,
+    pub user: UserID,
+    pub state: ProcState,
+    pub active_threads: usize,
+    pub memory_usage: usize,
 
-impl ProcessExitInfo {
-    pub const fn running() -> Self { Self { kind: ProcessExitKind::Running, code: 0, detail: 0 } }
-
-    pub const fn exited(code: u32) -> Self { Self { kind: ProcessExitKind::Exited, code, detail: 0 } }
-
-    pub const fn killed(reason: u32) -> Self { Self { kind: ProcessExitKind::Killed, code: reason, detail: 0 } }
+    pub term_reason: ProcTermReason,
+    pub term_code: u32,
+    pub term_detail: usize,
 }

@@ -54,7 +54,7 @@ impl KernelObject for Broker {
 
         let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
 
-        let handle = caller.proc_handles.write().insert(entry.object.clone(), granted_rights);
+        let handle = caller.handles.write().insert(entry.object.clone(), granted_rights);
 
         Ok(handle.0)
     }

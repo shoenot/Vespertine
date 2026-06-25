@@ -76,7 +76,7 @@ impl KernelObject for MountDirectory {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 let object = KernelDirectory::lookup_child(self, &filename.name).await?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle = proc.proc_handles.write().insert(object, AccessRights::all());
+                let handle = proc.handles.write().insert(object, AccessRights::all());
                 Ok(handle.0)
             },
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
@@ -85,7 +85,7 @@ impl KernelObject for MountDirectory {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let object = {
-                    let handles = proc.proc_handles.read();
+                    let handles = proc.handles.read();
                     handles.resolve(handle_id, AccessRights::READ)?
                 };
 
@@ -131,7 +131,7 @@ impl KernelObject for MountDirectory {
             },
             Invocation::Directory(DirectoryOp::List { offset, sink }) => {
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let sink_obj = proc.proc_handles.read().resolve(sink, AccessRights::WRITE)?;
+                let sink_obj = proc.handles.read().resolve(sink, AccessRights::WRITE)?;
 
                 let overlays_entries: Vec<(String, &'static str)> = {
                     let overlays = self.overlays.read();
@@ -197,7 +197,7 @@ impl KernelObject for MountDirectory {
                 let object = KernelDirectory::create_child_file(self, &filename.name, owner).await?;
                 let rights = allowed_rights(&object)?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                Ok(proc.proc_handles.write().insert(object, rights).0)
+                Ok(proc.handles.write().insert(object, rights).0)
             },
             Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
@@ -205,7 +205,7 @@ impl KernelObject for MountDirectory {
                 let object = KernelDirectory::create_child_dir(self, &filename.name, owner).await?;
                 let rights = allowed_rights(&object)?;
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                Ok(proc.proc_handles.write().insert(object, rights).0)
+                Ok(proc.handles.write().insert(object, rights).0)
             },
             _ => Err(InvocationError::UnsupportedOperation),
         }

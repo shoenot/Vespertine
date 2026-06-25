@@ -83,7 +83,7 @@ impl KernelObject for Ext2Directory {
                 let object = KernelDirectory::lookup_child(self, &filename.name).await?;
 
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle = proc.proc_handles.write().insert(object, AccessRights::all());
+                let handle = proc.handles.write().insert(object, AccessRights::all());
 
                 Ok(handle.0)
             }
@@ -165,7 +165,7 @@ impl KernelObject for Ext2Directory {
 
                 // resolve sink socket
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let sink_obj = proc.proc_handles.read().resolve(sink, AccessRights::WRITE)?;
+                let sink_obj = proc.handles.read().resolve(sink, AccessRights::WRITE)?;
 
                 crate::core::asynchronous::Executor::new().spawn(async move {
                     let mut iter = entries.iter().peekable();
@@ -618,7 +618,7 @@ impl KernelDirectory for Ext2Directory {
 fn register_created_object(object: Arc<dyn KernelObject>) -> Result<usize, InvocationError> {
     let rights = allowed_rights(&object)?;
     let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-    Ok(proc.proc_handles.write().insert(object, rights).0)
+    Ok(proc.handles.write().insert(object, rights).0)
 }
 
 impl Ext2Directory {

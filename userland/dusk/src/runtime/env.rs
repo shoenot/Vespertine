@@ -49,7 +49,7 @@ impl ShellContext {
 
     pub fn status(&self) -> String {
         match self.last_result {
-            ShellResult::Launched(info) => format!("({})", info.code),
+            ShellResult::Launched(info) => format!("({})", info.term_code),
             ShellResult::None => format!(""),
             _ => format!("(err)"),
         }
@@ -57,7 +57,7 @@ impl ShellContext {
 
     pub fn last_details(&self) -> String {
         match self.last_result {
-            ShellResult::Launched(info) => format!("{:?}, code: {}, details: {}", info.kind, info.code, info.detail),
+            ShellResult::Launched(info) => format!("{:?}, code: {}, details: {}", info.term_reason, info.term_code, info.term_detail),
             _ => format!(""),
         }
     }
@@ -65,7 +65,7 @@ impl ShellContext {
     pub fn last_success(&self) -> bool {
         match self.last_result {
             ShellResult::Launched(info) => {
-                if info.code == 0 {
+                if info.term_code == 0 {
                     true
                 } else {
                     false

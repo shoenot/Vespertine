@@ -29,13 +29,13 @@ use crate::klogln;
 pub static ROOT_DIRECTORY: KernelOnceCell<Arc<dyn KernelObject>> = KernelOnceCell::new();
 
 pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights) -> HandleID {
-    get_current_process().expect("No active process").proc_handles.write().insert(obj, init_rights)
+    get_current_process().expect("No active process").handles.write().insert(obj, init_rights)
 }
 
 pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let demanded_rights = invocation.required_rights();
     let (obj, rights) = {
-        let table = get_current_process().expect("No active processes").proc_handles.read();
+        let table = get_current_process().expect("No active processes").handles.read();
         let entry = table.resolve_entry(handle, demanded_rights)?;
         (entry.object.clone(), entry.rights)
     }; // drop the lock 
@@ -43,15 +43,15 @@ pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<u
 }
 
 pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
-    get_current_process().expect("No active process").proc_handles.write().close(handle)
+    get_current_process().expect("No active process").handles.write().close(handle)
 }
 
 pub fn kernel_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result<HandleID, InvocationError> {
-    get_current_process().expect("No active process").proc_handles.write().duplicate(handle, requested_rights)
+    get_current_process().expect("No active process").handles.write().duplicate(handle, requested_rights)
 }
 
 pub fn debug_dump_handles() {
-    let table = get_current_process().expect("No active process").proc_handles.read();
+    let table = get_current_process().expect("No active process").handles.read();
     klogln!("{:#?}", *table);
 }
 
@@ -82,18 +82,18 @@ pub fn kernel_root_location() -> Arc<DirLocation> {
 }
 
 pub fn proc_register_obj(proc: &Process, obj: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {
-    proc.proc_handles.write().insert(obj, rights)
+    proc.handles.write().insert(obj, rights)
 }
 
 pub fn proc_cpy_handle(
     src_proc: &Process, src_handle: HandleID, dst_proc: &Process, dst_rights: AccessRights, dst_handle: Option<HandleID>,
 ) -> Result<HandleID, InvocationError> {
-    if let Some(entry) = src_proc.proc_handles.read().get(&src_handle) {
+    if let Some(entry) = src_proc.handles.read().get(&src_handle) {
         if let Some(id) = dst_handle {
-            dst_proc.proc_handles.write().insert_at(id, entry.object.clone(), dst_rights);
+            dst_proc.handles.write().insert_at(id, entry.object.clone(), dst_rights);
             Ok(id)
         } else {
-            Ok(dst_proc.proc_handles.write().insert(entry.object.clone(), dst_rights))
+            Ok(dst_proc.handles.write().insert(entry.object.clone(), dst_rights))
         }
     } else {
         Err(InvocationError::PathNotFound)

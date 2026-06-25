@@ -130,7 +130,7 @@ async fn map_elf_segments(
     })?;
     let vmo_handle = HandleID(vmo_handle_id);
     let current_proc = get_current_process().ok_or(LoaderError::FileReadError)?;
-    let vmo_obj_dyn = current_proc.proc_handles.read().resolve(vmo_handle, AccessRights::READ).map_err(|e| {
+    let vmo_obj_dyn = current_proc.handles.read().resolve(vmo_handle, AccessRights::READ).map_err(|e| {
         klogln!("[ERROR] load_elf: Resolve VmoObject handle failed: {:?}", e);
         LoaderError::FileReadError
     })?;
@@ -139,7 +139,7 @@ async fn map_elf_segments(
         LoaderError::FileReadError
     })?;
     let file_vmo = vmo_obj.vmo.clone();
-    let _ = current_proc.proc_handles.write().close(vmo_handle);
+    let _ = current_proc.handles.write().close(vmo_handle);
 
     let mut phdr_addr = 0;
     for ph in ph_iter {
@@ -232,7 +232,7 @@ async fn map_elf_segments(
 
 pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadResult, LoaderError> {
     let file_obj =
-        get_current_process().ok_or(LoaderError::FileReadError)?.proc_handles.read().resolve(file_handle, AccessRights::READ).map_err(
+        get_current_process().ok_or(LoaderError::FileReadError)?.handles.read().resolve(file_handle, AccessRights::READ).map_err(
             |e| {
                 klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
                 LoaderError::FileReadError
@@ -276,13 +276,13 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadRe
 
         let interp_obj = {
             let proc = get_current_process().ok_or(LoaderError::FileReadError)?;
-            let obj = proc.proc_handles.read().resolve(interp_handle, AccessRights::READ).map_err(|_| LoaderError::FileReadError)?;
-            let _ = proc.proc_handles.write().close(interp_handle);
+            let obj = proc.handles.read().resolve(interp_handle, AccessRights::READ).map_err(|_| LoaderError::FileReadError)?;
+            let _ = proc.handles.write().close(interp_handle);
             obj
         };
 
         // KEEP INTERPRETER FILE ALIVE FOR PAGE FAULTS:
-        proc.proc_handles.write().insert(interp_obj.clone(), AccessRights::READ);
+        proc.handles.write().insert(interp_obj.clone(), AccessRights::READ);
 
         let (interp_bytes, interp_header) = read_elf_header(&interp_obj).await?;
 
