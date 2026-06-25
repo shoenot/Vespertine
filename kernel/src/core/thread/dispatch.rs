@@ -18,9 +18,7 @@ use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
-    ThreadControlBlock,
-    ThreadError,
-    ThreadState,
+    ThreadBlockState, ThreadControlBlock, ThreadError, ThreadState
 };
 
 pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut ThreadControlBlock {
@@ -206,6 +204,43 @@ pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
         if tgt_core != this_core { 
             let tgt_data = get_core_data_for(tgt_core);
             get_core_data().apic_mode.send_ipi(tgt_data.lapic_id as u32, 40);
+        }
+    }
+}
+
+pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
+    if thread.is_null() { return false; }
+
+    unsafe {
+        (*thread).request_cancel();
+
+        let state = (*thread).take_block_state();
+        let removed = match state {
+            ThreadBlockState::None => false,
+            ThreadBlockState::WaitQueue { queue } => {
+                if queue.is_null() {
+                    false
+                } else {
+                    (*queue).lock().remove(thread)
+                }
+            },
+            ThreadBlockState::Sleep { registration } => registration.cancel(),
+            ThreadBlockState::Futex { addr } => {
+                let proc = (*thread).process.clone();
+                let mut futexes = proc.futexes.write();
+
+                match futexes.get_mut(&addr) {
+                    Some(queue) => queue.remove(thread),
+                    None => false,
+                }
+            },
+        };
+
+        if removed && (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_ok() {
+            wake_thread(thread);
+            true
+        } else {
+            false
         }
     }
 }

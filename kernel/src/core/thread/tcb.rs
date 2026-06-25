@@ -14,7 +14,10 @@ use crate::core::object::models::process::{
     Process,
     ProcessControlBlock,
 };
+use crate::core::sync::TicketLock;
 use crate::core::thread::schedule::get_new_tid;
+use crate::core::thread::wait::WaitQueue;
+use crate::core::time::callout::ThreadWakeRegistration;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +39,17 @@ impl ThreadState {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum ThreadBlockState {
+    None,
+    WaitQueue { queue: *const TicketLock<WaitQueue> },
+    Sleep { registration: Arc<ThreadWakeRegistration> },
+    Futex { addr: usize },
+}
+
+unsafe impl Send for ThreadBlockState {}
+unsafe impl Sync for ThreadBlockState {}
 
 #[repr(C)]
 #[derive(Debug)]
@@ -62,6 +76,7 @@ pub struct ThreadControlBlock {
 
     pub assigned_core: AtomicUsize,
     pub migration_disabled: AtomicBool,
+    pub block_state: TicketLock<ThreadBlockState>,
 
     pub process: Arc<ProcessControlBlock>,
     pub next: *mut ThreadControlBlock,
@@ -99,6 +114,7 @@ impl ThreadControlBlock {
 
             core::ptr::write(&mut self.assigned_core, AtomicUsize::new(assigned_core));
             core::ptr::write(&mut self.migration_disabled, AtomicBool::new(false));
+            core::ptr::write(&mut self.block_state, TicketLock::new(ThreadBlockState::None));
 
             core::ptr::write(&mut self.process, proc);
             core::ptr::write(&mut self.next, null_mut());
@@ -127,6 +143,18 @@ impl ThreadControlBlock {
     pub fn request_cancel(&self) { self.cancel_requested.store(true, Ordering::Release); }
 
     pub fn cancel_requested(&self) -> bool { self.cancel_requested.load(Ordering::Acquire) }
+
+    pub fn set_block_state(&self, state: ThreadBlockState) {
+        *self.block_state.lock() = state;
+    }
+    
+    pub fn take_block_state(&self) -> ThreadBlockState {
+        core::mem::replace(&mut *self.block_state.lock(), ThreadBlockState::None)
+    }
+    
+    pub fn clear_block_state(&self) {
+        *self.block_state.lock() = ThreadBlockState::None;
+    }
 }
 
 pub fn get_current_process<'a>() -> Option<&'a Process> {

@@ -21,8 +21,7 @@ use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::wait::WaitQueue;
 use crate::core::thread::{
-    ThreadState,
-    get_current_process,
+    ThreadBlockState, ThreadState, get_current_process
 };
 use crate::terminate_thread;
 
@@ -246,6 +245,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                         if safe_copy_from(&mut current_val as *mut _ as *mut u8, uaddr as *const u8, 4) && current_val == expected {
                             let wq = futexes.entry(uaddr).or_insert_with(WaitQueue::new);
                             let current = sched.get_current_thread();
+                            (*current).set_block_state(ThreadBlockState::Futex { addr: uaddr });
                             (*current).transition(ThreadState::Running, ThreadState::Blocked).expect("futex waiter was not running");
                             wq.push(current);
                             drop(futexes);
@@ -272,7 +272,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 let mut futexes = proc.futexes.write();
                 if let Some(wq) = futexes.get_mut(&uaddr) {
                     for _ in 0..count {
-                        let thread = wq.pop();
+                        let thread = wq.pop_wakeable();
                         if thread.is_null() {
                             break;
                         }

@@ -10,12 +10,13 @@ use crate::arch::x86_64::interrupts::{
     enable_interrupts,
 };
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::ThreadState;
+use crate::core::thread::{ThreadBlockState, ThreadState};
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::priority::ThreadPriority;
+use crate::core::thread::schedule::ScheduleReason;
 use crate::core::time::callout::{
     Callout,
-    CalloutPayload,
+    CalloutPayload, ThreadWakeRegistration,
 };
 use crate::core::time::{
     GET_TIME_FN,
@@ -161,12 +162,14 @@ pub fn sleep(ns: usize) {
     let core_data = get_core_data();
     let sched = &mut core_data.scheduler;
     let current_thread = sched.get_current_thread();
+    let registration = ThreadWakeRegistration::new(current_thread);
 
     unsafe {
         (*current_thread).wake_time = target_time;
+        (*current_thread).set_block_state(ThreadBlockState::Sleep { registration: registration.clone() });
     }
 
-    let callout = Callout { wake_time: target_time, payload: CalloutPayload::WakeThread(current_thread) };
+    let callout = Callout { wake_time: target_time, payload: CalloutPayload::WakeThread(registration) };
 
     {
         let mut queue = get_core_data().callout_queue.lock();
@@ -174,7 +177,7 @@ pub fn sleep(ns: usize) {
         unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("sleeping thread was not running");
     }
 
-    sched.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+    sched.schedule(ScheduleReason::Blocked);
 
     enable_interrupts();
 }

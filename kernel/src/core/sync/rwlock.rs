@@ -16,7 +16,7 @@ use crate::arch::{
     interrupts_enabled,
 };
 use crate::core::sync::TicketLock;
-use crate::core::thread::ThreadState;
+use crate::core::thread::{ThreadBlockState, ThreadState};
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
 
@@ -68,7 +68,10 @@ impl<T> RwLock<T> {
 
                 if (self.state.load(Ordering::Acquire) & WRITER_BIT) != 0 || self.writers_waiting.load(Ordering::Relaxed) != 0 {
                     let thread = get_core_data().scheduler.get_current_thread();
-                    unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("rwlock reader was not running");
+                    unsafe { 
+                        (*thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.reader_queue as *const _ });
+                        (*thread).transition(ThreadState::Running, ThreadState::Blocked).expect("rwlock reader was not running")
+                    };
                     rq.push(thread);
                     drop(rq);
 
@@ -104,7 +107,10 @@ impl<T> RwLock<T> {
 
                 if self.state.load(Ordering::Acquire) != 0 {
                     let thread = get_core_data().scheduler.get_current_thread();
-                    unsafe { (*thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("rwlock writer was not running");
+                    unsafe { 
+                        (*thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.writer_queue as *const _ });
+                        (*thread).transition(ThreadState::Running, ThreadState::Blocked).expect("rwlock writer was not running")
+                    };
                     wq.push(thread);
                     drop(wq);
 
@@ -147,7 +153,7 @@ impl<'a, T> Drop for RwLockReadGuard<'a, T> {
             disable_interrupts();
 
             let mut wq = self.lock.writer_queue.lock();
-            let thread = wq.pop();
+            let thread = wq.pop_wakeable();
             drop(wq);
 
             if !thread.is_null() {
@@ -168,7 +174,7 @@ impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
         disable_interrupts();
 
         let mut wq = self.lock.writer_queue.lock();
-        let wthread = wq.pop();
+        let wthread = wq.pop_wakeable();
         drop(wq);
 
         if !wthread.is_null() {

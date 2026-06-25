@@ -21,6 +21,49 @@ unsafe impl Send for WaitQueue {}
 
 impl WaitQueue {
     pub const fn new() -> Self { Self { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() } }
+
+    pub fn remove(&mut self, target: *mut ThreadControlBlock) -> bool {
+        if target.is_null() { return false; }
+
+        let mut prev = null_mut() as *mut ThreadControlBlock;
+        let mut cur = self.head;
+
+        while !cur.is_null() {
+            unsafe {
+                let next = (*cur).next;
+
+                if cur == target {
+                    if prev.is_null() {
+                        self.head = next;
+                    } else {
+                        (*prev).next = next;
+                    }
+
+                    if self.tail == cur { self.tail = prev; }
+
+                    (*cur).next = null_mut();
+                    self.queue_length.fetch_sub(1, Ordering::Relaxed);
+                    return true;
+                }
+                prev = cur;
+                cur = next;
+            }
+        }
+        false
+    }
+
+    pub fn pop_wakeable(&mut self) -> *mut ThreadControlBlock {
+        loop {
+            let thread = self.pop();
+
+            if thread.is_null() { return thread; }
+
+            unsafe {
+                (*thread).clear_block_state();
+                return thread;
+            }
+        }
+    }
 }
 
 impl_queue_methods!(WaitQueue, ThreadControlBlock, head, tail);

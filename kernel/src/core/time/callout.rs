@@ -27,6 +27,35 @@ pub struct TimerRegistration {
     waker: TicketLock<Option<Waker>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ThreadWakeRegistration {
+    active: AtomicBool,
+    fired: AtomicBool,
+    thread: *mut ThreadControlBlock,
+}
+
+impl ThreadWakeRegistration {
+    pub fn new(thread: *mut ThreadControlBlock) -> Arc<Self> {
+        Arc::new(Self { active: AtomicBool::new(true), fired: AtomicBool::new(false), thread })
+    }
+
+    pub fn cancel(&self) -> bool {
+        self.active.swap(false, Ordering::AcqRel)
+    }
+
+    fn fire(&self) {
+        if !self.active.swap(false, Ordering::AcqRel) {
+            return;
+        }
+
+        self.fired.store(true, Ordering::Release);
+        wake_thread(self.thread);
+    }
+}
+
+unsafe impl Send for ThreadWakeRegistration {}
+unsafe impl Sync for ThreadWakeRegistration {}
+
 impl TimerRegistration {
     pub fn new() -> Arc<Self> {
         Arc::new(Self { active: AtomicBool::new(true), fired: AtomicBool::new(false), waker: TicketLock::new(None) })
@@ -64,7 +93,7 @@ impl TimerRegistration {
 
 pub enum CalloutPayload {
     /// used by sleep(), contains pointer to sleeping thread
-    WakeThread(*mut ThreadControlBlock),
+    WakeThread(Arc<ThreadWakeRegistration>),
     /// used by sleep_async(), contains the async timer registration
     WakeTimer(Arc<TimerRegistration>),
 }
@@ -94,7 +123,7 @@ unsafe impl Send for Callout {}
 
 pub fn dispatch_callout_payload(payload: CalloutPayload) {
     match payload {
-        CalloutPayload::WakeThread(tcb_ptr) => wake_thread(tcb_ptr),
+        CalloutPayload::WakeThread(registration) => registration.fire(),
         CalloutPayload::WakeTimer(registration) => {
             if let Some(waker) = registration.fire() {
                 waker.wake();

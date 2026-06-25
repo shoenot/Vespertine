@@ -11,7 +11,7 @@ use crate::arch::{
     interrupts_enabled,
 };
 use crate::core::sync::TicketLock;
-use crate::core::thread::ThreadState;
+use crate::core::thread::{ThreadBlockState, ThreadState};
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
 
@@ -70,8 +70,10 @@ impl Semaphore {
                 }
 
                 let current_thread = sched.get_current_thread();
-                unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }
-                    .expect("semaphore waiter was not running");
+                unsafe { 
+                    (*current_thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.wait_queue as *const _ });
+                    (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("semaphore waiter was not running")
+                };
                 wq.push(current_thread);
                 drop(wq);
 
@@ -94,7 +96,7 @@ impl Semaphore {
         disable_interrupts();
 
         let mut wq = self.wait_queue.lock();
-        let next_thread = wq.pop();
+        let next_thread = wq.pop_wakeable();
         drop(wq);
 
         if !next_thread.is_null() {

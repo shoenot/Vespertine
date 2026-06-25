@@ -10,7 +10,8 @@ use crate::core::sync::{
     MutexGuard,
     TicketLock,
 };
-use crate::core::thread::ThreadState;
+use crate::core::thread::schedule::ScheduleReason;
+use crate::core::thread::{ThreadBlockState, ThreadState};
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
 
@@ -27,7 +28,10 @@ impl CondVar {
             disable_interrupts();
             let mut queue = self.wait_queue.lock();
             let current_thread = get_core_data().scheduler.get_current_thread();
-            (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("condvar waiter was not running");
+            unsafe { 
+                (*current_thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.wait_queue as *const _ });
+                (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("condvar waiter was not running")
+            };
             queue.push(current_thread);
 
             let mutex = guard.mutex;
@@ -36,7 +40,7 @@ impl CondVar {
             mutex.unlock();
             drop(queue);
 
-            get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+            get_core_data().scheduler.schedule(ScheduleReason::Blocked);
 
             if int_state {
                 enable_interrupts()
@@ -50,7 +54,7 @@ impl CondVar {
         let int_state = interrupts_enabled();
         disable_interrupts();
         let mut queue = self.wait_queue.lock();
-        let current_thread = queue.pop();
+        let current_thread = queue.pop_wakeable();
         if !current_thread.is_null() {
             wake_thread(current_thread);
         }
@@ -64,12 +68,11 @@ impl CondVar {
         disable_interrupts();
         let mut queue = self.wait_queue.lock();
         loop {
-            let current_thread = queue.pop();
+            let current_thread = queue.pop_wakeable();
             if current_thread.is_null() {
                 break;
-            } else {
-                wake_thread(current_thread);
-            }
+            } 
+            wake_thread(current_thread);
         }
         if int_state {
             enable_interrupts()
