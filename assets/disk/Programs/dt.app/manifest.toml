@@ -1,8 +1,9 @@
 [application]
 name = "dt"
-binary = "dt"
 id = "core.vespertine.dt"
 
-[io]
+[entrypoints.main]
+binary = "dt"
 input = "any"
-output = "typed"
+modes = ["typed"]
+default = "typed"

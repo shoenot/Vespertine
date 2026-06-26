@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "os.vespertine.terminal"
+bundle = "/Programs/terminal.app"
+default-entrypoint = "main"
+
+[application.aliases]
+terminal = "main"

@@ -1,3 +1,5 @@
+use crate::define_bitflags;
+
 pub const HESPER_APP_METADATA_REQUEST: u32 = 0x4800;
 pub const HESPER_APP_METADATA_RESPONSE: u32 = 0x4801;
 
@@ -16,5 +18,33 @@ pub enum AppIoMode {
     Any = 0,
     Text = 1,
     Typed = 2,
-    Direct = 3,
+    Terminal = 3,
+}
+
+define_bitflags! {
+    pub struct AppIoModes(u8) {
+        TEXT          = 1 << 0;
+        TYPED         = 1 << 1;
+        TERMINAL      = 1 << 2;
+    }
+}
+
+impl AppIoModes {
+    pub fn from_mode(mode: AppIoMode) -> Self {
+        match mode {
+            AppIoMode::Any => AppIoModes::TEXT | AppIoModes::TYPED | AppIoModes::TERMINAL,
+            AppIoMode::Text => AppIoModes::TEXT,
+            AppIoMode::Typed => AppIoModes::TYPED,
+            AppIoMode::Terminal => AppIoModes::TERMINAL,
+        }
+    }
+
+    pub fn contains_mode(self, mode: AppIoMode) -> bool {
+        match mode {
+            AppIoMode::Any => true,
+            AppIoMode::Text => self.contains(AppIoModes::TEXT),
+            AppIoMode::Typed => self.contains(AppIoModes::TYPED),
+            AppIoMode::Terminal => self.contains(AppIoModes::TERMINAL),
+        }
+    }
 }

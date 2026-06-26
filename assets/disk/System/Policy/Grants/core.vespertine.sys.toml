@@ -1,0 +1,7 @@
+[application]
+id = "core.vespertine.sys"
+bundle = "sys"
+archetype = "mutable-coreutil"
+
+[grants]
+capabilities = [ "procman-list" ]

@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "os.vespertine.dusk"
+bundle = "/Programs/dusk.app"
+default-entrypoint = "main"
+
+[application.aliases]
+dusk = "main"

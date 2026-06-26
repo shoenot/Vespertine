@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "ports.openbsd.grep"
+bundle = "/Programs/grep.app"
+default-entrypoint = "main"
+
+[application.aliases]
+grep = "main"

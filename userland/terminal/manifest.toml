@@ -1,8 +1,9 @@
 [application]
 name = "terminal"
-binary = "terminal"
 id = "os.vespertine.terminal"
 
-[io]
-input = "direct"
-output = "direct"
+[entrypoints.main]
+binary = "terminal"
+input = "terminal"
+modes = ["terminal"]
+default = "terminal"

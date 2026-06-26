@@ -88,6 +88,8 @@ pub enum ProcManOp {
         args_buffer_ptr: usize,
         args_buffer_len: usize,
     },
+    List { offset: usize, sink: HandleID },
+    Open { pid: usize, rights: AccessRights },
 }
 
 #[repr(C)]

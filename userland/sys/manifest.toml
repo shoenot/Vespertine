@@ -1,0 +1,12 @@
+[application]
+name = "sys"
+id = "core.vespertine.sys"
+
+[entrypoints.main]
+binary = "sys"
+input = "any"
+modes = ["typed", "terminal"]
+default = "typed"
+
+[permissions]
+filesystem = "mutable"

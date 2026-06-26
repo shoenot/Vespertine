@@ -1,5 +1,5 @@
 [application]
-id = "org.antirez.kilo"
+id = "ports.antirez.kilo"
 bundle = "kilo"
 archetype = "text-editor"
 

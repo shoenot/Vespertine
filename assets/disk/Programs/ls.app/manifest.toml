@@ -1,8 +1,9 @@
 [application]
 name = "ls"
-binary = "ls"
-id = "org.openbsd.ls"
+id = "ports.openbsd.ls"
 
-[io]
-input = "any"
+[entrypoints.main]
+binary = "ls"
+input = "text"
+modes = ["text"]
 output = "text"

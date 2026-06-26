@@ -139,6 +139,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nyx"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-cli",
+ "vespertine-rt",
+ "vespertine-std",
+]
+
+[[package]]
 name = "parse-zoneinfo"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +299,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sys"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-cli",
+ "vespertine-rt",
+ "vespertine-std",
+]
+
+[[package]]
 name = "table"
 version = "0.1.0"
 dependencies = [
@@ -305,6 +325,15 @@ dependencies = [
  "vespertine-rt",
  "vespertine-std",
  "vte",
+]
+
+[[package]]
+name = "testapp"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-rt",
+ "vespertine-std",
 ]
 
 [[package]]
@@ -392,6 +421,17 @@ dependencies = [
  "vespertine-abi",
  "vespertine-common",
  "vespertine-rt",
+]
+
+[[package]]
+name = "vreg"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+ "vespertine-abi",
+ "vespertine-rt",
+ "vespertine-std",
 ]
 
 [[package]]

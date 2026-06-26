@@ -4,7 +4,7 @@ use alloc::string::String;
 
 use vespertine_abi::{
     AccessRights,
-    HandleID,
+    HandleID, ProcTermReason,
 };
 use vespertine_rt::syscall::sys_close;
 use vespertine_std::fs::{
@@ -49,28 +49,55 @@ impl ShellContext {
 
     pub fn status(&self) -> String {
         match self.last_result {
-            ShellResult::Launched(info) => format!("({})", info.term_code),
+            ShellResult::Launched(info) => {
+                if info.successful() {
+                    "(0)".into()
+                } else {
+                    format!("({}: {})", info.status_code(), info.short_status())
+                }
+            },
             ShellResult::None => format!(""),
             _ => format!("(err)"),
         }
     }
 
+
     pub fn last_details(&self) -> String {
         match self.last_result {
-            ShellResult::Launched(info) => format!("{:?}, code: {}, details: {}", info.term_reason, info.term_code, info.term_detail),
+            ShellResult::Launched(info) => {
+                match info.term_reason {
+                    ProcTermReason::None => format!(
+                        "pid: {}, state: {:?}, threads: {}, memory: {} bytes",
+                        info.pid,
+                        info.state,
+                        info.active_threads,
+                        info.memory_usage
+                    ),
+                    ProcTermReason::Exited => format!(
+                        "pid: {}, exited with code {}",
+                        info.pid,
+                        info.term_code
+                    ),
+                    ProcTermReason::Terminated => format!(
+                        "pid: {}, terminated with reason {}",
+                        info.pid,
+                        info.term_code
+                    ),
+                    ProcTermReason::Faulted => format!(
+                        "pid: {}, faulted: {}, detail: {:#x}",
+                        info.pid,
+                        info.fault_name(),
+                        info.term_detail
+                    ),
+                }
+            },
             _ => format!(""),
         }
     }
 
     pub fn last_success(&self) -> bool {
         match self.last_result {
-            ShellResult::Launched(info) => {
-                if info.term_code == 0 {
-                    true
-                } else {
-                    false
-                }
-            }
+            ShellResult::Launched(info) => info.successful(),
             ShellResult::None => true,
             _ => false,
         }

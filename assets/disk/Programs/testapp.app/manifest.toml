@@ -1,0 +1,8 @@
+[application]
+name = "testapp"
+binary = "testapp"
+id = "test.vespertine.test"
+
+[io]
+input = "text"
+output = "text"

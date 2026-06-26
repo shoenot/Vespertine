@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.dt"
+bundle = "/Programs/dt.app"
+default-entrypoint = "main"
+
+[application.aliases]
+dt = "main"

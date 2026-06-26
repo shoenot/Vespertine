@@ -7,7 +7,7 @@ use alloc::string::{
 use alloc::vec::Vec;
 
 use serde::Deserialize;
-use vespertine_abi::tag::CAP_APP_TERMCTRL;
+use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_PROCMAN};
 use vespertine_abi::{
     AccessRights,
     CapabilityID,
@@ -119,7 +119,7 @@ impl PolicyStore {
                 continue;
             }
 
-            let Some(bundle_from_filename) = entry.name.strip_suffix(".toml") else {
+            let Some(app_id) = entry.name.strip_suffix(".toml") else {
                 continue;
             };
 
@@ -130,8 +130,8 @@ impl PolicyStore {
             let grant = toml::from_str::<GrantFile>(&text)
                 .map_err(|error| Error::invalid_encoding(format!("invalid grant file {}: {:?}", path, error,).into()))?;
 
-            if grant.application.bundle != bundle_from_filename {
-                return Err(Error::invalid_argument(format!("grant filename does not match bundle {}", grant.application.bundle,).into()));
+            if grant.application.id != app_id {
+                return Err(Error::invalid_argument(format!("grant app ID does not match bundle app ID {}", grant.application.id,).into()));
             }
 
             if let Some(archetype) = grant.application.archetype.as_ref() {
@@ -140,10 +140,10 @@ impl PolicyStore {
                 }
             }
 
-            let bundle = grant.application.bundle.clone();
-
-            if applications.insert(bundle.clone(), grant).is_some() {
-                return Err(Error::invalid_argument(format!("duplicate policy for bundle {}", bundle,).into()));
+            let app_id = grant.application.id.clone();
+            
+            if applications.insert(app_id.clone(), grant).is_some() {
+                return Err(Error::invalid_argument(format!("duplicate policy for app ID {}", app_id).into()));
             }
         }
 
@@ -182,7 +182,7 @@ fn parse_rights(names: &[String]) -> Result<AccessRights, Error> {
 fn resolve_capability(name: &str) -> Result<CapabilityPolicy, Error> {
     match name {
         "term-control" => Ok(CapabilityPolicy { capability: CAP_APP_TERMCTRL, rights: AccessRights::READ | AccessRights::WRITE }),
-
+        "procman-list" => Ok(CapabilityPolicy { capability: CAP_PROCMAN, rights: AccessRights::READ | AccessRights::LIST }),
         _ => Err(Error::invalid_argument(format!("unknown capability {}", name,).into())),
     }
 }
@@ -223,25 +223,24 @@ impl PolicyStore {
 fn requested_root_rights(manifest: &AppManifest) -> Result<AccessRights, Error> {
     match manifest.permissions.filesystem.as_str() {
         "read-only" => Ok(AccessRights::READ | AccessRights::TRAVERSE | AccessRights::LIST),
-
         "mutable" => Ok(AccessRights::READ |
             AccessRights::WRITE |
             AccessRights::CREATE |
             AccessRights::REMOVE |
             AccessRights::TRAVERSE |
             AccessRights::LIST),
-
         _ => Err(Error::invalid_argument("unknown filesystem permission request".into())),
     }
 }
 
 impl PolicyStore {
-    pub fn resolve(&self, bundle: &str, manifest: &AppManifest) -> Result<LaunchPolicy, Error> {
+    pub fn resolve(&self, app_id: &str, manifest: &AppManifest) -> Result<LaunchPolicy, Error> {
+        if manifest.application.id != app_id { return Err(Error::access_denied("manifest identity does not match launcher request".into())); }
         let mut maximum = self.defaults.clone();
 
-        if let Some(application) = self.applications.get(bundle) {
+        if let Some(application) = self.applications.get(app_id) {
             if application.application.id != manifest.application.id {
-                return Err(Error::access_denied("bundle identity does not match launcher policy".into()));
+                return Err(Error::access_denied("grant identity does not match manifest identity".into()));
             }
 
             if let Some(archetype_name) = application.application.archetype.as_ref() {
@@ -284,5 +283,9 @@ impl PolicyStore {
         }
 
         Ok(LaunchPolicy { root_rights: requested_root, cwd_rights: parse_rights(&maximum.cwd_rights)?, capabilities })
+    }
+
+    pub fn app_ids(&self) -> impl Iterator<Item = &str> {
+        self.applications.keys().map(|id| id.as_str())
     }
 }

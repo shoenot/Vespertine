@@ -58,6 +58,8 @@ impl Invocation {
             Invocation::Thread(ThreadOp::Join) => AccessRights::READ,
             Invocation::Thread(ThreadOp::GetID) => AccessRights::READ,
             Invocation::ProcessManager(ProcManOp::Spawn { .. }) => AccessRights::CREATE,
+            Invocation::ProcessManager(ProcManOp::List { .. }) => AccessRights::LIST,
+            Invocation::ProcessManager(ProcManOp::Open { .. }) => AccessRights::READ,
             Invocation::MemoryManager(MemManOp::CreatePool { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,

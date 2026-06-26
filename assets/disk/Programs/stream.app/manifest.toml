@@ -1,8 +1,9 @@
 [application]
 name = "stream"
-binary = "stream"
 id = "core.vespertine.stream"
 
-[io]
+[entrypoints.main]
+binary = "stream"
 input = "any"
-output = "typed"
+modes = ["typed"]
+default = "typed"

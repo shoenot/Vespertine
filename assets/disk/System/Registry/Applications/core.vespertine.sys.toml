@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.sys"
+bundle = "/Programs/sys.app"
+default-entrypoint = "main"
+
+[application.aliases]
+sys = "main"

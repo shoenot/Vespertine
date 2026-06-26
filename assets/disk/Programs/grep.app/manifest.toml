@@ -1,8 +1,9 @@
 [application]
 name = "grep"
-binary = "grep"
-id = "org.openbsd.grep"
+id = "ports.openbsd.grep"
 
-[io]
+[entrypoints.main]
+binary = "grep"
 input = "text"
+modes = ["text"]
 output = "text"

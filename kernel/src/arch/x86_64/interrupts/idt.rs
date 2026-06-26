@@ -122,7 +122,7 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
     }
 
     match frame.interrupt_number {
-        6 => panic!("INVALID OPCODE (#UD): {:#?}", frame),
+        6 => handle::invalid_opcode_handler(frame),
         8 => panic!("DOUBLE FAULT: {:#?}", frame),
         13 => handle::gpf_handler(frame),
         14 => handle::page_fault_handler(frame),

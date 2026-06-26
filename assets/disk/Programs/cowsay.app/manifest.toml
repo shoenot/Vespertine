@@ -1,8 +1,9 @@
 [application]
 name = "cowsay"
-binary = "cowsay"
-id = "org.cowsay.cowsay"
+id = "ports.cowsay.cowsay"
 
-[io]
-input = "any"
+[entrypoints.main]
+binary = "cowsay"
+input = "text"
+modes = ["text"]
 output = "text"

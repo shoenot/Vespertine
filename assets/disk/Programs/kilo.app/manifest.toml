@@ -1,11 +1,12 @@
 [application]
 name = "Kilo"
-binary = "kilo"
-id = "org.antirez.kilo"
+id = "ports.antirez.kilo"
 
-[io]
-input = "direct"
-output = "direct"
+[entrypoints.main]
+binary = "kilo"
+input =  "terminal"
+modes = ["terminal"]
+default = "terminal"
 
 [permissions]
 filesystem = "mutable"

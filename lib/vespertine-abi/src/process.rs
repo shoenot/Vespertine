@@ -1,4 +1,4 @@
-use core::{slice, sync::atomic::AtomicU8};
+use core::{fmt::Display, slice, sync::atomic::AtomicU8};
 
 use crate::{
     CapabilityGrant,
@@ -48,6 +48,10 @@ pub enum ProcTermReason {
     Faulted = 3,
 }
 
+pub const PROC_FAULT_PAGE: u32 = 1;
+pub const PROC_FAULT_GENERAL_PROTECTION: u32 = 2;
+pub const PROC_FAULT_INVALID_OPCODE: u32 = 3;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct ProcInfo {
@@ -60,4 +64,43 @@ pub struct ProcInfo {
     pub term_reason: ProcTermReason,
     pub term_code: u32,
     pub term_detail: usize,
+}
+
+impl ProcInfo {
+    pub fn fault_name(&self) -> &'static str {
+        match self.term_code {
+            PROC_FAULT_PAGE => "page fault",
+            PROC_FAULT_GENERAL_PROTECTION => "general protection fault",
+            PROC_FAULT_INVALID_OPCODE => "invalid_opcode",
+            _ => "unknown fault",
+        }
+    }
+
+    pub fn successful(&self) -> bool {
+        self.term_reason == ProcTermReason::Exited && self.term_code == 0
+    }
+
+    pub fn status_code(&self) -> u32 {
+        match self.term_reason {
+            ProcTermReason::None => 0,
+            ProcTermReason::Exited => self.term_code,
+            ProcTermReason::Terminated => 128 + self.term_code,
+            ProcTermReason::Faulted => 128,
+        }
+    }
+
+    pub fn short_status(&self) -> &'static str {
+        match self.term_reason {
+            ProcTermReason::None => "running",
+            ProcTermReason::Exited => {
+                if self.term_code == 0 {
+                    "ok"
+                } else {
+                    "exited"
+                }
+            },
+            ProcTermReason::Terminated => "terminated",
+            ProcTermReason::Faulted => "faulted",
+        }
+    }
 }

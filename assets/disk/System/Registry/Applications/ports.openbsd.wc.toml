@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "ports.openbsd.wc"
+bundle = "/Programs/wc.app"
+default-entrypoint = "main"
+
+[application.aliases]
+wc = "main"

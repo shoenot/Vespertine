@@ -1,8 +1,9 @@
 [application]
 name = "wc"
-binary = "wc"
-id = "org.openbsd.wc"
+id = "ports.openbsd.wc"
 
-[io]
+[entrypoints.main]
+binary = "wc"
 input = "text"
-output = "text"
+modes = ["text"]
+default = "text"

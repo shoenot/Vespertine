@@ -6,6 +6,7 @@ use alloc::vec::{
     IntoIter,
     Vec,
 };
+use vespertine_rt::println;
 use core::iter::Peekable;
 
 use ast::*;
@@ -63,6 +64,7 @@ impl Parser {
                     }
                     _ => return Err(ShellError::InvalidToken),
                 },
+                "autopsy" => CommandNode::Autopsy,
                 _ => CommandNode::Run { exec, args: self.collect_args()? },
             },
             _ => return Err(ShellError::InvalidToken),

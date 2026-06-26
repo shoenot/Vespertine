@@ -18,7 +18,7 @@ use vespertine_abi::{
     HandleID,
     ProcessInitPackage,
 };
-use vespertine_rt::syscall::sys_close;
+use vespertine_rt::syscall::{sys_close, sys_yield};
 use vespertine_rt::{
     println,
     thread as rt_thread,
@@ -86,11 +86,46 @@ fn spawn_launcher_session(handle: HandleID, policy: Arc<PolicyStore>) -> Result<
     .map_err(Error::from)
 }
 
+fn launch_vreg(log: &SystemLog) -> Result<(), Error> {
+    log.write_string("Launching vreg".into())?;
+
+    Exec::open(&Path::new("/System/Core/vreg"), "vreg".into())?
+        .source(env::source())
+        .sink(env::sink())
+        .cwd(env::cwd(), AccessRights::all())
+        .root_rights(AccessRights::all())
+        .grant(CAP_LOGGER, AccessRights::WRITE)?
+        .spawn()?;
+
+    Ok(())
+}
+
+fn wait_for_vreg(log: &SystemLog) -> Result<(), Error> {
+    println!("[INFO] Waiting for vreg service...");
+    let _ = log.write_string("waiting for vreg service".into());
+    loop {
+        match resolve(&Path::new("/System/Services/VRegistry"), AccessRights::READ) {
+            Ok(handle) => {
+                sys_close(handle).map_err(Error::from)?;
+                println!("[INFO] vreg service online");
+                log.write_string("vreg service online".into())?;
+                return Ok(());
+            },
+            Err(_) => {
+                sys_yield();
+            },
+        }
+    }
+}
+
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let launcher_policy = Arc::new(PolicyStore::load()?);
     let log = SystemLog::connect();
     println!("[INFO] Hesper init system online");
     log.write_string("Hesper init system online".into())?;
+
+    launch_vreg(&log)?;
+    wait_for_vreg(&log)?;
 
     let portal_factory = PortalFactory::request()?;
     let (launcher_portal, launcher_accept) = portal_factory.create(CAP_LAUNCHER_CONNECT, AccessRights::READ | AccessRights::WRITE)?;

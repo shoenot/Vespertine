@@ -1,0 +1,11 @@
+pub const VREG_RESOLVE_REQUEST: u32 = 0x4A00;
+pub const VREG_RESOLVE_RESPONSE: u32 = 0x4A01;
+
+pub const VREG_LIST_REQUEST: u32 = 0x4A10;
+pub const VREG_LIST_ENTRY: u32 = 0x4A11;
+pub const VREG_LIST_END: u32 = 0x4A12;
+
+pub const VREG_STATUS_OK: u32 = 0;
+pub const VREG_STATUS_NOT_FOUND: u32 = 1;
+pub const VREG_STATUS_INVALID_REQUEST: u32 = 2;
+pub const VREG_STATUS_INTERNAL_ERROR: u32 = 3;

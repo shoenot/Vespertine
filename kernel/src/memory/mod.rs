@@ -8,6 +8,7 @@ pub mod vmm;
 pub mod vmo;
 
 use core::alloc::GlobalAlloc;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 pub use bootalloc::*;
 use heap::*;
@@ -42,25 +43,38 @@ pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 // wrapper that disables interrupts and reenables them (needed bc the slab code was moved to common
 pub struct KernelAllocatorWrapper(SlabAllocator<KernelPageProvider>);
 
+pub static KERNEL_HEAP_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+pub static KERNEL_HEAP_ALLOCATION_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 unsafe impl GlobalAlloc for KernelAllocatorWrapper {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         let int_state = interrupts_enabled();
         disable_interrupts();
+
         let ptr = unsafe { self.0.alloc(layout) };
-        if int_state {
-            enable_interrupts();
+        if !ptr.is_null() {
+            KERNEL_HEAP_ALLOCATED.fetch_add(layout.size(), Ordering::Relaxed);
+            KERNEL_HEAP_ALLOCATION_COUNT.fetch_add(1, Ordering::Relaxed);
         }
+
+        if int_state { enable_interrupts(); }
         ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
         let int_state = interrupts_enabled();
         disable_interrupts();
+
         unsafe { self.0.dealloc(ptr, layout) };
-        if int_state {
-            enable_interrupts();
-        }
+        KERNEL_HEAP_ALLOCATED.fetch_sub(layout.size(), Ordering::Relaxed);
+        KERNEL_HEAP_ALLOCATION_COUNT.fetch_sub(1, Ordering::Relaxed);
+
+        if int_state { enable_interrupts(); }
     }
+}
+
+pub fn kernel_heap_allocated() -> usize {
+    KERNEL_HEAP_ALLOCATED.load(Ordering::Relaxed)
 }
 
 #[global_allocator]

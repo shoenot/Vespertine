@@ -2,25 +2,23 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use vespertine_abi::protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC};
+use core::intrinsics::copy_nonoverlapping;
 use core::ptr::null;
 
 use async_trait::async_trait;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::{
-    AccessRights,
-    CapabilityGrant,
-    CapabilityID,
-    HandleID,
-    Invocation,
-    ProcessInitPackage,
+    AccessRights, CapabilityGrant, CapabilityID, FileOp, HandleID, Invocation, ProcInfo, ProcessInitPackage
 };
 
 use crate::arch::x86_64::task::syscall::safe_copy_from;
+use crate::core::asynchronous::Executor;
 use crate::core::object::handle::HandleTable;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::mempool::MemPool;
-use crate::core::object::models::process::ProcessControlBlock;
+use crate::core::object::models::process::{ProcessControlBlock, find_process, process_snapshot};
 use crate::core::object::obj::KernelObject;
 use crate::core::program::env::ProcessEnvironment;
 use crate::core::program::load_elf;
@@ -202,7 +200,73 @@ impl KernelObject for ProcessManager {
                     parent_proc.handles.write().insert(new_proc, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
 
                 Ok(new_handle_id.0)
-            }
+            },
+            Invocation::ProcessManager(ProcManOp::List { offset, sink }) => {
+                calling_rights.err_if_no(AccessRights::LIST)?;
+            
+                let processes = process_snapshot();
+                let entries: Vec<ProcInfo> = processes.iter()
+                    .skip(offset)
+                    .map(|process| process.snapshot_info())
+                    .collect();
+            
+                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let sink_obj = proc.handles.read().resolve(sink, AccessRights::WRITE)?;
+            
+                Executor::new().spawn(async move {
+                    let mut iter = entries.iter().peekable();
+            
+                    while let Some(info) = iter.next() {
+                        let mut flags = PacketFlags::IS_STREAM;
+                        if iter.peek().is_some() {
+                            flags = flags.insert(PacketFlags::HAS_NEXT);
+                        }
+            
+                        let header = PacketHeader {
+                            magic: VESPER_MAGIC,
+                            version: 1,
+                            packet_flags: flags,
+                            packet_type: PacketType::ProcessInfo as u32,
+                            payload_len: size_of::<ProcInfo>() as u32,
+                            reserved: 0,
+                        };
+            
+                        let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<ProcInfo>()];
+                        let header_size = size_of::<PacketHeader>();
+                        let entry_size = size_of::<ProcInfo>();
+            
+                        unsafe {
+                            let header_ptr = &header as *const _ as *const u8;
+                            let info_ptr = info as *const ProcInfo as *const u8;
+            
+                            copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
+                            copy_nonoverlapping(info_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
+                        }
+            
+                        let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len:
+                        buffer.len() };
+                        if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            
+                Ok(processes.len())
+            },
+            Invocation::ProcessManager(ProcManOp::Open { pid, rights }) => {
+                calling_rights.err_if_no(AccessRights::READ)?;
+            
+                let process = find_process(pid).ok_or(InvocationError::InvalidHandle)?;
+                let granted = rights & (AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+            
+                if granted == AccessRights::new() {
+                    return Err(InvocationError::AccessDenied);
+                }
+            
+                let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let handle = caller.handles.write().insert(process, granted);
+                Ok(handle.0)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

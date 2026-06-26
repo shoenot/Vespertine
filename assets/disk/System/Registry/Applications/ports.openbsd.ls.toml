@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "ports.openbsd.ls"
+bundle = "/Programs/ls.app"
+default-entrypoint = "main"
+
+[application.aliases]
+ls = "main"

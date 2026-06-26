@@ -1,11 +1,12 @@
 [application]
 name = "ns"
-binary = "ns"
 id = "core.vespertine.ns"
 
-[io]
+[entrypoints.main]
+binary = "ns"
 input = "any"
-output = "typed"
+modes = ["typed"]
+default = "typed"
 
 [permissions]
 filesystem = "mutable"

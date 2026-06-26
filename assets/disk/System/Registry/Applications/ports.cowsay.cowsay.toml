@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "ports.cowsay.cowsay"
+bundle = "/Programs/cowsay.app"
+default-entrypoint = "main"
+
+[application.aliases]
+cowsay = "main"

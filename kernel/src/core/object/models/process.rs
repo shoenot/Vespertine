@@ -46,11 +46,28 @@ use crate::core::thread::dispatch::{cancel_blocked_thread, reschedule_thread_cor
 use crate::core::thread::{ThreadControlBlock, ThreadState, get_current_process};
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::wait::WaitQueue;
-use crate::memory::ALLOCATOR;
+use crate::memory::{ALLOCATOR, kernel_heap_allocated};
 use crate::memory::vmm::VirtMemManager;
 use crate::util::write_to_msr;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
+static PROCESS_REGISTRY: RwLock<BTreeMap<usize, Process>> = RwLock::new(BTreeMap::new());
+
+pub fn register_process(process: &Process) {
+    PROCESS_REGISTRY.write().insert(process.proc_id, process.clone());
+}
+
+pub fn unregister_process(pid: usize) {
+    PROCESS_REGISTRY.write().remove(&pid);
+}
+
+pub fn process_snapshot() -> Vec<Process> {
+    PROCESS_REGISTRY.read().values().cloned().collect()
+}
+
+pub fn find_process(pid: usize) -> Option<Process> {
+    PROCESS_REGISTRY.read().get(&pid).cloned()
+}
 
 pub fn get_new_pid() -> usize { GLOBAL_PID.fetch_add(1, core::sync::atomic::Ordering::Relaxed) }
 
@@ -182,7 +199,7 @@ impl ProcessControlBlock {
     pub fn new(init_table: HandleTable, credentials: Credentials) -> Process {
         let vmm = VirtMemManager::new(&ALLOCATOR);
         let pml4_addr = vmm.get_pml4_addr();
-        Arc::new(Self {
+        let proc = Arc::new(Self {
             proc_id: get_new_pid(),
             credentials,
 
@@ -197,27 +214,40 @@ impl ProcessControlBlock {
             completion_waiters: TicketLock::new(WaiterList::new()),
 
             futexes: RwLock::new(BTreeMap::new()),
-        })
+        });
+        register_process(&proc);
+        proc
     }
 
-    pub fn info(&self, ptr: *mut ProcInfo) -> Result<usize, InvocationError> {
+    pub fn snapshot_info(&self) -> ProcInfo {
         let lc = *self.lifecycle.lock();
         let (state, term_reason, term_code, term_detail) = match lc {
             ProcLifecycle::Running => (ProcState::Running, ProcTermReason::None, 0, 0),
             ProcLifecycle::Terminating(t) => (ProcState::Terminating, t.reason, t.code, t.detail),
             ProcLifecycle::Terminated(t) => (ProcState::Terminated, t.reason, t.code, t.detail),
         };
-        let info = ProcInfo {
+
+        let memory_usage = if self.proc_id == 0 {
+            kernel_heap_allocated()
+        } else {
+            self.vmm.read().get_resident_size()
+        };
+    
+        ProcInfo {
             pid: self.proc_id,
             user: self.credentials.user(),
             state,
             active_threads: self.active_threads.load(Ordering::Acquire),
-            memory_usage: self.vmm.read().get_total_allocated_size(),
-
+            memory_usage,
+    
             term_reason,
             term_code,
             term_detail,
-        };
+        }
+    }
+
+    pub fn info(&self, ptr: *mut ProcInfo) -> Result<usize, InvocationError> {
+        let info = self.snapshot_info();
 
         if !safe_copy_to(ptr as *mut u8, &info as *const ProcInfo as *const u8, size_of::<ProcInfo>()) {
             return Err(InvocationError::InvalidPointer);

@@ -1,0 +1,16 @@
+version = 1
+
+applications = [
+    "core.vespertine.dt",
+    "core.vespertine.ns",
+    "core.vespertine.stream",
+    "core.vespertine.sys",
+    "core.vespertine.table",
+    "os.vespertine.dusk",
+    "os.vespertine.terminal",
+    "ports.antirez.kilo",
+    "ports.cowsay.cowsay",
+    "ports.openbsd.grep",
+    "ports.openbsd.ls",
+    "ports.openbsd.wc",
+]

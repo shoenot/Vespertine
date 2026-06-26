@@ -83,10 +83,15 @@ impl ShellRuntime {
             },
             CommandNode::GetMetadata { app } => match get_app_metadata(app.as_str()) {
                 Ok(md) => {
-                    println!("id: {}; input: {}; output: {};", md.app_id, md.input as u8, md.output as u8);
+                    println!("id: {}; input: {}; modes: {}; default: {};", 
+                        md.app_id, md.input as u8, md.modes.0, md.default_mode as u8);
                     ShellResult::None
                 }
                 Err(error) => ShellResult::InternalError(error),
+            },
+            CommandNode::Autopsy => {
+                println!("{}", self.context.last_details());
+                ShellResult::None
             },
             CommandNode::NoOp => ShellResult::None,
         }

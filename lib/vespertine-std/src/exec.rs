@@ -1,5 +1,8 @@
+use core::slice;
+
 use alloc::format;
 
+use vespertine_abi::protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC};
 use vespertine_abi::tag::CAP_PROCMAN;
 use vespertine_abi::{
     AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcInfo, ProcManOp, ProcOp, ProcState, ProcTermReason, Signal, UserID, WaitOp
@@ -21,9 +24,7 @@ use crate::fs::{
 };
 use crate::socket::Socket;
 use crate::{
-    Error,
-    ErrorKind,
-    env,
+    Error, ErrorKind, Read, env
 };
 
 struct ProcManager {
@@ -34,13 +35,33 @@ impl ProcManager {
     pub fn request() -> Result<Self, Error> {
         let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
-        let handle = broker.request(CAP_PROCMAN, AccessRights::CREATE | AccessRights::EXECUTE)?;
+        let handle = broker.request(CAP_PROCMAN, 
+            AccessRights::LIST | AccessRights::READ | AccessRights::CREATE | AccessRights::EXECUTE)?;
         Ok(Self { handle })
     }
 
     pub fn spawn(&self, op: ProcManOp) -> Result<HandleID, Error> {
         let result = sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
         Ok(HandleID(result))
+    }
+
+    pub fn list(&self, offset: usize) -> Result<ReadProcesses, Error> {
+        let (read_end, write_end) = Socket::new_pair()?;
+
+        let op = ProcManOp::List { offset, sink: write_end.handle() };
+        sys_invoke(self.handle, &Invocation::ProcessManager(op)).map_err(Error::from)?;
+
+        write_end.close();
+        Ok(ReadProcesses { read_end, finished: false })
+    }
+
+    pub fn open(&self, pid: usize, rights: AccessRights) -> Result<Process, Error> {
+        let handle = sys_invoke(
+            self.handle,
+            &Invocation::ProcessManager(ProcManOp::Open { pid, rights }),
+        ).map_err(Error::from)?;
+    
+        Ok(Process::from_handle(HandleID(handle)))
     }
 }
 
@@ -249,4 +270,69 @@ impl Drop for Exec {
 
 impl Drop for Process {
     fn drop(&mut self) { let _ = sys_close(self.handle); }
+}
+
+pub struct ReadProcesses {
+    read_end: Socket,
+    finished: bool,
+}
+
+impl Iterator for ReadProcesses {
+    type Item = ProcInfo;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished { return None; }
+
+        let mut header = PacketHeader::default();
+        let header_bytes = unsafe {
+            slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8,
+            size_of::<PacketHeader>())
+        };
+
+        if self.read_end.read_exact(header_bytes).is_err() {
+            self.finished = true;
+            return None;
+        }
+
+        if header.magic != VESPER_MAGIC ||
+            header.version != 1 ||
+            header.packet_type != PacketType::ProcessInfo as u32 ||
+            header.payload_len as usize != size_of::<ProcInfo>()
+        {
+            self.finished = true;
+            return None;
+        }
+
+        let mut info = ProcInfo {
+            pid: 0,
+            user: UserID(0),
+            state: ProcState::Running,
+            active_threads: 0,
+            memory_usage: 0,
+            term_reason: ProcTermReason::None,
+            term_code: 0,
+            term_detail: 0,
+        };
+
+        let info_bytes = unsafe {
+            slice::from_raw_parts_mut(&mut info as *mut ProcInfo as *mut u8, size_of::<ProcInfo>())
+        };
+
+        if self.read_end.read_exact(info_bytes).is_err() {
+            self.finished = true;
+            return None;
+        }
+
+        if !header.packet_flags.contains(PacketFlags::HAS_NEXT) { self.finished = true; }
+
+        Some(info)
+    }
+}
+
+pub fn list_processes() -> Result<ReadProcesses, Error> {
+    process_manager()?.list(0)
+}
+
+pub fn open_process(pid: usize, rights: AccessRights) -> Result<Process, Error> {
+    process_manager()?.open(pid, rights)
 }

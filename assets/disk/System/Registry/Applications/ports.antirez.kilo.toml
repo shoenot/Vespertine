@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "ports.antirez.kilo"
+bundle = "/Programs/kilo.app"
+default-entrypoint = "main"
+
+[application.aliases]
+kilo = "main"

@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.ns"
+bundle = "/Programs/ns.app"
+default-entrypoint = "main"
+
+[application.aliases]
+ns = "main"

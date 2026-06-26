@@ -14,5 +14,6 @@ pub enum CommandNode {
     ChangeDir { path: PathBuf },
     ClearScreen,
     GetMetadata { app: String },
+    Autopsy,
     NoOp,
 }

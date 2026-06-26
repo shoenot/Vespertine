@@ -1,8 +1,9 @@
 [application]
 name = "table"
-binary = "table"
 id = "core.vespertine.table"
 
-[io]
+[entrypoints.main]
+binary = "table"
 input = "typed"
-output = "text"
+modes = ["text", "terminal"]
+default = "text"

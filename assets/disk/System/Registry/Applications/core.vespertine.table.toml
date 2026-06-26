@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.table"
+bundle = "/Programs/table.app"
+default-entrypoint = "main"
+
+[application.aliases]
+table = "main"

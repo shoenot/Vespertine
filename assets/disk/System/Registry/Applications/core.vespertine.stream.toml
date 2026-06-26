@@ -1,0 +1,9 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.stream"
+bundle = "/Programs/stream.app"
+default-entrypoint = "main"
+
+[application.aliases]
+stream = "main"
