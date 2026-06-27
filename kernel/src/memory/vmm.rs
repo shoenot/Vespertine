@@ -789,18 +789,18 @@ impl VirtMemManager {
     pub fn get_resident_size(&self) -> usize {
         let mut total = 0;
         let mut current_ptr = self.head;
-    
+
         let mut pager = self.pager.lock();
         unsafe {
             while let Some(curr) = current_ptr {
                 let node = &*curr;
-    
+
                 let is_huge = node.flags & VM_FLAG_HUGE != 0;
                 let step_size = if is_huge { HUGE_PAGE_SIZE } else { NORMAL_PAGE_SIZE };
-    
+
                 let mut current_page = node.start;
                 let end_page = node.start + node.size;
-    
+
                 while current_page < end_page {
                     let virt = VirtAddress(current_page as u64);
                     if pager.translate(virt, *HHDMOFFSET as u64).is_some() {

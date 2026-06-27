@@ -17,20 +17,18 @@ mod util;
 use alloc::sync::Arc;
 
 use ::core::sync::atomic::Ordering;
-use arch::x86_64::hcf;
-use arch::{
-    enable_interrupts,
-    get_core_data,
-};
+use arch::get_core_data;
 use boot::smp::BSP_CR3;
 pub use boot::*;
 use drivers::logger::LOGGER;
+use hal::arch::interrupts::enable_interrupts;
 use memory::paging::get_cr3;
 use memory::{
     BOOTSTRAP_ALLOC,
     BlockSize,
 };
 use vespertine_abi::HandleID;
+pub use vespertine_common::define_bitflags;
 
 use crate::arch::x86_64::cpu::core::{
     CPULocalData,

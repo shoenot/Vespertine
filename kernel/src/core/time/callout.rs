@@ -5,20 +5,17 @@ use core::sync::atomic::{
 };
 use core::task::Waker;
 
-use crate::arch::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
-    get_core_data,
 };
+
+use crate::arch::get_core_data;
 use crate::core::sync::TicketLock;
-use crate::core::thread::dispatch::{
-    cancel_block_if_awoken,
-};
-use crate::core::thread::{
-    ThreadState,
-};
-use crate::core::time::get_time;
+use crate::core::thread::ThreadState;
 use crate::core::thread::block::ThreadWakeRegistration;
+use crate::core::thread::dispatch::cancel_block_if_awoken;
+use crate::core::time::get_time;
 
 pub struct TimerRegistration {
     active: AtomicBool,
@@ -95,7 +92,7 @@ pub fn dispatch_callout_payload(payload: CalloutPayload) {
     match payload {
         CalloutPayload::WakeThread(registration) => {
             registration.wake();
-        },
+        }
         CalloutPayload::WakeTimer(registration) => {
             if let Some(waker) = registration.fire() {
                 waker.wake();

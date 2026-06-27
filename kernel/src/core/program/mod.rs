@@ -232,12 +232,10 @@ async fn map_elf_segments(
 
 pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadResult, LoaderError> {
     let file_obj =
-        get_current_process().ok_or(LoaderError::FileReadError)?.handles.read().resolve(file_handle, AccessRights::READ).map_err(
-            |e| {
-                klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
-                LoaderError::FileReadError
-            },
-        )?;
+        get_current_process().ok_or(LoaderError::FileReadError)?.handles.read().resolve(file_handle, AccessRights::READ).map_err(|e| {
+            klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
+            LoaderError::FileReadError
+        })?;
 
     let (file_bytes, header) = read_elf_header(&file_obj).await?;
 

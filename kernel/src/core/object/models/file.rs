@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use core::cmp::min;
 
 use async_trait::async_trait;
+use hal::usercopy::safe_copy_to;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
     AccessRights,
@@ -11,7 +12,6 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;

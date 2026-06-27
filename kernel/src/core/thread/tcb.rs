@@ -15,9 +15,9 @@ use crate::core::object::models::process::{
     ProcessControlBlock,
 };
 use crate::core::sync::TicketLock;
+use crate::core::thread::block::ThreadWakeRegistration;
 use crate::core::thread::schedule::get_new_tid;
 use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::block::ThreadWakeRegistration;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,17 +144,11 @@ impl ThreadControlBlock {
 
     pub fn cancel_requested(&self) -> bool { self.cancel_requested.load(Ordering::Acquire) }
 
-    pub fn set_block_state(&self, state: ThreadBlockState) {
-        *self.block_state.lock() = state;
-    }
-    
-    pub fn take_block_state(&self) -> ThreadBlockState {
-        core::mem::replace(&mut *self.block_state.lock(), ThreadBlockState::None)
-    }
-    
-    pub fn clear_block_state(&self) {
-        *self.block_state.lock() = ThreadBlockState::None;
-    }
+    pub fn set_block_state(&self, state: ThreadBlockState) { *self.block_state.lock() = state; }
+
+    pub fn take_block_state(&self) -> ThreadBlockState { core::mem::replace(&mut *self.block_state.lock(), ThreadBlockState::None) }
+
+    pub fn clear_block_state(&self) { *self.block_state.lock() = ThreadBlockState::None; }
 }
 
 pub fn get_current_process<'a>() -> Option<&'a Process> {

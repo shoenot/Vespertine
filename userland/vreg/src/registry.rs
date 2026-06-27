@@ -1,18 +1,16 @@
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use serde::Deserialize;
+use toml::value::Datetime;
 use vespertine_abi::app::hesper::{
     AppIoMode,
     AppIoModes,
 };
-use vespertine_rt::println;
 use vespertine_std::fs::{
-    Dir,
-    EntryKind,
     File,
     Path,
 };
@@ -33,6 +31,7 @@ const REGISTRY_PATH: &str = "/System/Registry/Applications";
 struct RegistryFile {
     version: u32,
     application: Vec<ApplicationRecord>,
+    installation: InstallationMetadata,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,6 +67,12 @@ pub struct EntrypointMetadata {
     pub default: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct InstallationMetadata {
+    pub installed_ts: Datetime,
+    pub updated_ts: Datetime,
+}
+
 #[derive(Debug, Clone)]
 pub struct LaunchTarget {
     pub command: String,
@@ -76,8 +81,13 @@ pub struct LaunchTarget {
     pub entrypoint: String,
 }
 
+pub struct RegisteredApplication {
+    record: ApplicationRecord,
+    installation: InstallationMetadata,
+}
+
 pub struct AppRegistry {
-    apps: BTreeMap<String, ApplicationRecord>,
+    apps: BTreeMap<String, RegisteredApplication>,
     aliases: BTreeMap<String, (String, String)>,
 }
 
@@ -259,7 +269,10 @@ impl AppRegistry {
                     aliases.insert(alias.clone(), (app.id.clone(), entrypoint.clone()));
                 }
 
-                apps.insert(app.id.clone(), app);
+                apps.insert(app.id.clone(), RegisteredApplication {
+                    record: app,
+                    installation: file.installation.clone(),
+                });
             }
         }
 
@@ -275,8 +288,8 @@ impl AppRegistry {
 
         Ok(LaunchTarget {
             command: alias.into(),
-            app_id: app.id.clone(),
-            bundle: app.bundle.clone(),
+            app_id: app.record.id.clone(),
+            bundle: app.record.bundle.clone(),
             entrypoint: entrypoint.clone(),
         })
     }
@@ -287,9 +300,9 @@ impl AppRegistry {
 
         Ok(LaunchTarget {
             command: app_id.into(),
-            app_id: app.id.clone(),
-            bundle: app.bundle.clone(),
-            entrypoint: app.default_entrypoint.clone(),
+            app_id: app.record.id.clone(),
+            bundle: app.record.bundle.clone(),
+            entrypoint: app.record.default_entrypoint.clone(),
         })
     }
 
@@ -310,10 +323,10 @@ impl AppRegistry {
 
         for app in self.apps.values() {
             let target = LaunchTarget {
-                command: app.id.clone(),
-                app_id: app.id.clone(),
-                bundle: app.bundle.clone(),
-                entrypoint: app.default_entrypoint.clone(),
+                command: app.record.id.clone(),
+                app_id: app.record.id.clone(),
+                bundle: app.record.bundle.clone(),
+                entrypoint: app.record.default_entrypoint.clone(),
             };
 
             entries.push(self.resolve_target_metadata(target)?);
@@ -323,8 +336,10 @@ impl AppRegistry {
     }
 
     fn resolve_target_metadata(&self, target: LaunchTarget) -> Result<ResolvedApplication, Error> {
-        let manifest = load_manifest(&target.bundle)?;
+        let app_record = self.apps.get(&target.app_id)
+            .ok_or_else(|| Error::not_found("application not found".into()))?;
 
+        let manifest = load_manifest(&target.bundle)?;
         if manifest.application.id != target.app_id {
             return Err(Error::access_denied("registry app ID does not match bundle manifest".into()));
         }
@@ -342,6 +357,8 @@ impl AppRegistry {
             modes,
             default_mode,
             display_name: manifest.application.name,
+            installed_ts: app_record.installation.installed_ts.to_string(),
+            updated_ts: app_record.installation.updated_ts.to_string(),
         })
     }
 }

@@ -1,9 +1,18 @@
 use alloc::vec::Vec;
-use vespertine_abi::{PROC_FAULT_GENERAL_PROTECTION, PROC_FAULT_INVALID_OPCODE, PROC_FAULT_PAGE};
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
-use crate::arch::{disable_interrupts, hcf};
+use hal::arch::cpu::halt_loop;
+use hal::arch::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+};
+use vespertine_abi::{
+    PROC_FAULT_GENERAL_PROTECTION,
+    PROC_FAULT_INVALID_OPCODE,
+    PROC_FAULT_PAGE,
+};
+
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::extable::fixup_exception;
@@ -23,9 +32,7 @@ use crate::memory::paging::flush_tlb;
 
 pub(in crate::arch::x86_64) static IRQ_HANDLERS: TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
 
-fn frame_from_user(frame: &InterruptStackFrame) -> bool {
-    frame.code_segment & 0x3 == 0x3
-}
+fn frame_from_user(frame: &InterruptStackFrame) -> bool { frame.code_segment & 0x3 == 0x3 }
 
 fn terminate_user_fault(frame: &InterruptStackFrame, code: u32, detail: usize) -> ! {
     if let Some(proc) = get_current_process() {
@@ -44,7 +51,7 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
 
     let int_state = (frame.cpu_flags & (1 << 9)) != 0;
     if int_state {
-        crate::arch::enable_interrupts();
+        enable_interrupts();
     }
 
     match handle_page_fault(cr2 as usize, frame.error_code as usize) {
@@ -96,25 +103,22 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
 }
 
 pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &mut InterruptStackFrame) {
-      if frame_from_user(frame) {
-          klogln!(
-              "terminating process after user general protection fault: rip: {:#018X} error: {:#018X}",
-              frame.instruction_pointer,
-              frame.error_code
-          );
+    if frame_from_user(frame) {
+        klogln!(
+            "terminating process after user general protection fault: rip: {:#018X} error: {:#018X}",
+            frame.instruction_pointer,
+            frame.error_code
+        );
 
-          terminate_user_fault(frame, PROC_FAULT_GENERAL_PROTECTION, frame.instruction_pointer as usize);
-      }
+        terminate_user_fault(frame, PROC_FAULT_GENERAL_PROTECTION, frame.instruction_pointer as usize);
+    }
     klogln!("General Protection Fault.\nError Code: {:#X}\nStack Frame:\n{:#?}", frame.error_code, frame);
-    hcf();
+    halt_loop();
 }
 
 pub(in crate::arch::x86_64::interrupts) fn invalid_opcode_handler(frame: &mut InterruptStackFrame) {
     if frame_from_user(frame) {
-        klogln!(
-            "terminating process after user invalid opcode: rip: {:#018X}",
-            frame.instruction_pointer
-        );
+        klogln!("terminating process after user invalid opcode: rip: {:#018X}", frame.instruction_pointer);
 
         terminate_user_fault(frame, PROC_FAULT_INVALID_OPCODE, frame.instruction_pointer as usize);
     }

@@ -16,6 +16,10 @@ use core::task::{
 };
 
 use async_trait::async_trait;
+use hal::usercopy::{
+    safe_copy_from,
+    safe_copy_to,
+};
 use vespertine_abi::op::{
     FileOp,
     SocketOp,
@@ -28,10 +32,6 @@ use vespertine_abi::{
     WaitOp,
 };
 
-use crate::arch::x86_64::task::syscall::{
-    safe_copy_from,
-    safe_copy_to,
-};
 use crate::core::asynchronous::async_sleep::{
     AsyncSleep,
     sleep_async,

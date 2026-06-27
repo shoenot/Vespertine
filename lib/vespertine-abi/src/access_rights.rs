@@ -1,4 +1,4 @@
-use crate::define_bitflags;
+pub use crate::define_bitflags;
 
 define_bitflags! {
     pub struct AccessRights(u8) {

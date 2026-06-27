@@ -9,6 +9,7 @@ use core::sync::atomic::{
 };
 
 use async_trait::async_trait;
+use hal::usercopy::safe_copy_from;
 use vespertine_abi::{
     AccessRights,
     DirectoryOp,
@@ -21,7 +22,6 @@ use vespertine_common::path::{
     Components,
 };
 
-use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::mount::follow_mount;
 use crate::core::object::obj::KernelObject;

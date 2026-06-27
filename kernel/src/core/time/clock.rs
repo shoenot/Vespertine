@@ -2,23 +2,27 @@ use core::arch::asm;
 use core::mem::transmute;
 use core::sync::atomic::Ordering;
 
-use crate::arch::get_rtc_unix_timestamp;
-use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::cpu::core::get_core_data;
-use crate::arch::x86_64::interrupts::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
+
+use crate::arch::get_rtc_unix_timestamp;
+use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::{ThreadBlockState, ThreadState};
+use crate::core::thread::block::ThreadWakeRegistration;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::schedule::ScheduleReason;
+use crate::core::thread::{
+    ThreadBlockState,
+    ThreadState,
+};
 use crate::core::time::callout::{
     Callout,
     CalloutPayload,
 };
-use crate::core::thread::block::ThreadWakeRegistration;
 use crate::core::time::{
     GET_TIME_FN,
     IA32_TSC_DEADLINE,

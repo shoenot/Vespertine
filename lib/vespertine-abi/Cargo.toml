@@ -8,3 +8,4 @@ test = false
 bench = false
 
 [dependencies]
+common = { package = "vespertine-common", path = "../vespertine-common/" }

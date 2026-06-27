@@ -17,3 +17,4 @@ limine = "0.6.3"
 simple-psf = "0.1.2"
 vespertine-abi = { path = "../lib/vespertine-abi/" }
 vespertine-common = { path = "../lib/vespertine-common/" }
+hal = { package = "vk-hal", path = "../lib/vk-hal/" }

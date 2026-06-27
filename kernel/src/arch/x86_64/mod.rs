@@ -57,11 +57,3 @@ fn map_ioapic_memory(base_addr: u64) {
     pager.map_mmio_addr(ioapic_phys).expect("[FATAL] Failed to map IOAPIC MMIO");
     drop(pager);
 }
-
-pub fn hcf() -> ! {
-    loop {
-        unsafe {
-            asm!("hlt");
-        }
-    }
-}

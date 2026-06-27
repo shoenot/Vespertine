@@ -1,5 +1,6 @@
 pub mod smp;
 
+use hal::arch::cpu::halt_loop;
 use limine::request::{
     FramebufferRequest,
     HhdmRequest,
@@ -13,8 +14,6 @@ use limine::{
     RequestsEndMarker,
     RequestsStartMarker,
 };
-
-use crate::hcf;
 
 #[used]
 #[unsafe(no_mangle)]
@@ -63,6 +62,6 @@ static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 
 pub fn check() {
     if !BASE_REVISION.is_supported() {
-        hcf();
+        halt_loop();
     }
 }

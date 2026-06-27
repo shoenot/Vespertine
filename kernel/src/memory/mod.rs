@@ -8,9 +8,17 @@ pub mod vmm;
 pub mod vmo;
 
 use core::alloc::GlobalAlloc;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
 pub use bootalloc::*;
+use hal::arch::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+    interrupts_enabled,
+};
 use heap::*;
 use paging::*;
 use pmm::*;
@@ -22,12 +30,7 @@ pub use pmm::{
 use vespertine_common::slab::SlabAllocator;
 use vmm::*;
 
-use crate::arch::{
-    disable_interrupts,
-    enable_interrupts,
-    get_core_data,
-    interrupts_enabled,
-};
+use crate::arch::get_core_data;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
@@ -57,7 +60,9 @@ unsafe impl GlobalAlloc for KernelAllocatorWrapper {
             KERNEL_HEAP_ALLOCATION_COUNT.fetch_add(1, Ordering::Relaxed);
         }
 
-        if int_state { enable_interrupts(); }
+        if int_state {
+            enable_interrupts();
+        }
         ptr
     }
 
@@ -69,13 +74,13 @@ unsafe impl GlobalAlloc for KernelAllocatorWrapper {
         KERNEL_HEAP_ALLOCATED.fetch_sub(layout.size(), Ordering::Relaxed);
         KERNEL_HEAP_ALLOCATION_COUNT.fetch_sub(1, Ordering::Relaxed);
 
-        if int_state { enable_interrupts(); }
+        if int_state {
+            enable_interrupts();
+        }
     }
 }
 
-pub fn kernel_heap_allocated() -> usize {
-    KERNEL_HEAP_ALLOCATED.load(Ordering::Relaxed)
-}
+pub fn kernel_heap_allocated() -> usize { KERNEL_HEAP_ALLOCATED.load(Ordering::Relaxed) }
 
 #[global_allocator]
 pub static KERNEL_ALLOCATOR: KernelAllocatorWrapper = KernelAllocatorWrapper(SlabAllocator::new(KernelPageProvider));

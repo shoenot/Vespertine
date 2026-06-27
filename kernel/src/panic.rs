@@ -1,5 +1,7 @@
 use core::panic::PanicInfo;
 
+use hal::arch::cpu::halt_loop;
+
 use crate::drivers::logger::LOGGER;
 use crate::klogln;
 
@@ -8,5 +10,5 @@ fn panic(info: &PanicInfo) -> ! {
     unsafe { LOGGER.force_unlock() };
     klogln!("!------------- KERNEL PANIC -------------!");
     klogln!("{}\n", info);
-    crate::arch::hcf();
+    halt_loop();
 }

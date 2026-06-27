@@ -17,7 +17,10 @@ use crate::core::cpu::{
 use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::{
-    ThreadBlockState, ThreadControlBlock, ThreadError, ThreadState
+    ThreadBlockState,
+    ThreadControlBlock,
+    ThreadError,
+    ThreadState,
 };
 
 pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut ThreadControlBlock {
@@ -156,12 +159,14 @@ pub fn create_user_tcb(
 }
 
 pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
-    if thread.is_null() { return; }
+    if thread.is_null() {
+        return;
+    }
     unsafe {
         let tgt_core = (*thread).assigned_core();
         let this_core = get_core_data().logical_id;
 
-        if tgt_core != this_core { 
+        if tgt_core != this_core {
             let tgt_data = get_core_data_for(tgt_core);
             get_core_data().apic_mode.send_ipi(tgt_data.lapic_id as u32, 40);
         }
@@ -206,8 +211,7 @@ pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
 }
 
 pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) -> bool {
-    if awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked,
-    ThreadState::Running).is_ok() {
+    if awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked, ThreadState::Running).is_ok() {
         thread.clear_block_state();
         true
     } else {
@@ -245,7 +249,7 @@ pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
                 } else {
                     (*queue).lock().remove(thread)
                 }
-            },
+            }
             ThreadBlockState::Registration { registration } => registration.cancel(),
             ThreadBlockState::Futex { addr } => {
                 let proc = (*thread).process.clone();
@@ -255,7 +259,7 @@ pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
                     Some(queue) => queue.remove(thread),
                     None => false,
                 }
-            },
+            }
         };
 
         if !removed {

@@ -2,6 +2,7 @@ use alloc::sync::Arc;
 use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 
+use hal::arch::interrupts::enable_interrupts;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
     CAP_LOGGER,
@@ -15,10 +16,7 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::arch::{
-    enable_interrupts,
-    get_core_data,
-};
+use crate::arch::get_core_data;
 use crate::core::asynchronous::{
     Executor,
     executor_thread,

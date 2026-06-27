@@ -1,19 +1,23 @@
 use core::mem::forget;
 
-use crate::arch::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
-    get_core_data,
     interrupts_enabled,
 };
+
+use crate::arch::get_core_data;
 use crate::core::sync::{
     MutexGuard,
     TicketLock,
 };
-use crate::core::thread::schedule::ScheduleReason;
-use crate::core::thread::{ThreadBlockState, ThreadState};
 use crate::core::thread::dispatch::wake_thread;
+use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::wait::WaitQueue;
+use crate::core::thread::{
+    ThreadBlockState,
+    ThreadState,
+};
 
 struct CondVar {
     wait_queue: TicketLock<WaitQueue>,
@@ -28,7 +32,7 @@ impl CondVar {
             disable_interrupts();
             let mut queue = self.wait_queue.lock();
             let current_thread = get_core_data().scheduler.get_current_thread();
-            unsafe { 
+            unsafe {
                 (*current_thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.wait_queue as *const _ });
                 (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("condvar waiter was not running")
             };
@@ -71,7 +75,7 @@ impl CondVar {
             let current_thread = queue.pop_wakeable();
             if current_thread.is_null() {
                 break;
-            } 
+            }
             wake_thread(current_thread);
         }
         if int_state {

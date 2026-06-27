@@ -62,8 +62,7 @@ pub async fn init_vfs() {
 
     let proc_man = Arc::new(ProcessManager {});
     let mut proc_man_broker = Broker::new();
-    proc_man_broker.publish(CAP_PROCMAN, proc_man, 
-        AccessRights::READ | AccessRights::LIST | AccessRights::CREATE | AccessRights::EXECUTE);
+    proc_man_broker.publish(CAP_PROCMAN, proc_man, AccessRights::READ | AccessRights::LIST | AccessRights::CREATE | AccessRights::EXECUTE);
     link_kernel_object(srv_dir.clone(), "ProcManager", Arc::new(proc_man_broker)).await.expect("Failed to mount ProcManager");
 
     let mem_man = Arc::new(MemoryManager {});

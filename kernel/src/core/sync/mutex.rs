@@ -9,16 +9,20 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::interrupts_enabled;
-use crate::arch::x86_64::cpu::core::get_core_data;
-use crate::arch::x86_64::interrupts::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
+    interrupts_enabled,
 };
+
+use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::core::sync::TicketLock;
-use crate::core::thread::{ThreadBlockState, ThreadState};
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
+use crate::core::thread::{
+    ThreadBlockState,
+    ThreadState,
+};
 
 pub struct Mutex<T> {
     is_locked: AtomicBool,
@@ -63,7 +67,7 @@ impl<T> Mutex<T> {
             }
 
             let current_thread = sched.get_current_thread();
-            unsafe { 
+            unsafe {
                 (*current_thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.wait_queue as *const _ });
                 (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("mutex waiter was not running")
             };

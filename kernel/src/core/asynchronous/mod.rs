@@ -24,12 +24,13 @@ use core::task::{
     Waker,
 };
 
-use crate::arch::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
-    get_core_data,
     interrupts_enabled,
 };
+
+use crate::arch::get_core_data;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::{
     cancel_block_if_awoken,

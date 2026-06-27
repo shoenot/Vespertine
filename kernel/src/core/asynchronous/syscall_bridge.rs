@@ -11,17 +11,17 @@ use core::task::{
     Poll,
 };
 
+use hal::arch::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+    interrupts_enabled,
+};
 use vespertine_abi::{
     HandleID,
     Invocation,
 };
 
-use crate::arch::{
-    disable_interrupts,
-    enable_interrupts,
-    get_core_data,
-    interrupts_enabled,
-};
+use crate::arch::get_core_data;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::TicketLock;
@@ -32,7 +32,9 @@ use crate::core::thread::dispatch::{
 };
 use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
-    ThreadBlockState, ThreadControlBlock, ThreadState
+    ThreadBlockState,
+    ThreadControlBlock,
+    ThreadState,
 };
 
 struct ThreadWaker {
@@ -43,11 +45,7 @@ struct ThreadWaker {
 
 impl ThreadWaker {
     fn new(thread: *mut ThreadControlBlock) -> Arc<Self> {
-        Arc::new(Self { 
-            thread, 
-            registration: TicketLock::new(ThreadWakeRegistration::new(thread)),
-            awoken: AtomicBool::new(false),
-        })
+        Arc::new(Self { thread, registration: TicketLock::new(ThreadWakeRegistration::new(thread)), awoken: AtomicBool::new(false) })
     }
 
     fn arm(&self) -> Arc<ThreadWakeRegistration> {
@@ -65,7 +63,7 @@ impl Wake for ThreadWaker {
 
     fn wake_by_ref(self: &Arc<Self>) {
         self.awoken.store(true, Ordering::Release);
-        self.registration.lock().wake(); 
+        self.registration.lock().wake();
     }
 }
 
@@ -85,7 +83,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
             Poll::Ready(result) => {
                 registration.cancel();
                 return result;
-            },
+            }
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
@@ -126,7 +124,7 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
             Poll::Ready(result) => {
                 registration.cancel();
                 return result;
-            },
+            }
             Poll::Pending => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();

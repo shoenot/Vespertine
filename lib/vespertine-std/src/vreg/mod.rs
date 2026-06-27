@@ -34,6 +34,7 @@ const MAX_DISPLAY_NAME: usize = 256;
 const MAX_BUNDLE_PATH: usize = 4096;
 const MAX_ENTRYPOINT: usize = 256;
 const MAX_BINARY_NAME: usize = 256;
+const MAX_TIMESTAMP: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct ResolvedApplication {
@@ -46,6 +47,9 @@ pub struct ResolvedApplication {
     pub modes: AppIoModes,
     pub default_mode: AppIoMode,
     pub display_name: String,
+
+    pub installed_ts: String,
+    pub updated_ts: String,
 }
 
 #[derive(Debug)]
@@ -95,10 +99,13 @@ fn read_application(reader: &mut PayloadReader<'_>) -> Result<ResolvedApplicatio
     let default_mode = decode_io_mode(reader.read_u8()?)?;
     let _flags = reader.read_u8()?;
     let display_name = reader.read_string(MAX_DISPLAY_NAME, "application display name")?;
+    let installed_ts = reader.read_string(MAX_TIMESTAMP, "application install timestamp")?;
+    let updated_ts = reader.read_string(MAX_TIMESTAMP, "application update timestamp")?;
 
     Ok(ResolvedApplication {
         command, app_id, bundle, entrypoint, binary,
         input, modes, default_mode, display_name,
+        installed_ts, updated_ts
     })
 }
 
@@ -113,6 +120,8 @@ fn write_application(output: &mut Vec<u8>, app: &ResolvedApplication) -> Result<
     write_u8(output, app.default_mode as u8);
     write_u8(output, 0);
     write_string(output, &app.display_name, MAX_DISPLAY_NAME, "application display name")?;
+    write_string(output, &app.installed_ts, MAX_TIMESTAMP, "application install timestamp")?;
+    write_string(output, &app.updated_ts, MAX_TIMESTAMP, "application update timestamp")?;
     Ok(())
 }
 

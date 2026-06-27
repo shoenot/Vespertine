@@ -4,11 +4,11 @@ pub(crate) mod hpet;
 mod realtime;
 pub(crate) mod tsc;
 
+use hal::arch::cpuid::*;
 pub use realtime::read_rtc;
 
 use crate::arch::x86_64::apic::lapic::*;
 use crate::arch::x86_64::cpu::core::get_core_data;
-use crate::arch::x86_64::cpuid::*;
 use crate::arch::x86_64::timer::hpet::read_hpet_direct;
 use crate::arch::x86_64::timer::tsc::read_tsc_direct;
 use crate::core::acpi::hpet::get_hpet_base_addr;

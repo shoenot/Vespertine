@@ -11,10 +11,12 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::{get_core_data, hcf};
+use hal::arch::cpu::halt_loop;
+use hal::arch::interrupts::disable_interrupts;
+
+use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::fpu::*;
-use crate::arch::x86_64::interrupts::disable_interrupts;
 use crate::core::cpu::{
     NO_STEAL_REQUEST,
     NUM_CORES,
@@ -246,18 +248,18 @@ impl SchedulerState {
             GRAVEYARD.lock().push(prev_thread);
         }
 
-        if prev_thread == next_thread { return; }
+        if prev_thread == next_thread {
+            return;
+        }
 
         unsafe {
             let should_switch_addr_space = {
-                if prev_thread.is_null() || prev_retired {
-                    true
-                } else {
-                    !Arc::ptr_eq(&(*prev_thread).process, &(*next_thread).process)
-                }
+                if prev_thread.is_null() || prev_retired { true } else { !Arc::ptr_eq(&(*prev_thread).process, &(*next_thread).process) }
             };
 
-            if should_switch_addr_space { load_cr3((&*next_thread).process.pml4_addr as u64); }
+            if should_switch_addr_space {
+                load_cr3((&*next_thread).process.pml4_addr as u64);
+            }
 
             let base_target = (*next_thread).fs_base;
             write_to_msr(base_target as u64, 0xC000_0100);
@@ -371,17 +373,15 @@ impl SchedulerState {
         disable_interrupts();
 
         let thread = self.current_thread;
-        if !thread.is_null() { 
-            retire_current_thread(thread, exit_code); 
+        if !thread.is_null() {
+            retire_current_thread(thread, exit_code);
         }
 
         self.schedule(ScheduleReason::Terminated);
-        loop { hcf(); }
+        halt_loop();
     }
 
-    pub fn terminate(&mut self, exit_code: u32) -> ! {
-        self.terminate_current_thread(exit_code);
-    }
+    pub fn terminate(&mut self, exit_code: u32) -> ! { self.terminate_current_thread(exit_code); }
 
     pub(crate) fn pop_lowest_priority_migratable(&mut self) -> *mut ThreadControlBlock {
         for priority in (0..32).rev() {
@@ -480,14 +480,16 @@ impl SchedulerState {
 }
 
 fn thread_should_exit(thread: *mut ThreadControlBlock) -> bool {
-    if thread.is_null() { return false; }
-    unsafe {
-        (*thread).cancel_requested() || (*thread).process.is_terminating()
+    if thread.is_null() {
+        return false;
     }
+    unsafe { (*thread).cancel_requested() || (*thread).process.is_terminating() }
 }
 
 fn retire_queued_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool {
-    if thread.is_null() { return false; }
+    if thread.is_null() {
+        return false;
+    }
     unsafe {
         if (*thread).state() == ThreadState::Terminated {
             return false;
@@ -507,7 +509,9 @@ fn retire_queued_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool
 }
 
 fn retire_current_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool {
-    if thread.is_null() { return false; }
+    if thread.is_null() {
+        return false;
+    }
     unsafe {
         if (*thread).state() == ThreadState::Terminated {
             return false;

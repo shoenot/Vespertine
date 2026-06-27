@@ -4,10 +4,8 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::core::thread::{
-    ThreadControlBlock,
-    dispatch::wake_thread,
-};
+use crate::core::thread::ThreadControlBlock;
+use crate::core::thread::dispatch::wake_thread;
 
 #[derive(Debug)]
 pub struct ThreadWakeRegistration {

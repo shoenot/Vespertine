@@ -1,11 +1,12 @@
 use core::hint::spin_loop;
 
-use super::super::io::*;
-use crate::arch::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
+
+use super::super::io::*;
 use crate::core::acpi::fadt::get_century_register;
 use crate::core::time::datetime::DateTime;
 

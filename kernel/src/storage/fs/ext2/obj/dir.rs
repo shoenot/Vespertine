@@ -9,6 +9,7 @@ use core::ptr::{
 };
 
 use async_trait::async_trait;
+use hal::usercopy::safe_copy_to;
 use vespertine_abi::protocol::{
     AbiDirEntry,
     DirEntryType,
@@ -27,7 +28,6 @@ use vespertine_abi::{
 };
 
 use super::file::Ext2File;
-use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::asynchronous::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::directory::{

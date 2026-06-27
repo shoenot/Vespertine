@@ -20,6 +20,12 @@ use core::task::{
     Poll,
 };
 
+use hal::arch::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+    interrupts_enabled,
+};
+
 use crate::arch::get_core_data;
 use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
 use crate::core::asynchronous::waiter::AsyncWaiter;
@@ -32,6 +38,7 @@ use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
 };
+use crate::core::time;
 use crate::drivers::virtio::mmio::{
     VirtioBlockDriver,
     init_virtio,
@@ -758,8 +765,8 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
             }
 
             if (*vq_state).has_interrupts.load(Ordering::Acquire) {
-                let int_state = crate::arch::interrupts_enabled();
-                crate::arch::disable_interrupts();
+                let int_state = interrupts_enabled();
+                disable_interrupts();
 
                 let recheck = {
                     let vq = (*vq_state).vq.lock();
@@ -778,10 +785,10 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                 (*vq_state).awoken.store(false, Ordering::Release);
 
                 if int_state {
-                    crate::arch::enable_interrupts();
+                    enable_interrupts();
                 }
             } else {
-                crate::core::time::sleep(1_000_000);
+                time::sleep(1_000_000);
             }
         }
     }

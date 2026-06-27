@@ -1,3 +1,4 @@
+pub mod block;
 pub mod dispatch;
 pub mod idle;
 pub mod priority;
@@ -6,7 +7,6 @@ pub mod schedule;
 pub mod tcb;
 pub mod wait;
 pub mod workqueue;
-pub mod block;
 
 use core::alloc::LayoutError;
 use core::fmt;

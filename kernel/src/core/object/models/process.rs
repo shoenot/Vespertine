@@ -6,7 +6,8 @@ use alloc::vec::Vec;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{
-    AtomicUsize, Ordering
+    AtomicUsize,
+    Ordering,
 };
 use core::task::{
     Context,
@@ -15,17 +16,25 @@ use core::task::{
 };
 
 use async_trait::async_trait;
+use hal::usercopy::{
+    safe_copy_from,
+    safe_copy_to,
+};
 use vespertine_abi::op::ProcOp;
 use vespertine_abi::{
-    AccessRights, HandleID, Invocation, ProcInfo, ProcState, ProcTermReason, Signal, WaitItem, WaitOp
+    AccessRights,
+    HandleID,
+    Invocation,
+    ProcInfo,
+    ProcState,
+    ProcTermReason,
+    Signal,
+    WaitItem,
+    WaitOp,
 };
 use vespertine_common::lock::TicketLock;
 
 use crate::arch::get_core_data;
-use crate::arch::x86_64::task::syscall::{
-    safe_copy_from,
-    safe_copy_to,
-};
 use crate::core::asynchronous::waiter::{
     AsyncWaiter,
     WaiterList,
@@ -42,32 +51,36 @@ use crate::core::object::obj::{
 };
 use crate::core::security::credentials::Credentials;
 use crate::core::sync::RwLock;
-use crate::core::thread::dispatch::{cancel_blocked_thread, reschedule_thread_core, spawn_user_thread, wake_thread};
-use crate::core::thread::{ThreadControlBlock, ThreadState, get_current_process};
+use crate::core::thread::dispatch::{
+    cancel_blocked_thread,
+    reschedule_thread_core,
+    spawn_user_thread,
+    wake_thread,
+};
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::wait::WaitQueue;
-use crate::memory::{ALLOCATOR, kernel_heap_allocated};
+use crate::core::thread::{
+    ThreadControlBlock,
+    ThreadState,
+    get_current_process,
+};
 use crate::memory::vmm::VirtMemManager;
+use crate::memory::{
+    ALLOCATOR,
+    kernel_heap_allocated,
+};
 use crate::util::write_to_msr;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 static PROCESS_REGISTRY: RwLock<BTreeMap<usize, Process>> = RwLock::new(BTreeMap::new());
 
-pub fn register_process(process: &Process) {
-    PROCESS_REGISTRY.write().insert(process.proc_id, process.clone());
-}
+pub fn register_process(process: &Process) { PROCESS_REGISTRY.write().insert(process.proc_id, process.clone()); }
 
-pub fn unregister_process(pid: usize) {
-    PROCESS_REGISTRY.write().remove(&pid);
-}
+pub fn unregister_process(pid: usize) { PROCESS_REGISTRY.write().remove(&pid); }
 
-pub fn process_snapshot() -> Vec<Process> {
-    PROCESS_REGISTRY.read().values().cloned().collect()
-}
+pub fn process_snapshot() -> Vec<Process> { PROCESS_REGISTRY.read().values().cloned().collect() }
 
-pub fn find_process(pid: usize) -> Option<Process> {
-    PROCESS_REGISTRY.read().get(&pid).cloned()
-}
+pub fn find_process(pid: usize) -> Option<Process> { PROCESS_REGISTRY.read().get(&pid).cloned() }
 
 pub fn get_new_pid() -> usize { GLOBAL_PID.fetch_add(1, core::sync::atomic::Ordering::Relaxed) }
 
@@ -110,17 +123,11 @@ pub struct ProcTermination {
 }
 
 impl ProcTermination {
-    pub const fn exited(code: u32) -> Self {
-        Self { reason: ProcTermReason::Exited, code, detail: 0 }
-    }
+    pub const fn exited(code: u32) -> Self { Self { reason: ProcTermReason::Exited, code, detail: 0 } }
 
-    pub const fn terminated(reason: u32) -> Self {
-        Self { reason: ProcTermReason::Terminated, code: reason, detail: 0 }
-    }
+    pub const fn terminated(reason: u32) -> Self { Self { reason: ProcTermReason::Terminated, code: reason, detail: 0 } }
 
-    pub const fn faulted(code: u32, detail: usize) -> Self {
-        Self { reason: ProcTermReason::Faulted, code, detail }
-    }
+    pub const fn faulted(code: u32, detail: usize) -> Self { Self { reason: ProcTermReason::Faulted, code, detail } }
 }
 
 struct WaitManyFuture<'a> {
@@ -227,19 +234,15 @@ impl ProcessControlBlock {
             ProcLifecycle::Terminated(t) => (ProcState::Terminated, t.reason, t.code, t.detail),
         };
 
-        let memory_usage = if self.proc_id == 0 {
-            kernel_heap_allocated()
-        } else {
-            self.vmm.read().get_resident_size()
-        };
-    
+        let memory_usage = if self.proc_id == 0 { kernel_heap_allocated() } else { self.vmm.read().get_resident_size() };
+
         ProcInfo {
             pid: self.proc_id,
             user: self.credentials.user(),
             state,
             active_threads: self.active_threads.load(Ordering::Acquire),
             memory_usage,
-    
+
             term_reason,
             term_code,
             term_detail,
@@ -294,23 +297,25 @@ impl ProcessControlBlock {
             match *lc {
                 ProcLifecycle::Running => {
                     *lc = ProcLifecycle::Terminating(termination);
-                },
+                }
                 ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_) => return false,
             }
         }
         let threads = self.thread_snapshot();
         for thread in threads {
-            if thread.is_null() { continue; }
+            if thread.is_null() {
+                continue;
+            }
             unsafe {
                 (*thread).request_cancel();
                 match (*thread).state() {
                     ThreadState::Blocked => {
                         cancel_blocked_thread(thread);
-                    },
+                    }
                     ThreadState::Running | ThreadState::Ready => {
                         reschedule_thread_core(thread);
-                    },
-                    ThreadState::Terminated => {},
+                    }
+                    ThreadState::Terminated => {}
                 }
             }
         }
@@ -323,7 +328,9 @@ impl ProcessControlBlock {
         }
 
         let prev = self.active_threads.fetch_sub(1, Ordering::AcqRel);
-        if prev != 1 { return true; }
+        if prev != 1 {
+            return true;
+        }
 
         let mut lc = self.lifecycle.lock();
 
@@ -342,25 +349,21 @@ impl ProcessControlBlock {
         true
     }
 
-    pub fn is_terminating(&self) -> bool {
-        matches!(*self.lifecycle.lock(), ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_))
-    }
+    pub fn is_terminating(&self) -> bool { matches!(*self.lifecycle.lock(), ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_)) }
 
-    pub fn is_terminated(&self) -> bool {
-        matches!(*self.lifecycle.lock(), ProcLifecycle::Terminated(_))
-    }
+    pub fn is_terminated(&self) -> bool { matches!(*self.lifecycle.lock(), ProcLifecycle::Terminated(_)) }
 
     pub fn register_thread(&self, thread: *mut ThreadControlBlock) {
-        if thread.is_null() { return; }
+        if thread.is_null() {
+            return;
+        }
         let mut threads = self.threads.write();
         if !threads.iter().any(|&cd| cd == thread) {
             threads.push(thread);
         }
     }
 
-    pub fn thread_snapshot(&self) -> Vec<*mut ThreadControlBlock> {
-        self.threads.read().clone()
-    }
+    pub fn thread_snapshot(&self) -> Vec<*mut ThreadControlBlock> { self.threads.read().clone() }
 
     pub fn unregister_thread(&self, thread: *mut ThreadControlBlock) -> bool {
         let mut threads = self.threads.write();
@@ -380,14 +383,14 @@ impl KernelObject for ProcessControlBlock {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.request_terminate(ProcTermination::terminated(reason));
                 Ok(0)
-            },
+            }
             Invocation::Proc(ProcOp::GetInfo { info_ptr }) => {
                 calling_rights.err_if_no(AccessRights::READ)?;
                 self.info(info_ptr as *mut ProcInfo)
-            },
+            }
             Invocation::Proc(ProcOp::Unmap { vaddr, len }) => {
                 self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            },
+            }
             Invocation::Proc(ProcOp::SpawnThread { entry, stack_top, arg, priority }) => {
                 let tp = ThreadPriority::from(priority);
                 let proc = get_current_process().ok_or(InvocationError::ThreadSpawnFail)?;
@@ -395,14 +398,14 @@ impl KernelObject for ProcessControlBlock {
                 let obj = Arc::new(Thread { tcb: thread });
                 let id = self.handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
-            },
+            }
             Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
                 WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
-            },
+            }
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
                 let current_thread = get_core_data().scheduler.get_current_thread();
                 if current_thread.is_null() {
@@ -413,17 +416,17 @@ impl KernelObject for ProcessControlBlock {
                     write_to_msr(fs_base as u64, 0xC000_0100);
                 }
                 Ok(0)
-            },
+            }
             Invocation::Proc(ProcOp::InsertHandle { source_handle, rights }) => {
                 calling_rights.err_if_no(AccessRights::MUTATE)?;
                 let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let obj = caller.handles.read().resolve(source_handle, rights)?;
                 let new_handle_id = self.handles.write().insert(obj, rights);
                 Ok(new_handle_id.0)
-            },
+            }
             Invocation::Proc(ProcOp::Mprotect { vaddr, len, prot }) => {
                 self.vmm.write().mprotect(vaddr, len, prot).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

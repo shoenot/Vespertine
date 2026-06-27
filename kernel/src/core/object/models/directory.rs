@@ -15,6 +15,10 @@ use core::cmp;
 use core::ptr::copy_nonoverlapping;
 
 use async_trait::async_trait;
+use hal::usercopy::{
+    safe_copy_from,
+    safe_copy_to,
+};
 use vespertine_abi::op::{
     DirectoryOp,
     FileOp,
@@ -34,10 +38,6 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::arch::x86_64::task::syscall::{
-    safe_copy_from,
-    safe_copy_to,
-};
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::{

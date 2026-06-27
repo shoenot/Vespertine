@@ -2,17 +2,21 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::Display;
 use core::mem::zeroed;
-use core::ptr::copy_nonoverlapping;
 
-use vespertine_abi::Invocation;
-
-use crate::arch::x86_64::task::context::SyscallFrame;
-use crate::arch::{
+use hal::arch::interrupts::{
     disable_interrupts,
     enable_interrupts,
-    get_core_data,
     interrupts_enabled,
 };
+use hal::usercopy::{
+    KERNEL_BASE,
+    safe_copy_from,
+    safe_copy_to,
+};
+use vespertine_abi::Invocation;
+
+use crate::arch::get_core_data;
+use crate::arch::x86_64::task::context::SyscallFrame;
 use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::InvocationError;
@@ -21,7 +25,9 @@ use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::wait::WaitQueue;
 use crate::core::thread::{
-    ThreadBlockState, ThreadState, get_current_process
+    ThreadBlockState,
+    ThreadState,
+    get_current_process,
 };
 use crate::terminate_thread;
 
@@ -121,11 +127,6 @@ impl SysError {
     }
 }
 
-unsafe extern "sysv64" {
-    pub fn copy_from_user(dst: *mut u8, src: *const u8, len: usize) -> bool;
-    pub fn copy_to_user(dst: *mut u8, src: *const u8, len: usize) -> bool;
-}
-
 pub fn fetch_user_string(ptr: *const u8, len: usize, strlen_max: usize) -> Result<String, SysError> {
     if len > strlen_max {
         return Err(SysError::InvalidArgument);
@@ -135,7 +136,7 @@ pub fn fetch_user_string(ptr: *const u8, len: usize, strlen_max: usize) -> Resul
     };
 
     let end = (ptr as usize).checked_add(len).ok_or(SysError::BadAddress)?;
-    if end >= 0xFFFF_8000_0000_0000 {
+    if end >= KERNEL_BASE {
         return Err(SysError::BadAddress);
     };
 
@@ -143,7 +144,9 @@ pub fn fetch_user_string(ptr: *const u8, len: usize, strlen_max: usize) -> Resul
     let str_buf_ptr = str_buf.as_mut_ptr();
 
     unsafe {
-        safe_copy_from(str_buf_ptr, ptr, len);
+        if !safe_copy_from(str_buf_ptr, ptr, len) {
+            return Err(SysError::BadAddress);
+        };
         str_buf.set_len(len);
     }
 
@@ -159,32 +162,11 @@ pub fn give_user_string(user_buffer: *mut u8, kernel_string: String) -> Result<(
         return Err(SysError::BadAddress);
     };
 
-    safe_copy_to(user_buffer, src_ptr, len);
+    if !safe_copy_to(user_buffer, src_ptr, len) {
+        return Err(SysError::BadAddress);
+    };
 
     Ok(())
-}
-
-pub fn safe_copy_from(dst: *mut u8, src: *const u8, len: usize) -> bool {
-    // if src is a kernel address, just memcopy directly
-    if (src as usize) >= 0xFFFF_8000_0000_0000 {
-        unsafe {
-            copy_nonoverlapping(src, dst, len);
-        }
-        true
-    } else {
-        unsafe { copy_from_user(dst, src, len) }
-    }
-}
-
-pub fn safe_copy_to(dst: *mut u8, src: *const u8, len: usize) -> bool {
-    if (dst as usize) >= 0xFFFF_8000_0000_0000 {
-        unsafe {
-            copy_nonoverlapping(src, dst, len);
-        }
-        true
-    } else {
-        unsafe { copy_to_user(dst, src, len) }
-    }
 }
 
 #[unsafe(no_mangle)]
@@ -197,17 +179,14 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
         // klogln_serial!("[INFO] *SYSCALL*: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
         let ret = match syscall_number {
             0 => {
-                if uspace_inv_ptr as usize >= 0xFFFF_8000_0000_0000 {
+                if uspace_inv_ptr as usize >= KERNEL_BASE {
                     (*frame).rax = SysError::InvalidPointer as usize;
                     return;
                 }
 
                 // copy from uspace to kspace
                 let mut kspace_inv = zeroed::<Invocation>();
-                let copy_success =
-                    copy_from_user(&mut kspace_inv as *mut _ as *mut u8, uspace_inv_ptr as *const u8, size_of::<Invocation>());
-
-                if !copy_success {
+                if !safe_copy_from(&mut kspace_inv as *mut _ as *mut u8, uspace_inv_ptr as *const u8, size_of::<Invocation>()) {
                     (*frame).rax = SysError::BadAddress as usize;
                     return;
                 }

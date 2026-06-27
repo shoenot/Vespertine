@@ -1,0 +1,9 @@
+[application]
+id = "core.vespertine.nyx"
+bundle = "nyx"
+archetype = "mutable-coreutil"
+
+[grants]
+root-rights = []
+cwd-rights = []
+capabilities = []

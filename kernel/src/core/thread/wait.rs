@@ -23,7 +23,9 @@ impl WaitQueue {
     pub const fn new() -> Self { Self { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() } }
 
     pub fn remove(&mut self, target: *mut ThreadControlBlock) -> bool {
-        if target.is_null() { return false; }
+        if target.is_null() {
+            return false;
+        }
 
         let mut prev = null_mut() as *mut ThreadControlBlock;
         let mut cur = self.head;
@@ -39,7 +41,9 @@ impl WaitQueue {
                         (*prev).next = next;
                     }
 
-                    if self.tail == cur { self.tail = prev; }
+                    if self.tail == cur {
+                        self.tail = prev;
+                    }
 
                     (*cur).next = null_mut();
                     self.queue_length.fetch_sub(1, Ordering::Relaxed);
@@ -56,7 +60,9 @@ impl WaitQueue {
         loop {
             let thread = self.pop();
 
-            if thread.is_null() { return thread; }
+            if thread.is_null() {
+                return thread;
+            }
 
             unsafe {
                 (*thread).clear_block_state();

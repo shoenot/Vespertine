@@ -1,5 +1,6 @@
 pub mod x86_64;
 
+use hal::arch::cpuid::check_xsave_support;
 use x86_64::apic::lapic::init_local_apic;
 pub use x86_64::cpu::core::get_core_data;
 use x86_64::cpu::core::{
@@ -10,20 +11,13 @@ use x86_64::cpu::fpu::{
     init_cr4,
     init_default_fpu_cxt,
 };
-pub(crate) use x86_64::interrupts::{
-    disable_interrupts,
-    enable_interrupts,
-    interrupts_enabled,
-};
 pub use x86_64::{
-    hcf,
     init_global_apics,
     init_interrupts,
 };
 
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::fpu::init_xsave;
-use crate::arch::x86_64::cpuid::check_xsave_support;
 use crate::arch::x86_64::timer::read_rtc;
 use crate::core::time::datetime::datetime_to_epoch;
 

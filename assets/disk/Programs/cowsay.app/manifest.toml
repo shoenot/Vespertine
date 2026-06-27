@@ -1,6 +1,6 @@
 [application]
 name = "cowsay"
-id = "ports.cowsay.cowsay"
+id = "ports.0xAether.cowsay"
 
 [entrypoints.main]
 binary = "cowsay"

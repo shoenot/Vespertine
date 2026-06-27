@@ -4,16 +4,15 @@ use core::ops::{
     DerefMut,
 };
 
+use hal::arch::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+    interrupts_enabled,
+};
 use vespertine_common::lock::{
     RawLock,
     RawSpinLock,
     RawTicketLock,
-};
-
-use crate::arch::{
-    disable_interrupts,
-    enable_interrupts,
-    interrupts_enabled,
 };
 
 // Kernel version of the generic lock

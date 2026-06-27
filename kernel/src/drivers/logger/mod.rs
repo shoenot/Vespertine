@@ -10,6 +10,7 @@ use core::{
 };
 
 use async_trait::async_trait;
+use hal::usercopy::safe_copy_from;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 use vespertine_abi::op::FileOp;
@@ -23,7 +24,6 @@ use super::serial::{
     init_serial,
     log_to_serial,
 };
-use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::boot::FRAMEBUFFER_REQUEST;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;

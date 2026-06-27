@@ -1,2 +1,2 @@
-APP_NAME := sys
+APP_NAME := nyx
 include ../app.mk

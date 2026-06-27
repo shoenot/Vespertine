@@ -7,3 +7,7 @@ default-entrypoint = "main"
 
 [application.aliases]
 wc = "main"
+
+[installation]
+installed_ts = 2026-06-26T19:00:00Z
+updated_ts = 2026-06-26T19:00:00Z

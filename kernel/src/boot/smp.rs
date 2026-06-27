@@ -3,6 +3,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use hal::arch::interrupts::enable_interrupts;
 use limine::mp::MpInfo;
 
 use crate::arch::init_fpu;
@@ -16,7 +17,6 @@ use crate::arch::x86_64::cpu::core::{
     activate_core,
     get_core_data,
 };
-use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::interrupts::idt::load_idt;
 use crate::core::time::USE_TSC_DEADLINE;
 use crate::memory::paging::load_cr3;

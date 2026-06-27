@@ -13,11 +13,12 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::BOOTSTRAP_ALLOC;
-use crate::arch::x86_64::cpuid::{
+use hal::arch::cpuid::{
     check_xsave_support,
     get_xsave_details,
 };
+
+use crate::BOOTSTRAP_ALLOC;
 use crate::core::sync::TicketLock;
 use crate::core::thread::ThreadError;
 
