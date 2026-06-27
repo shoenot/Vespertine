@@ -42,7 +42,7 @@ userland:
 	$(MAKE) -C userland
 
 .PHONY: run
-run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
+run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -55,7 +55,7 @@ run: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).
 		-serial stdio 
 
 .PHONY: run-debug
-run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso update-disk
+run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
 		-drive if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
@@ -67,21 +67,13 @@ run-debug: target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd target/build/$(IMAGE_
 		$(QEMUFLAGS) -no-reboot -no-shutdown -d int -D qemu_idt.log -s -S \
 		-serial stdio 
 
-.PHONY: run-bios
-run-bios: target/build/$(IMAGE_NAME).iso
-	qemu-system-x86_64 \
-		-M q35 \
-		-cdrom target/build/$(IMAGE_NAME).iso \
-		-boot d \
-		$(QEMUFLAGS)
-
 target/disk.img:
 	echo "[INFO] Creating new target/disk.img"
 	dd if=/dev/zero of=target/disk.img bs=1M count=64 status=none
 	sgdisk -n 1:$(PART_START):$$(($(PART_START) + $(PART_SECTORS) - 1)) -t 1:8300 target/disk.img > /dev/null
 
 .PHONY: stage-disk
-stage-disk: userland ports
+stage-disk: 
 	echo "[INFO] Mirroring assets/disk into the disk staging tree"
 	rm -rf $(DISK_STAGE)
 	mkdir -p $(DISK_STAGE)

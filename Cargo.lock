@@ -105,6 +105,7 @@ dependencies = [
  "simple-psf",
  "vespertine-abi",
  "vespertine-common",
+ "vk-hal",
 ]
 
 [[package]]
@@ -391,6 +392,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vespertine-abi"
 version = "0.1.0"
+dependencies = [
+ "vespertine-common",
+]
 
 [[package]]
 name = "vespertine-cli"
@@ -421,6 +425,13 @@ dependencies = [
  "vespertine-abi",
  "vespertine-common",
  "vespertine-rt",
+]
+
+[[package]]
+name = "vk-hal"
+version = "0.1.0"
+dependencies = [
+ "vespertine-common",
 ]
 
 [[package]]
