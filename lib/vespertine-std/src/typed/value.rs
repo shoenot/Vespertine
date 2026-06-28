@@ -6,17 +6,13 @@ use alloc::vec::Vec;
 use core::fmt::Display;
 
 use vespertine_abi::typed::{
-    DateTimeValue,
-    DateValue,
-    FileSizeValue,
-    TimeValue,
-    ValueType,
+    DateTimeValue, DateValue, FileSizeValue, TimeValue, USER_DISPLAY_NAME_MAX, USER_NAME_MAX, UserValue, ValueType
 };
 
-use crate::typed::{
+use crate::{Error, typed::{
     DateTimeStyle,
     datetime_display,
-};
+}};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileSizeStyle {
@@ -53,6 +49,106 @@ impl Display for FileSizeDisplay {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { f.write_str(&format_filesize(self.value, self.options)) }
 }
 
+impl Display for UserDisplay {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&format_user(self.value, self.options))
+    }
+}
+
+pub fn user_display(value: UserValue) -> UserDisplay { UserDisplay::new(value) }
+
+pub fn user_value(id: u32) -> UserValue {
+    UserValue { 
+        id, 
+        name_len: 0, 
+        display_name_len: 0, 
+        first_name_len: 0, 
+        last_name_len: 0, 
+        flags: 0, 
+        reserved: 0, 
+        name: [0; USER_NAME_MAX], 
+        display_name: [0; USER_DISPLAY_NAME_MAX], 
+        first_name: [0; USER_DISPLAY_NAME_MAX], 
+        last_name: [0; USER_DISPLAY_NAME_MAX],
+    }
+}
+
+pub fn named_user_value(id: u32, name: &str, display_name: &str, first_name: &str, last_name: &str) -> Result<UserValue, Error> {
+    if name.len() > USER_NAME_MAX {
+        return Err(Error::name_too_long("user name is too long".into()));
+    }
+    if display_name.len() > USER_DISPLAY_NAME_MAX {
+        return Err(Error::name_too_long("display name is too long".into()));
+    }
+    if first_name.len() > USER_DISPLAY_NAME_MAX {
+        return Err(Error::name_too_long("first name is too long".into()));
+    }
+    if last_name.len() > USER_DISPLAY_NAME_MAX {
+        return Err(Error::name_too_long("last name is too long".into()));
+    }
+
+    let mut value = user_value(id);
+    value.name_len = name.len() as u8;
+    value.display_name_len = display_name.len() as u8;
+    value.first_name_len = first_name.len() as u8;
+    value.last_name_len = last_name.len() as u8;
+    value.name[..name.len()].copy_from_slice(name.as_bytes());
+    value.display_name[..display_name.len()].copy_from_slice(display_name.as_bytes());
+    value.first_name[..first_name.len()].copy_from_slice(first_name.as_bytes());
+    value.last_name[..last_name.len()].copy_from_slice(last_name.as_bytes());
+    Ok(value)
+}
+
+pub fn format_user(value: UserValue, opts: DisplayOptions) -> String {
+    let text = if opts.user_show_username {
+        user_name_text(&value)
+    } else {
+        user_display_text(&value)
+    };
+
+    if text.is_empty() {
+        format!("{}", value.id)
+    } else {
+        text
+    }
+}
+
+fn user_name_text(value: &UserValue) -> String {
+    let len = value.name_len as usize;
+    if len > value.name.len() {
+        return String::new();
+    }
+
+    core::str::from_utf8(&value.name[..len])
+        .map(String::from)
+        .unwrap_or_else(|_| String::new())
+}
+
+fn user_display_text(value: &UserValue) -> String {
+    let len = value.display_name_len as usize;
+    if len > value.display_name.len() {
+        return String::new();
+    }
+
+    core::str::from_utf8(&value.display_name[..len])
+        .map(String::from)
+        .unwrap_or_else(|_| String::new())
+}
+
+pub struct UserDisplay {
+    value: UserValue,
+    options: DisplayOptions,
+}
+
+impl UserDisplay {
+    pub fn new(value: UserValue) -> Self { Self { value, options: DisplayOptions::default() } }
+
+    pub fn options(mut self, options: DisplayOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DisplayOptions {
     pub filesize_style: FileSizeStyle,
@@ -60,6 +156,7 @@ pub struct DisplayOptions {
     pub datetime_style: DateTimeStyle,
     pub datetime_show_tz: bool,
     pub datetime_show_subsec: bool,
+    pub user_show_username: bool,
 }
 
 impl Default for DisplayOptions {
@@ -70,6 +167,7 @@ impl Default for DisplayOptions {
             datetime_style: DateTimeStyle::Standard,
             datetime_show_tz: true,
             datetime_show_subsec: false,
+            user_show_username: false,
         }
     }
 }
@@ -86,6 +184,7 @@ pub enum TypedValue {
     FileSize(FileSizeValue),
     List { element_type: ValueType, items: Vec<TypedValue> },
     Record { schema_id: u64, fields: Vec<TypedValue> },
+    User(UserValue),
 }
 
 impl TypedValue {
@@ -101,6 +200,7 @@ impl TypedValue {
             TypedValue::FileSize(v) => format!("{}", filesize_display(*v).options(opts)),
             TypedValue::List { items, .. } => format!("[{} items]", items.len()),
             TypedValue::Record { .. } => format!("[record]"),
+            TypedValue::User(v) => format!("{}", user_display(*v).options(opts)),
         }
     }
 }

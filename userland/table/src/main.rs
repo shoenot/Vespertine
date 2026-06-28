@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use vespertine_abi::ProcessInitPackage;
 use vespertine_abi::typed::{
     RECORD_PRESENTATION_TABLE,
-    STREAM_INTENT_LIST,
+    STREAM_INTENT_LIST, STREAM_INTENT_TABLE,
 };
 use vespertine_cli::args::{
     Command,
@@ -62,17 +62,30 @@ fn run() -> Result<(), Error> {
     let reader = TypedReader::new(HandleReader::new(env::source()));
     let writer = TypedWriter::new(HandleWriter::new(env::sink()));
 
-    writer.stream_intent(STREAM_INTENT_LIST, 0)?;
+    let mut values = Vec::new();
+
+    while let Some(value) = reader.next_value()? {
+        let end = matches!(value, ShellValue::StreamEnd | ShellValue::Error(_));
+        values.push(value);
+
+        if end {
+            break;
+        }
+    }
+
+    writer.stream_intent(STREAM_INTENT_TABLE, 0)?;
 
     let mut active_schema = None;
     let mut replaced_table_presentation = false;
+    let mut ended = false;
 
-    while let Some(value) = reader.next_value()? {
+    for value in values {
         match value {
             ShellValue::StreamIntent { .. } => {},
             ShellValue::RecordSchema { schema_id, fields } => {
                 active_schema = Some(schema_id);
                 write_schema(&writer, schema_id, &fields)?;
+
                 if !requested.is_empty() {
                     let table_fields = resolve_fields(&fields, requested)?;
                     writer.record_presentation(schema_id, RECORD_PRESENTATION_TABLE, &table_fields)?;
@@ -83,6 +96,7 @@ fn run() -> Result<(), Error> {
                 if replaced_table_presentation && Some(schema_id) == active_schema && presentation == RECORD_PRESENTATION_TABLE {
                     continue;
                 }
+
                 writer.record_presentation(schema_id, presentation, &fields)?;
             },
             ShellValue::Value(value) => {
@@ -90,16 +104,20 @@ fn run() -> Result<(), Error> {
             },
             ShellValue::StreamEnd => {
                 writer.stream_end()?;
+                ended = true;
                 break;
             },
             ShellValue::Error(message) => {
                 writer.error(&message)?;
                 writer.stream_end()?;
+                ended = true;
                 break;
             },
         }
     }
-
+    if !ended {
+        writer.stream_end()?;
+    }
     Ok(())
 }
 

@@ -1,7 +1,8 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
-use alloc::vec;
+use alloc::{format, vec};
 use alloc::vec::Vec;
 use core::future::Future;
 use core::pin::Pin;
@@ -90,6 +91,7 @@ pub type Process = Arc<ProcessControlBlock>;
 #[derive(Debug)]
 pub struct ProcessControlBlock {
     pub proc_id: usize,
+    pub proc_name: String,
     pub credentials: Credentials,
 
     pub handles: RwLock<HandleTable>,
@@ -203,11 +205,12 @@ impl Future for WaitManyFuture<'_> {
 }
 
 impl ProcessControlBlock {
-    pub fn new(init_table: HandleTable, credentials: Credentials) -> Process {
+    pub fn new(init_table: HandleTable, name: String, credentials: Credentials) -> Process {
         let vmm = VirtMemManager::new(&ALLOCATOR);
         let pml4_addr = vmm.get_pml4_addr();
         let proc = Arc::new(Self {
             proc_id: get_new_pid(),
+            proc_name: name,
             credentials,
 
             handles: RwLock::new(init_table),
@@ -236,17 +239,20 @@ impl ProcessControlBlock {
 
         let memory_usage = if self.proc_id == 0 { kernel_heap_allocated() } else { self.vmm.read().get_resident_size() };
 
-        ProcInfo {
-            pid: self.proc_id,
-            user: self.credentials.user(),
-            state,
-            active_threads: self.active_threads.load(Ordering::Acquire),
-            memory_usage,
-
-            term_reason,
-            term_code,
-            term_detail,
-        }
+        let mut info = ProcInfo::zeroed();
+        
+        info.pid = self.proc_id;
+        info.user = self.credentials.user();
+        info.set_name(&self.proc_name);
+        info.state = state;
+        info.active_threads = self.active_threads.load(Ordering::Acquire);
+        info.memory_usage = memory_usage;
+        
+        info.term_reason = term_reason;
+        info.term_code = term_code;
+        info.term_detail = term_detail;
+        
+        info
     }
 
     pub fn info(&self, ptr: *mut ProcInfo) -> Result<usize, InvocationError> {
@@ -257,39 +263,6 @@ impl ProcessControlBlock {
         }
         Ok(0)
     }
-
-    // pub fn status(&self, ptr: *mut ProcStatus) -> Result<usize, InvocationError> {
-    //     let proc_status = ProcStatus {
-    //         pid: self.proc_id,
-    //         user: self.credentials.user(),
-    //         active_threads: self.active_threads.load(Ordering::Relaxed),
-    //         is_terminated: self.is_terminated.load(Ordering::Relaxed),
-    //         memory_usage: self.vmm.read().get_total_allocated_size(),
-    //     };
-    //     let src_ptr = addr_of!(proc_status) as *const u8;
-    //     safe_copy_to(ptr as *mut u8, src_ptr, size_of::<ProcStatus>());
-    //     Ok(0)
-    // }
-    //
-    // pub fn complete(&self, exit_info: ProcessExitInfo) -> bool {
-    //     {
-    //         let mut stored = self.exit_info.write();
-    //
-    //         if stored.kind != ProcessExitKind::Running {
-    //             return false;
-    //         }
-    //
-    //         *stored = exit_info;
-    //     }
-    //
-    //     self.is_terminated.store(true, Ordering::Release);
-    //     self.handles.write().clear();
-    //
-    //     let wakers = self.completion_waiters.lock().take_wakers();
-    //     wake_all(wakers);
-    //
-    //     true
-    // }
 
     pub fn request_terminate(&self, termination: ProcTermination) -> bool {
         {

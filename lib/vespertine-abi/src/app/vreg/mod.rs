@@ -1,5 +1,7 @@
 pub const VREG_RESOLVE_REQUEST: u32 = 0x4A00;
 pub const VREG_RESOLVE_RESPONSE: u32 = 0x4A01;
+pub const VREG_RELOAD_REQUEST: u32 = 0x4A02;
+pub const VREG_RELOAD_RESPONSE: u32 = 0x4A03;
 
 pub const VREG_LIST_REQUEST: u32 = 0x4A10;
 pub const VREG_LIST_ENTRY: u32 = 0x4A11;

@@ -48,7 +48,7 @@ impl ShellContext {
     }
 
     pub fn status(&self) -> String {
-        match self.last_result {
+        match self.last_result.clone() {
             ShellResult::Launched(info) => {
                 if info.successful() {
                     "(0)".into()
@@ -63,7 +63,7 @@ impl ShellContext {
 
 
     pub fn last_details(&self) -> String {
-        match self.last_result {
+        match self.last_result.clone() {
             ShellResult::Launched(info) => {
                 match info.term_reason {
                     ProcTermReason::None => format!(
@@ -96,7 +96,7 @@ impl ShellContext {
     }
 
     pub fn last_success(&self) -> bool {
-        match self.last_result {
+        match self.last_result.clone() {
             ShellResult::Launched(info) => info.successful(),
             ShellResult::None => true,
             _ => false,

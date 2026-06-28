@@ -1,0 +1,8 @@
+version = 1
+
+default = "shurjo"
+
+users = [
+    "system",
+    "shurjo"
+]

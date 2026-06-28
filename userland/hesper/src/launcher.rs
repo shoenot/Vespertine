@@ -6,7 +6,7 @@ use vespertine_abi::app::hesper::{
 };
 use vespertine_abi::{
     AccessRights,
-    HandleID,
+    HandleID, UserID,
 };
 use vespertine_rt::syscall::{sys_close, sys_yield};
 use vespertine_std::fs::Path;
@@ -70,7 +70,7 @@ fn resolve_request(name: &str) -> Result<ResolvedApplication, Error> {
     registry.resolve(name)
 }
 
-pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog, policy: &PolicyStore) -> Result<(), Error> {
+pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID) -> Result<(), Error> {
     match request {
         HesperRequest::AppMetadata { request_id, request } => match resolve_request(&request.app_name) {
             Ok(app) => {
@@ -93,12 +93,12 @@ pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog, 
         },
         HesperRequest::Execute { request_id, request } => {
             log.write_string(format!("execute requested: {} with {} arguments", request.app_name, request.arguments.len()))?;
-            handle_execute(socket, request_id, request, log, policy)
+            handle_execute(socket, request_id, request, log, policy, caller_user)
         },
     }
 }
 
-fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log: &SystemLog, policy: &PolicyStore) -> Result<(), Error> {
+fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID) -> Result<(), Error> {
     let app = match resolve_request(&request.app_name) {
         Ok(app) => app,
         Err(error) => {
@@ -180,7 +180,8 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
             .source(source.handle())
             .sink(sink.handle())
             .cwd(cwd.handle(), policy.cwd_rights)
-            .root_rights(policy.root_rights);
+            .root_rights(policy.root_rights)
+            .user(caller_user);
 
         for capability in &accepted_capabilities {
             exec = exec.grant_new(capability.handle.handle(), capability.policy.capability, capability.policy.rights)?;

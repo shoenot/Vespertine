@@ -12,5 +12,6 @@ pub const CAP_PORTAL_FACTORY: CapabilityID = CapabilityID(0x2004);
 
 pub const CAP_LAUNCHER_CONNECT: CapabilityID = CapabilityID(0x2100);
 pub const CAP_VREG_CONNECT: CapabilityID = CapabilityID(0x2101);
+pub const CAP_AUTH_CONNECT: CapabilityID = CapabilityID(0x2102);
 
 pub const CAP_APP_TERMCTRL: CapabilityID = CapabilityID(0x3000);

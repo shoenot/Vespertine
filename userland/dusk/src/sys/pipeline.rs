@@ -88,21 +88,30 @@ fn spawn_base(base: &BaseNode, context: &ShellContext, source: HandleID, sink: C
 
             let right_source = if left_kind == AppIoMode::Typed && right_input == Some(AppIoMode::Text) {
                 let (text_rx, text_tx) = Socket::new_pair().map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), e))?;
-
+            
                 let source_socket = pipe_source;
                 let thread = rt_thread::spawn(move || {
                     let _ = render_typed_stream(source_socket, HandleWriter::new(text_tx.handle()));
                 })
                 .map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), Error::from(e)))?;
-
+            
                 let handle = text_rx.handle();
                 adapter_sockets.push(text_rx);
                 adapter_threads.push(thread);
                 handle
             } else {
-                pipe_source.handle()
+                let handle = pipe_source.handle();
+                let right_run = spawn_base(right, context, handle, sink)?;
+                drop(pipe_source);
+            
+                let mut processes = left_run.processes;
+                processes.extend(right_run.processes);
+                adapter_sockets.extend(right_run.adapter_sockets);
+                adapter_threads.extend(right_run.adapter_threads);
+            
+                return Ok(PipelineRun { processes, output: right_run.output, adapter_sockets, adapter_threads });
             };
-
+            
             let right_run = spawn_base(right, context, right_source, sink)?;
 
             let mut processes = left_run.processes;

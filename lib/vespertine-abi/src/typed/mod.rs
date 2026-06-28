@@ -14,6 +14,7 @@ pub enum ValueType {
     FileSize = 8,
     Record = 9,
     List = 10,
+    User = 11,
 }
 
 impl ValueType {
@@ -31,12 +32,13 @@ impl ValueType {
             8 => Some(Self::FileSize),
             9 => Some(Self::Record),
             10 => Some(Self::List),
+            11 => Some(Self::User),
             _ => None,
         }
     }
 }
 
-pub const RECORD_FIELD_NAME_MAX: usize = 128;
+pub const RECORD_FIELD_NAME_MAX: usize = 4096;
 
 pub const RECORD_PRESENTATION_DEFAULT: u16 = 0;
 pub const RECORD_PRESENTATION_TABLE: u16 = 1;
@@ -95,6 +97,25 @@ pub struct FileSizeValue {
     pub reserved: u32,
 }
 
+pub const USER_NAME_MAX: usize = 64;
+pub const USER_DISPLAY_NAME_MAX: usize = 255;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UserValue {
+    pub id: u32,
+    pub name_len: u8,
+    pub display_name_len: u8,
+    pub first_name_len: u8,
+    pub last_name_len: u8,
+    pub flags: u16,
+    pub reserved: u32,
+    pub name: [u8; USER_NAME_MAX],
+    pub display_name: [u8; USER_DISPLAY_NAME_MAX],
+    pub first_name: [u8; USER_DISPLAY_NAME_MAX],
+    pub last_name: [u8; USER_DISPLAY_NAME_MAX],
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ListHeader {
@@ -107,9 +128,10 @@ pub struct ListHeader {
 pub const STREAM_INTENT_DEFAULT: u16 = 0;
 pub const STREAM_INTENT_LIST: u16 = 1;
 pub const STREAM_INTENT_DETAILS: u16 = 2;
-pub const STREAM_INTENT_LOG: u16 = 3;
-pub const STREAM_INTENT_METRICS: u16 = 4;
-pub const STREAM_INTENT_CHOICES: u16 = 5;
+pub const STREAM_INTENT_TABLE: u16 = 3;
+pub const STREAM_INTENT_LOG: u16 = 4;
+pub const STREAM_INTENT_METRICS: u16 = 5;
+pub const STREAM_INTENT_CHOICES: u16 = 6;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

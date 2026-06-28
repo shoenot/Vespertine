@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::collections::BTreeMap;
+use vespertine_abi::typed::STREAM_INTENT_TABLE;
 use vespertine_abi::typed::{RECORD_PRESENTATION_DEFAULT, RECORD_PRESENTATION_DETAILS, RECORD_PRESENTATION_TABLE, STREAM_INTENT_CHOICES, STREAM_INTENT_DEFAULT, STREAM_INTENT_DETAILS, STREAM_INTENT_LIST, ValueType};
 
 use crate::{Error, HandleWriter, Read, Write, env};
@@ -133,7 +134,7 @@ pub fn render_typed_stream<R: Read, W: Write>(source: R, sink: W) -> Result<(), 
             &stream.rows,
             opts,
         ),
-        STREAM_INTENT_LIST | STREAM_INTENT_CHOICES => render_record_table(
+        STREAM_INTENT_TABLE | STREAM_INTENT_CHOICES => render_record_table(
             &sink,
             schema,
             stream.presentation(RECORD_PRESENTATION_TABLE),
@@ -141,7 +142,7 @@ pub fn render_typed_stream<R: Read, W: Write>(source: R, sink: W) -> Result<(), 
             &stream.rows,
             opts,
         ),
-        _ => render_default_records(
+        STREAM_INTENT_LIST | STREAM_INTENT_DEFAULT | _ => render_default_records(
             &sink,
             schema,
             stream.presentation(RECORD_PRESENTATION_DEFAULT),
@@ -206,6 +207,8 @@ impl<W: Write> RecordStream<W> {
     pub fn list_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_LIST) }
     
     pub fn details_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_DETAILS) }
+
+    pub fn table_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_TABLE) }
     
     pub fn choices_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_CHOICES) }
 

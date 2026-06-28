@@ -22,3 +22,5 @@ pub mod term;
 pub mod typed;
 pub mod vreg;
 pub mod payload;
+pub mod sync;
+pub mod auth;

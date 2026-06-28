@@ -58,6 +58,7 @@ pub struct ResolvedApplication {
 pub enum VRegistryRequest {
     Resolve { request_id: u32, name: String },
     List { request_id: u32 },
+    Reload { request_id: u32 },
 }
 
 #[derive(Debug)]
@@ -77,6 +78,10 @@ pub enum VRegistryResponse {
         request_id: u32,
         status: u32,
     },
+    Reload {
+        request_id: u32,
+        status: u32,
+    }
 }
 
 fn read_vreg_header(reader: &mut PayloadReader<'_>) -> Result<u32, Error> {
@@ -138,10 +143,14 @@ pub fn send_resolve_request(socket: &Socket, request_id: u32, name: &str) -> Res
 
 pub fn send_list_request(socket: &Socket, request_id: u32) -> Result<(), Error> {
     let mut payload = Vec::new();
-
     write_vreg_header(&mut payload, request_id);
-
     socket.send_frame(VREG_LIST_REQUEST, &payload)
+}
+
+pub fn send_reload_request(socket: &Socket, request_id: u32) -> Result<(), Error> {
+    let mut payload = Vec::new();
+    write_vreg_header(&mut payload, request_id);
+    socket.send_frame(VREG_RELOAD_REQUEST, &payload)
 }
 
 pub fn send_resolve_response(socket: &Socket, request_id: u32, status: u32, app:
@@ -171,11 +180,16 @@ Error> {
 
 pub fn send_list_end(socket: &Socket, request_id: u32, status: u32) -> Result<(), Error> {
     let mut payload = Vec::new();
-
     write_vreg_header(&mut payload, request_id);
     write_u32(&mut payload, status);
-
     socket.send_frame(VREG_LIST_END, &payload)
+}
+
+pub fn send_reload_response(socket: &Socket, request_id: u32, status: u32) -> Result<(), Error> {
+    let mut payload = Vec::new();
+    write_vreg_header(&mut payload, request_id);
+    write_u32(&mut payload, status);
+    socket.send_frame(VREG_RELOAD_RESPONSE, &payload)
 }
 
 pub fn recv_vreg_request(socket: &Socket) -> Result<VRegistryRequest, Error> {
@@ -192,6 +206,10 @@ pub fn recv_vreg_request(socket: &Socket) -> Result<VRegistryRequest, Error> {
         VREG_LIST_REQUEST => {
             reader.finish()?;
             Ok(VRegistryRequest::List { request_id })
+        },
+        VREG_RELOAD_REQUEST => {
+            reader.finish()?;
+            Ok(VRegistryRequest::Reload { request_id })
         },
         _ => Err(Error::invalid_argument("unknown vreg request type".into())),
     }
@@ -218,6 +236,11 @@ pub fn recv_vreg_response(socket: &Socket) -> Result<VRegistryResponse, Error> {
             let status = reader.read_u32()?;
             reader.finish()?;
             Ok(VRegistryResponse::ListEnd { request_id, status })
+        },
+        VREG_RELOAD_RESPONSE => {
+            let status = reader.read_u32()?;
+            reader.finish()?;
+            Ok(VRegistryResponse::Reload { request_id, status })
         },
         _ => Err(Error::invalid_argument("unknown vreg response type".into())),
     }
@@ -286,10 +309,30 @@ impl VRegistryClient {
                         _ => Error::unknown("vreg returned an unknown list status".into()),
                     });
                 },
-                VRegistryResponse::Resolve { .. } => {
+                VRegistryResponse::Resolve { .. } | VRegistryResponse::Reload { .. } => {
                     return Err(Error::invalid_argument("vreg returned the wrong response type".into()));
                 },
             }
+        }
+    }
+
+    pub fn reload(&mut self) -> Result<(), Error> {
+        let request_id = self.next_id();
+        
+        send_reload_request(&self.socket, request_id)?;
+
+        match recv_vreg_response(&self.socket)? {
+            VRegistryResponse::Reload { request_id: response_id, status } => {
+                if response_id != request_id { return Err(Error::invalid_argument("vreg response ID mismatch".into())); }
+                if status == VREG_STATUS_OK { return Ok(()); }
+
+                Err(match status {
+                    VREG_STATUS_INVALID_REQUEST => Error::invalid_argument("vreg rejected reload request".into()),
+                    VREG_STATUS_INTERNAL_ERROR => Error::unknown("vreg reload failed".into()),
+                    _ => Error::unknown("vreg returned an unknown reload status".into()),
+                })
+            },
+            _ => return Err(Error::invalid_argument("vreg returned the wrong response type".into())),
         }
     }
 }

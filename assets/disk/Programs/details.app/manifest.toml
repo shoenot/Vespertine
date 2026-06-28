@@ -5,6 +5,6 @@ id = "core.vespertine.details"
 [entrypoints.main]
 binary = "details"
 input = "typed"
-modes = ["text", "terminal"]
-default = "text"
+modes = ["typed"]
+default = "typed"
 

@@ -1,9 +1,9 @@
 use core::{fmt::Display, slice, sync::atomic::AtomicU8};
+extern crate alloc;
+use alloc::string::String;
 
 use crate::{
-    CapabilityGrant,
-    HandleID,
-    UserID,
+    CapabilityGrant, HandleID, PROC_NAME_LEN_MAX, UserID
 };
 
 pub const AT_VESPERTINE_INITPKG: usize = 0x6fff_0001;
@@ -53,10 +53,15 @@ pub const PROC_FAULT_GENERAL_PROTECTION: u32 = 2;
 pub const PROC_FAULT_INVALID_OPCODE: u32 = 3;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ProcInfo {
     pub pid: usize,
     pub user: UserID,
+
+    pub name_len: u16,
+    pub reserved: u16,
+    pub name: [u8; PROC_NAME_LEN_MAX],
+
     pub state: ProcState,
     pub active_threads: usize,
     pub memory_usage: usize,
@@ -67,6 +72,37 @@ pub struct ProcInfo {
 }
 
 impl ProcInfo {
+    pub fn zeroed() -> Self {
+        Self {
+            pid: 0,
+            user: UserID(0),
+
+            name_len: 0,
+            reserved: 0,
+            name: [0; PROC_NAME_LEN_MAX],
+
+            state: ProcState::Running,
+            active_threads: 0,
+            memory_usage: 0,
+
+            term_reason: ProcTermReason::None,
+            term_code: 0,
+            term_detail: 0,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        let len = core::cmp::min(self.name_len as usize, self.name.len());
+        core::str::from_utf8(&self.name[..len]).unwrap_or("")
+    }
+
+    pub fn set_name(&mut self, value: &str) {
+        let len = core::cmp::min(value.len(), self.name.len());
+
+        self.name_len = len as u16;
+        self.name[..len].copy_from_slice(&value.as_bytes()[..len]);
+    }
+
     pub fn fault_name(&self) -> &'static str {
         match self.term_code {
             PROC_FAULT_PAGE => "page fault",

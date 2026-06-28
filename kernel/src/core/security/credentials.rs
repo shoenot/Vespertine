@@ -14,4 +14,6 @@ impl Credentials {
     pub const fn new(user: UserID) -> Self { Self { user } }
 
     pub const fn user(self) -> UserID { self.user }
+
+    pub const fn is_system(self) -> bool { self.user.0 == SYSTEM_USER.0 }
 }

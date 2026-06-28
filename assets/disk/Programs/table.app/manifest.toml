@@ -5,6 +5,6 @@ id = "core.vespertine.table"
 [entrypoints.main]
 binary = "table"
 input = "typed"
-modes = ["text", "terminal"]
-default = "text"
+modes = ["typed", "terminal"]
+default = "typed"
 

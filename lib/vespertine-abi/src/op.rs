@@ -70,10 +70,15 @@ pub enum ThreadOp {
     GetID,
 }
 
+pub const PROC_NAME_LEN_MAX: usize = 128;
+
 #[repr(C)]
 #[derive(Debug)]
 pub enum ProcManOp {
     Spawn {
+        name_ptr: usize, 
+        name_len: usize,
+
         exec_handle: HandleID,
         root_handle: HandleID,
         root_rights: AccessRights,
@@ -81,6 +86,7 @@ pub enum ProcManOp {
         cwd_rights: AccessRights,
         source: HandleID,
         sink: HandleID,
+        credentials: SpawnCredentials,
 
         capabilities_ptr: usize,
         capabilities_len: usize,

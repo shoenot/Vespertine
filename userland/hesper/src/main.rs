@@ -16,7 +16,7 @@ use vespertine_abi::tag::{
 use vespertine_abi::{
     AccessRights,
     HandleID,
-    ProcessInitPackage,
+    ProcessInitPackage, UserID,
 };
 use vespertine_rt::syscall::{sys_close, sys_yield};
 use vespertine_rt::{
@@ -34,16 +34,13 @@ use vespertine_std::portal::PortalFactory;
 use vespertine_std::proc::Waiter;
 use vespertine_std::socket::Socket;
 use vespertine_std::{
-    Error,
-    ErrorKind,
-    Exec,
-    Read,
-    Write,
-    env,
+    Error, ErrorKind, Exec, Process, Read, Write, env
 };
 
 use crate::launcher::handle_request;
 use crate::policy::PolicyStore;
+
+use vespertine_std::auth::AuthClient;
 
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
@@ -54,16 +51,32 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let _ = sys_close(pkg.sink_handle);
 }
 
-fn recv_launcher_accept(socket: &Socket) -> Result<HandleID, Error> {
-    let mut bytes = [0u8; 4];
-    socket.read_exact(&mut bytes)?;
-    Ok(HandleID(u32::from_le_bytes(bytes) as usize))
+struct LauncherAccept {
+    session: HandleID,
+    caller_process: HandleID,
 }
 
-fn spawn_launcher_session(handle: HandleID, policy: Arc<PolicyStore>) -> Result<(), Error> {
+fn recv_launcher_accept(socket: &Socket) -> Result<LauncherAccept, Error> {
+    let mut bytes = [0u8; 8];
+    socket.read_exact(&mut bytes)?;
+    Ok(LauncherAccept {
+        session: HandleID(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize),
+        caller_process: HandleID(u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize),
+    })
+}
+
+fn spawn_launcher_session(handle: HandleID, caller_process: HandleID, policy: Arc<PolicyStore>) -> Result<(), Error> {
     rt_thread::spawn(move || {
         let log = SystemLog::connect();
         let socket = Socket::from_handle(handle);
+        let caller = Process::from_handle(caller_process);
+        let caller_info = match caller.info() {
+            Ok(info) => info,
+            Err(e) => {
+                let _ = log.write_string(format!("failed to inspect launcher caller: {:?}", e));
+                return;
+            }
+        };
 
         loop {
             let request = match recv_hesper_request(&socket) {
@@ -77,7 +90,7 @@ fn spawn_launcher_session(handle: HandleID, policy: Arc<PolicyStore>) -> Result<
                 }
             };
 
-            if let Err(error) = handle_request(&socket, request, &log, &policy) {
+            if let Err(error) = handle_request(&socket, request, &log, &policy, caller_info.user) {
                 let _ = log.write_string(format!("Hesper request failed: {:?}", error,));
             }
         }
@@ -118,11 +131,58 @@ fn wait_for_vreg(log: &SystemLog) -> Result<(), Error> {
     }
 }
 
+fn launch_auth(log: &SystemLog) -> Result<(), Error> {
+    log.write_string("Launching auth".into())?;
+
+    Exec::open(&Path::new("/System/Core/auth"), "auth".into())?
+        .source(env::source())
+        .sink(env::sink())
+        .cwd(env::cwd(), AccessRights::all())
+        .root_rights(AccessRights::all())
+        .grant(CAP_LOGGER, AccessRights::WRITE)?
+        .spawn()?;
+
+    Ok(())
+}
+
+fn wait_for_auth(log: &SystemLog) -> Result<(), Error> {
+    println!("[INFO] Waiting for auth service...");
+    let _ = log.write_string("waiting for auth service".into());
+
+    loop {
+        match resolve(&Path::new("/System/Services/Auth"), AccessRights::READ) {
+            Ok(handle) => {
+                sys_close(handle).map_err(Error::from)?;
+                println!("[INFO] auth service online");
+                log.write_string("auth service online".into())?;
+                return Ok(());
+            },
+            Err(_) => {
+                sys_yield();
+            },
+        }
+    }
+}
+
+fn connect_auth() -> Result<AuthClient, Error> {
+    for _ in 0..100 {
+        match AuthClient::connect() {
+            Ok(client) => return Ok(client),
+            Err(_) => sys_yield(),
+        }
+    }
+
+    AuthClient::connect()
+}
+
 fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let launcher_policy = Arc::new(PolicyStore::load()?);
     let log = SystemLog::connect();
     println!("[INFO] Hesper init system online");
     log.write_string("Hesper init system online".into())?;
+
+    launch_auth(&log)?;
+    wait_for_auth(&log)?;
 
     launch_vreg(&log)?;
     wait_for_vreg(&log)?;
@@ -139,6 +199,9 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     let launcher_accept = Socket::from_handle(launcher_accept);
 
+    let mut auth = connect_auth()?;
+    let default_user = auth.default_user()?;
+
     println!("[INFO] Launching terminal...");
     log.write_string("Launching terminal".into())?;
 
@@ -147,6 +210,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .sink(env::sink())
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
+        .user(UserID(default_user.user.id))
         .grant(CAP_LOGGER, AccessRights::WRITE)?
         .spawn()?;
 
@@ -159,8 +223,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
         if waiter.ready(0) {
             match recv_launcher_accept(&launcher_accept) {
-                Ok(session) => {
-                    if let Err(e) = spawn_launcher_session(session, launcher_policy.clone()) {
+                Ok(accept) => {
+                    if let Err(e) = spawn_launcher_session(accept.session, accept.caller_process, launcher_policy.clone()) {
                         let _ = log.write_string(format!("failed to spawn launcher. session: {:?}", e));
                     }
                 }

@@ -198,7 +198,9 @@ impl KernelObject for Portal {
         let client_handle = caller.handles.write().insert(client_session, granted_rights);
         let server_handle = self.owner.handles.write().insert(server_session, AccessRights::READ | AccessRights::WRITE);
 
-        if let Err(error) = write_accept_message(&self.accept_tx, server_handle).await {
+        let caller_process_handle = self.owner.handles.write().insert(caller.clone(), AccessRights::READ);
+
+        if let Err(error) = write_accept_message(&self.accept_tx, server_handle, caller_process_handle).await {
             let _ = caller.handles.write().close(client_handle);
             let _ = self.owner.handles.write().close(server_handle);
             return Err(error);
@@ -233,9 +235,13 @@ impl KernelObject for PortalFactory {
     }
 }
 
-async fn write_accept_message(socket: &SocketEndpoint, handle: HandleID) -> Result<(), InvocationError> {
-    let raw = u32::try_from(handle.0).map_err(|_| InvocationError::InvalidHandle)?;
-    socket.write_all_internal(&raw.to_le_bytes()).await
+async fn write_accept_message(socket: &SocketEndpoint, session: HandleID, caller_process: HandleID) -> Result<(), InvocationError> {
+    let mut bytes = [0u8; 8];
+
+    bytes[0..4].copy_from_slice(&(session.0 as u32).to_le_bytes());
+    bytes[4..8].copy_from_slice(&(caller_process.0 as u32).to_le_bytes());
+
+    socket.write_all_internal(&bytes).await
 }
 
 #[async_trait]

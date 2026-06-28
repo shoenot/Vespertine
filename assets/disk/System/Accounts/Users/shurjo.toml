@@ -1,0 +1,10 @@
+version = 1
+
+[user]
+id = 1000
+name = "shurjo"
+display-name = "Shurjo"
+first-name = "Shurjo"
+last-name = "Sakib Masood"
+home = "/Users/Shurjo"
+roles = ["admin"]

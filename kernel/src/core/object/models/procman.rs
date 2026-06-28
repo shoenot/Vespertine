@@ -1,9 +1,9 @@
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::intrinsics::copy_nonoverlapping;
-use core::ptr::null;
+use core::ptr::{copy_nonoverlapping, null};
 
 use async_trait::async_trait;
 use hal::usercopy::safe_copy_from;
@@ -15,14 +15,7 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::{
-    AccessRights,
-    CapabilityGrant,
-    CapabilityID,
-    FileOp,
-    HandleID,
-    Invocation,
-    ProcInfo,
-    ProcessInitPackage,
+    AccessRights, CapabilityGrant, CapabilityID, FileOp, HandleID, Invocation, PROC_NAME_LEN_MAX, ProcInfo, ProcessInitPackage, SpawnCredentials
 };
 
 use crate::core::asynchronous::Executor;
@@ -38,6 +31,7 @@ use crate::core::object::models::process::{
 use crate::core::object::obj::KernelObject;
 use crate::core::program::env::ProcessEnvironment;
 use crate::core::program::load_elf;
+use crate::core::security::credentials::Credentials;
 use crate::core::thread::dispatch::spawn_user_thread;
 use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
@@ -60,6 +54,8 @@ impl KernelObject for ProcessManager {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::ProcessManager(ProcManOp::Spawn {
+                name_ptr,
+                name_len,
                 exec_handle,
                 root_handle,
                 root_rights,
@@ -67,6 +63,7 @@ impl KernelObject for ProcessManager {
                 cwd_rights,
                 source,
                 sink,
+                credentials,
                 capabilities_ptr,
                 capabilities_len,
                 args_buffer_ptr,
@@ -135,7 +132,34 @@ impl KernelObject for ProcessManager {
                 }
 
                 // create the process
-                let new_proc = ProcessControlBlock::new(new_proc_table, parent_proc.credentials);
+                let child_credentials = match credentials {
+                    SpawnCredentials::Inherit => parent_proc.credentials,
+                    SpawnCredentials::User { user } => {
+                        if !parent_proc.credentials.is_system() {
+                            return Err(InvocationError::AccessDenied);
+                        }
+
+                        Credentials::new(user)
+                    },
+                };
+
+                if name_len == 0 || name_len > PROC_NAME_LEN_MAX {
+                    return Err(InvocationError::InvalidArgument);
+                }
+                let mut name_bytes = Vec::new();
+                if name_bytes.try_reserve_exact(name_len).is_err() {
+                    return Err(InvocationError::OutOfMemory);
+                }
+                name_bytes.resize(name_len, 0);
+                
+                if !safe_copy_from(name_bytes.as_mut_ptr(), name_ptr as *const u8, name_len) {
+                    return Err(InvocationError::InvalidPointer);
+                }
+                
+                let name_str = String::from_utf8(name_bytes).map_err(|_| InvocationError::InvalidArgument)?;
+
+                // create the process
+                let new_proc = ProcessControlBlock::new(new_proc_table, name_str, child_credentials);
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
                 let load_result = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?;

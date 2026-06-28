@@ -5,7 +5,7 @@ use alloc::format;
 use vespertine_abi::protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC};
 use vespertine_abi::tag::CAP_PROCMAN;
 use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcInfo, ProcManOp, ProcOp, ProcState, ProcTermReason, Signal, UserID, WaitOp
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcInfo, ProcManOp, ProcOp, ProcState, ProcTermReason, Signal, SpawnCredentials, UserID, WaitOp
 };
 extern crate alloc;
 use alloc::string::String;
@@ -90,16 +90,7 @@ impl Process {
     }
 
     pub fn info(&self) -> Result<ProcInfo, Error> {
-        let mut info = ProcInfo {
-            pid: 0,
-            user: UserID(0),
-            state: ProcState::Running,
-            active_threads: 0,
-            memory_usage: 0,
-            term_reason: ProcTermReason::None,
-            term_code: 0,
-            term_detail: 0,
-        };
+        let mut info = ProcInfo::zeroed();
         sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetInfo { info_ptr: &mut info as *mut _ as usize }))
             .map_err(Error::from)?;
         Ok(info)
@@ -114,12 +105,14 @@ impl Process {
 pub struct Exec {
     exec_handle: HandleID,
     owns_exec_handle: bool,
+    name: String,
     argv0: String,
     args: Vec<String>,
     root: HandleID,
     cwd: HandleID,
     source: HandleID,
     sink: HandleID,
+    credentials: SpawnCredentials,
     capabilities: Vec<CapabilityGrant>,
     root_rights: AccessRights,
     cwd_rights: AccessRights,
@@ -147,6 +140,11 @@ impl Exec {
         let path_str = format!("/Programs/{}.app/bin/{}", name, name);
         let path = Path::new(&path_str);
         Self::open(&path, name.into())
+    }
+
+    pub fn name(mut self, name: &str) -> Self {
+        self.name = name.into();
+        self
     }
 
     pub fn arg(mut self, arg: String) -> Self {
@@ -180,6 +178,11 @@ impl Exec {
         self
     }
 
+    pub fn user(mut self, user: UserID) -> Self {
+        self.credentials = SpawnCredentials::User { user };
+        self
+    }
+
     pub fn grant(self, capability: CapabilityID, rights: AccessRights) -> Result<Self, Error> {
         let grant =
             env::capability(capability).ok_or(Error { kind: ErrorKind::NotFound, message: "Must own capability to grant it".into() })?;
@@ -194,6 +197,11 @@ impl Exec {
 
     pub fn inherit_capabilities(mut self) -> Self {
         self.capabilities.extend(env::capabilities());
+        self
+    }
+
+    pub fn inherit_credentials(mut self) -> Self {
+        self.credentials = SpawnCredentials::Inherit;
         self
     }
 
@@ -212,11 +220,14 @@ impl Exec {
             args_buf.push(0);
         }
         let op = ProcManOp::Spawn {
+            name_ptr: self.name.as_ptr() as usize,
+            name_len: self.name.len(),
             exec_handle: self.exec_handle,
             root_handle: self.root,
             root_rights: self.root_rights,
             source: self.source,
             sink: self.sink,
+            credentials: self.credentials,
             cwd_handle: self.cwd,
             cwd_rights: self.cwd_rights,
             capabilities_ptr: self.capabilities.as_ptr() as usize,
@@ -247,12 +258,14 @@ impl Exec {
         Self {
             exec_handle,
             owns_exec_handle,
+            name: argv0.clone(),
             argv0,
             args: Vec::new(),
             root: env::root(),
             cwd: env::cwd(),
             source: env::source(),
             sink: env::sink(),
+            credentials: SpawnCredentials::Inherit,
             capabilities: Vec::new(),
             root_rights: AccessRights::new(),
             cwd_rights: AccessRights::TRAVERSE | AccessRights::LIST,
@@ -303,16 +316,7 @@ impl Iterator for ReadProcesses {
             return None;
         }
 
-        let mut info = ProcInfo {
-            pid: 0,
-            user: UserID(0),
-            state: ProcState::Running,
-            active_threads: 0,
-            memory_usage: 0,
-            term_reason: ProcTermReason::None,
-            term_code: 0,
-            term_detail: 0,
-        };
+        let mut info = ProcInfo::zeroed();
 
         let info_bytes = unsafe {
             slice::from_raw_parts_mut(&mut info as *mut ProcInfo as *mut u8, size_of::<ProcInfo>())

@@ -1,0 +1,10 @@
+version = 1
+
+[user]
+id = 0
+name = "system"
+display-name = "System"
+first-name = "System"
+last-name = ""
+home = "/System"
+roles = ["system"]

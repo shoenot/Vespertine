@@ -15,7 +15,7 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::typed::{
-    DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX, RecordField, RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, StreamIntentHeader, TimeValue, ValueHeader, ValueType
+    DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX, RecordField, RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, StreamIntentHeader, TimeValue, UserValue, ValueHeader, ValueType
 };
 
 use crate::typed::TypedValue;
@@ -228,6 +228,10 @@ fn encode_value(value: &TypedValue, out: &mut Vec<u8>) -> Result<(), Error> {
             push_struct(&mut payload, v);
             ValueType::FileSize
         }
+        TypedValue::User(v) => {
+            push_struct(&mut payload, v);
+            ValueType::User
+        }
         TypedValue::List { element_type, items } => {
             for item in items {
                 encode_value(item, &mut payload)?;
@@ -408,6 +412,7 @@ fn decode_value(buf: &[u8]) -> Result<(TypedValue, usize), Error> {
         ValueType::Time => read_copy::<TimeValue>(payload).map(TypedValue::Time)?,
         ValueType::DateTime => read_copy::<DateTimeValue>(payload).map(TypedValue::DateTime)?,
         ValueType::FileSize => read_copy::<FileSizeValue>(payload).map(TypedValue::FileSize)?,
+        ValueType::User => read_copy::<UserValue>(payload).map(TypedValue::User)?,
         ValueType::List => decode_list(payload)?,
         ValueType::Record => decode_record(payload)?,
     };

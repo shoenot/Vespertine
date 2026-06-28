@@ -13,7 +13,7 @@ use vespertine_abi::{
     BrokerOp,
     CapabilityGrant,
     HandleID,
-    Invocation,
+    Invocation, SYSTEM_USER, SpawnCredentials,
 };
 
 use crate::arch::get_core_data;
@@ -108,7 +108,11 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
         let capabilities = [CapabilityGrant { id: log_handle, rights: AccessRights::WRITE, capability: CAP_LOGGER }];
 
+        let name = "Hesper";
+
         let spawn_op = ProcManOp::Spawn {
+            name_len: name.len(),
+            name_ptr: name.as_ptr() as usize,
             exec_handle,
             root_handle,
             root_rights,
@@ -116,6 +120,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             cwd_rights: root_rights,
             source,
             sink,
+            credentials: SpawnCredentials::User { user: SYSTEM_USER },
             capabilities_ptr: capabilities.as_ptr() as usize,
             capabilities_len: capabilities.len(),
             args_buffer_ptr: 0,
