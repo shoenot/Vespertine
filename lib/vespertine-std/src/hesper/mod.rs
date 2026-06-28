@@ -487,7 +487,7 @@ impl Launcher {
             .process_offer
             .ok_or_else(|| Error::invalid_argument("successful launch response omitted process capability".into()))?;
 
-        let process_handle = self.accept(process_offer, AccessRights::READ)?;
+        let process_handle = self.accept(process_offer, AccessRights::READ | AccessRights::WRITE)?;
 
         Ok(Process::from_handle(process_handle))
     }

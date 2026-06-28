@@ -97,6 +97,10 @@ pub fn spawn_user_thread(
     tcb_ptr
 }
 
+pub fn create_user_thread_suspended(entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut ThreadControlBlock {
+    create_user_tcb(entry_point, user_stack_top, arg, priority, proc).expect("Unable to create suspended user thread")
+}
+
 pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> Result<*mut ThreadControlBlock, ThreadError> {
     let stack_size = 4096 * 4;
     // alloc memory for structs
@@ -223,7 +227,10 @@ pub fn wake_thread(thread: *mut ThreadControlBlock) {
     if !try_wake_thread(thread) {
         return;
     }
+    enqueue_ready_thread(thread);
+}
 
+pub fn start_thread(thread: *mut ThreadControlBlock) {
     enqueue_ready_thread(thread);
 }
 

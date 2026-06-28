@@ -11,6 +11,7 @@ use core::ptr::{
     self,
     drop_in_place,
 };
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.
@@ -97,10 +98,46 @@ pub fn allocate_node() -> *mut VmaNode {
 }
 
 #[derive(Debug)]
+pub struct VmAccounting {
+    mapped_bytes: AtomicUsize,
+    resident_bytes: AtomicUsize,
+}
+
+impl VmAccounting {
+    pub const fn new() -> Self {
+        Self {
+            mapped_bytes: AtomicUsize::new(0),
+            resident_bytes: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn mapped_bytes(&self) -> usize { self.mapped_bytes.load(Ordering::Acquire) }
+
+    pub fn resident_bytes(&self) -> usize { self.resident_bytes.load(Ordering::Acquire) }
+
+    fn add_mapped(&self, bytes: usize) {
+        self.mapped_bytes.fetch_add(bytes, Ordering::AcqRel);
+    }
+
+    fn sub_mapped(&self, bytes: usize) {
+        self.mapped_bytes.try_update(Ordering::AcqRel, Ordering::Acquire, |value| Some(value.saturating_sub(bytes))).ok();
+    }
+
+    fn add_resident(&self, bytes: usize) {
+        self.resident_bytes.fetch_add(bytes, Ordering::AcqRel);
+    }
+
+    fn sub_resident(&self, bytes: usize) {
+        self.resident_bytes.try_update(Ordering::AcqRel, Ordering::Acquire, |value| Some(value.saturating_sub(bytes))).ok();
+    }
+}
+
+#[derive(Debug)]
 pub struct VirtMemManager {
     head: Option<*mut VmaNode>,
     pager: TicketLock<Pager>,
     allocator: &'static PCAllocator,
+    accounting: Arc<VmAccounting>,
     pub backing_nodes: Vec<Arc<dyn VfsNode>>,
 }
 
@@ -114,8 +151,13 @@ impl VirtMemManager {
         let mut pager = Pager::new(allocator);
         pager.init_process_pager().expect("Failed to initialize process pager");
 
-        Self { head: None, pager: TicketLock::new(pager), allocator, backing_nodes: Vec::new() }
+        Self { 
+            head: None, pager: TicketLock::new(pager), allocator, 
+            accounting: Arc::new(VmAccounting::new()), backing_nodes: Vec::new() 
+        }
     }
+
+    pub fn accounting(&self) -> Arc<VmAccounting> { self.accounting.clone() }
 
     pub fn get_pml4_addr(&self) -> usize { self.pager.lock().get_l4_addr() as usize }
 
@@ -207,6 +249,7 @@ impl VirtMemManager {
                     (*next).prev = Some(node_ptr);
                 }
             }
+            self.accounting.add_mapped(size);
             return Some(addr);
         }
         unsafe {
@@ -405,6 +448,8 @@ impl VirtMemManager {
                 (*next).prev = Some(node_ptr);
             }
 
+            self.accounting.add_mapped(size);
+
             // Always return the original requested unaligned entry pointer to the loader context
             Some(start_addr + page_offset)
         }
@@ -448,6 +493,8 @@ impl VirtMemManager {
             None => return Err("Invalid address or VMA not found"),
         };
 
+        let removed_size = target_vma.size;
+
         let is_huge = target_vma.flags & VM_FLAG_HUGE != 0;
         let step_size = if is_huge { HUGE_PAGE_SIZE } else { NORMAL_PAGE_SIZE };
         let block_size = if is_huge { BlockSize::Huge } else { BlockSize::Normal };
@@ -480,6 +527,7 @@ impl VirtMemManager {
 
             // fire ipis by batches because doing it for every page is bad for performance
             if batch_count > 0 {
+                self.accounting.sub_resident(batch_count * step_size);  
                 let batch_size_bytes = current_page - batch_start;
                 shootdown(batch_start, batch_size_bytes);
 
@@ -501,7 +549,7 @@ impl VirtMemManager {
                 }
             }
         }
-
+        self.accounting.sub_mapped(removed_size);
         unsafe {
             drop_in_place(target_vma_ptr.unwrap());
             dealloc(target_vma_ptr.unwrap() as *mut u8, Layout::new::<VmaNode>());
@@ -643,8 +691,11 @@ impl VirtMemManager {
             let hwflags = convert_vm_flags(new_flags) as u64;
             {
                 let mut pager = self.pager.lock();
+                let was_resident = pager.translate(virt, *HHDMOFFSET as u64).is_some();
+
                 if new_flags & VM_FLAG_NO_ACCESS != 0 || needs_cow_reset {
                     pager.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+                    if was_resident { self.accounting.sub_resident(step_size); }
                 } else {
                     pager.change_flags(virt, hwflags, *HHDMOFFSET as u64, block_size);
                 }
@@ -723,12 +774,18 @@ impl VirtMemManager {
         };
 
         let hw_flags = convert_vm_flags(target_vma.flags) as u64;
+        let page_size = mask + 1;
+        
         let mut pagerlock = self.pager.lock();
+        let was_resident = pagerlock.translate(virt, *HHDMOFFSET as u64).is_some();
+        
         pagerlock
             .map_page(virt, phys_frame as u64, hw_flags, *HHDMOFFSET as u64, block_size)
             .expect("FATAL: Pager failed to map memory during Page Fault!");
         drop(pagerlock);
-
+        
+        if !was_resident { self.accounting.add_resident(page_size); }
+        
         flush_tlb(addr as u64);
         Ok(())
     }

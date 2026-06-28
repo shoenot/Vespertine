@@ -100,6 +100,10 @@ impl Process {
         sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
         self.info()
     }
+
+    pub fn resume(&self) -> Result<(), Error> {
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::Resume)).map(|_| ()).map_err(Error::from)
+    }
 }
 
 pub struct Exec {
@@ -116,6 +120,7 @@ pub struct Exec {
     capabilities: Vec<CapabilityGrant>,
     root_rights: AccessRights,
     cwd_rights: AccessRights,
+    start_suspended: bool,
 }
 
 // --------------------------------------------------------//
@@ -210,6 +215,11 @@ impl Exec {
         self
     }
 
+    pub fn start_suspended(mut self) -> Self {
+        self.start_suspended = true;
+        self
+    }
+
     pub fn spawn(self) -> Result<Process, Error> {
         // null terminated args buffer
         let mut args_buf = Vec::new();
@@ -234,6 +244,7 @@ impl Exec {
             capabilities_len: self.capabilities.len(),
             args_buffer_ptr: args_buf.as_ptr() as usize,
             args_buffer_len: args_buf.len(),
+            start_suspended: self.start_suspended,
         };
 
         let handle = process_manager()?.spawn(op)?;
@@ -269,6 +280,7 @@ impl Exec {
             capabilities: Vec::new(),
             root_rights: AccessRights::new(),
             cwd_rights: AccessRights::TRAVERSE | AccessRights::LIST,
+            start_suspended: false,
         }
     }
 }
@@ -298,8 +310,7 @@ impl Iterator for ReadProcesses {
 
         let mut header = PacketHeader::default();
         let header_bytes = unsafe {
-            slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8,
-            size_of::<PacketHeader>())
+            slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>())
         };
 
         if self.read_end.read_exact(header_bytes).is_err() {
@@ -307,11 +318,17 @@ impl Iterator for ReadProcesses {
             return None;
         }
 
-        if header.magic != VESPER_MAGIC ||
-            header.version != 1 ||
-            header.packet_type != PacketType::ProcessInfo as u32 ||
-            header.payload_len as usize != size_of::<ProcInfo>()
-        {
+        if header.magic != VESPER_MAGIC || header.version != 1 || header.packet_type != PacketType::ProcessInfo as u32 {
+            self.finished = true;
+            return None;
+        }
+        
+        if header.payload_len == 0 {
+            self.finished = true;
+            return None;
+        }
+        
+        if header.payload_len as usize != size_of::<ProcInfo>() {
             self.finished = true;
             return None;
         }
@@ -326,8 +343,6 @@ impl Iterator for ReadProcesses {
             self.finished = true;
             return None;
         }
-
-        if !header.packet_flags.contains(PacketFlags::HAS_NEXT) { self.finished = true; }
 
         Some(info)
     }

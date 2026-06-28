@@ -1,8 +1,9 @@
 use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
+use alloc::format;
 use vespertine_abi::{ProcInfo, UserID, typed::{FileSizeValue, UserValue, ValueType}};
 use vespertine_cli::args::Command;
 use vespertine_rt::println;
-use vespertine_std::{Error, auth::AuthClient, list_processes, typed::{RecordStream, TypedValue, user_value}};
+use vespertine_std::{Error, Write, auth::AuthClient, list_processes, log::SystemLog, typed::{RecordStream, TypedValue, user_value}};
 
 pub const SYS_PROCS_LIST_SCHEMA: u64 = 1;
 
@@ -20,9 +21,17 @@ pub fn procs(args: &[String]) -> Result<(), Error> {
         return Err(Error::invalid_argument("usage: sys procs".into()));
     }
 
+    let log = SystemLog::connect();
+    
+    let _ = log.write_string("sys procs: list start".into());
     let entries = list_processes()?.collect::<Vec<_>>();
-    let users = resolve_users(&entries)?;
+    let _ = log.write_string(format!("sys procs: list done, entries={}", entries.len()));
+    
+    let _ = log.write_string("sys procs: user resolve start".into());
+    let users = resolve_users(&entries, &log)?;
+    let _ = log.write_string("sys procs: user resolve done".into());
 
+    let _ = log.write_string("sys procs: output start".into());
     let mut out = RecordStream::typed_default_out(
         SYS_PROCS_LIST_SCHEMA,
         &[
@@ -60,11 +69,12 @@ pub fn procs(args: &[String]) -> Result<(), Error> {
     }
 
     out.finish()?;
+    let _ = log.write_string("sys procs: output finish".into());
 
     Ok(())
 }
 
-fn resolve_users(entries: &[ProcInfo]) -> Result<BTreeMap<u32, UserValue>, Error> {
+fn resolve_users(entries: &[ProcInfo], log: &SystemLog) -> Result<BTreeMap<u32, UserValue>, Error> {
     let mut users = BTreeMap::new();
     for entry in entries {
         if users.contains_key(&entry.user.0) {
@@ -74,8 +84,11 @@ fn resolve_users(entries: &[ProcInfo]) -> Result<BTreeMap<u32, UserValue>, Error
     }
 
     let mut auth = AuthClient::connect()?;
+    
     for user_id in users.keys().copied().collect::<Vec<_>>() {
+        let _ = log.write_string(format!("sys procs: lookup user {} start", user_id));
         let account = auth.lookup_id(UserID(user_id))?;
+        let _ = log.write_string(format!("sys procs: lookup user {} done", user_id));
         users.insert(user_id, account.user);
     }
     Ok(users)

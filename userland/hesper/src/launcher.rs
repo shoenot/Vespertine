@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 use vespertine_abi::app::hesper::{
     AppIoMode, AppIoModes, HESPER_STATUS_INVALID_REQUEST, HESPER_STATUS_LAUNCH_FAILED, HESPER_STATUS_NOT_FOUND, HESPER_STATUS_NOT_IMPLEMENTED, HESPER_STATUS_OK
 };
+use vespertine_abi::tag::CAP_LOGGER;
 use vespertine_abi::{
     AccessRights,
     HandleID, UserID,
@@ -24,7 +25,7 @@ use vespertine_std::vreg::{ResolvedApplication, VRegistryClient};
 use vespertine_std::{
     Error,
     Exec,
-    Write,
+    Write, env,
 };
 
 use crate::meta::load_manifest;
@@ -176,6 +177,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
     let binary_path = format!("{}/bin/{}", app.bundle, app.binary);
     
     let spawn_result = (|| { let mut exec = Exec::open(&Path::new(&binary_path), app.binary)?
+            .start_suspended()
             .args(&request.arguments)
             .source(source.handle())
             .sink(sink.handle())
@@ -185,6 +187,9 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
 
         for capability in &accepted_capabilities {
             exec = exec.grant_new(capability.handle.handle(), capability.policy.capability, capability.policy.rights)?;
+        }
+        if let Some(grant) = env::capability(CAP_LOGGER) {
+            exec = exec.grant_new(grant.id, CAP_LOGGER, AccessRights::WRITE)?;
         }
         exec.spawn()
     })();
@@ -198,7 +203,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         }
     };
 
-    let process_offer = match offer_handle(session, process.handle(), AccessRights::READ) {
+    let process_offer = match offer_handle(session, process.handle(), AccessRights::READ | AccessRights::WRITE) {
         Ok(offer) => offer,
         Err(error) => {
             let _ = send_execute_response(socket, request_id, HESPER_STATUS_LAUNCH_FAILED, None, "failed to return process capability");

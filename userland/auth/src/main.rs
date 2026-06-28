@@ -11,6 +11,8 @@ use alloc::sync::Arc;
 use vespertine_abi::AccessRights;
 use vespertine_abi::HandleID;
 use vespertine_abi::ProcessInitPackage;
+use vespertine_abi::app::auth::AUTH_DEFAULT_USER_RESPONSE;
+use vespertine_abi::app::auth::AUTH_LOOKUP_RESPONSE;
 use vespertine_abi::app::auth::AUTH_STATUS_OK;
 use vespertine_abi::tag::CAP_AUTH_CONNECT;
 use vespertine_rt::syscall::sys_close;
@@ -30,6 +32,7 @@ use vespertine_std::fs::{
     resolve,
 };
 use vespertine_std::log::SystemLog;
+use vespertine_std::payload::PayloadReader;
 use vespertine_std::portal::PortalFactory;
 use vespertine_std::proc::Waiter;
 use vespertine_std::socket::Socket;
@@ -72,8 +75,13 @@ fn handle_request(socket: &Socket, request: AuthRequest, accounts: &AccountStore
             }
         },
         AuthRequest::LookupId { request_id, user } => {
+            let _ = log.write_string(format!("auth lookup id {} start", user.0));
             match accounts.by_id(user).and_then(|account| account.info()) {
-                Ok(account) => send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account)),
+                Ok(account) => {
+                    let result = send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account));
+                    let _ = log.write_string(format!("auth lookup id {} response sent", user.0));
+                    result
+                },
                 Err(error) => {
                     let _ = log.write_string(format!("auth user id lookup failed for {}: {:?}", user.0, error));
                     send_account_response(socket, request_id, status_from_error(&error), None)?;
@@ -186,3 +194,4 @@ fn run() -> Result<(), Error> {
         waiter.clear();
     }
 }
+

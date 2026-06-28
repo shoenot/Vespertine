@@ -4,6 +4,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr::{copy_nonoverlapping, null};
+use core::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use hal::usercopy::safe_copy_from;
@@ -26,13 +27,13 @@ use crate::core::object::models::mempool::MemPool;
 use crate::core::object::models::process::{
     ProcessControlBlock,
     find_process,
-    process_snapshot,
+    process_snapshot, register_process,
 };
 use crate::core::object::obj::KernelObject;
 use crate::core::program::env::ProcessEnvironment;
 use crate::core::program::load_elf;
 use crate::core::security::credentials::Credentials;
-use crate::core::thread::dispatch::spawn_user_thread;
+use crate::core::thread::dispatch::{create_user_thread_suspended, spawn_user_thread};
 use crate::core::thread::get_current_process;
 use crate::core::thread::priority::ThreadPriority;
 use crate::memory::vmm::{
@@ -68,6 +69,7 @@ impl KernelObject for ProcessManager {
                 capabilities_len,
                 args_buffer_ptr,
                 args_buffer_len,
+                start_suspended,
             }) => {
                 calling_rights.err_if_no(AccessRights::CREATE)?;
                 let parent_proc = get_current_process().ok_or(InvocationError::OutOfMemory)?;
@@ -159,7 +161,7 @@ impl KernelObject for ProcessManager {
                 let name_str = String::from_utf8(name_bytes).map_err(|_| InvocationError::InvalidArgument)?;
 
                 // create the process
-                let new_proc = ProcessControlBlock::new(new_proc_table, name_str, child_credentials);
+                let new_proc = ProcessControlBlock::new_unregistered(new_proc_table, name_str, child_credentials);
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
                 let load_result = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?;
@@ -232,9 +234,17 @@ impl KernelObject for ProcessManager {
                     )?
                 };
 
+                register_process(&new_proc);
+
                 // spawn thread, passing the struct pointer as an arg
                 let start_ip = load_result.interpreter_entry.unwrap_or(load_result.entry_point);
-                spawn_user_thread(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone());
+                let thread = if start_suspended {
+                    let thread = create_user_thread_suspended(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone());
+                    new_proc.initial_thread.store(thread as usize, Ordering::Release);
+                    thread
+                } else {
+                    spawn_user_thread(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone())
+                };
 
                 let new_handle_id =
                     parent_proc.handles.write().insert(new_proc, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
@@ -254,37 +264,49 @@ impl KernelObject for ProcessManager {
                     let mut iter = entries.iter().peekable();
 
                     while let Some(info) = iter.next() {
-                        let mut flags = PacketFlags::IS_STREAM;
-                        if iter.peek().is_some() {
-                            flags = flags.insert(PacketFlags::HAS_NEXT);
-                        }
-
                         let header = PacketHeader {
                             magic: VESPER_MAGIC,
                             version: 1,
-                            packet_flags: flags,
+                            packet_flags: PacketFlags::IS_STREAM,
                             packet_type: PacketType::ProcessInfo as u32,
                             payload_len: size_of::<ProcInfo>() as u32,
                             reserved: 0,
                         };
-
+                
                         let mut buffer = [0u8; size_of::<PacketHeader>() + size_of::<ProcInfo>()];
                         let header_size = size_of::<PacketHeader>();
                         let entry_size = size_of::<ProcInfo>();
-
+                
                         unsafe {
                             let header_ptr = &header as *const _ as *const u8;
                             let info_ptr = info as *const ProcInfo as *const u8;
-
+                
                             copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), header_size);
                             copy_nonoverlapping(info_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
                         }
-
-                        let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
-                        if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
-                            break;
+                
+                        if write_all_to_object(&sink_obj, AccessRights::WRITE, &buffer).await.is_err() {
+                            return;
                         }
                     }
+                
+                    let header = PacketHeader {
+                        magic: VESPER_MAGIC,
+                        version: 1,
+                        packet_flags: PacketFlags::IS_STREAM,
+                        packet_type: PacketType::ProcessInfo as u32,
+                        payload_len: 0,
+                        reserved: 0,
+                    };
+                
+                    let mut buffer = [0u8; size_of::<PacketHeader>()];
+                
+                    unsafe {
+                        let header_ptr = &header as *const _ as *const u8;
+                        copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), size_of::<PacketHeader>());
+                    }
+                
+                    let _ = write_all_to_object(&sink_obj, AccessRights::WRITE, &buffer).await;
                 });
 
                 Ok(processes.len())
@@ -306,4 +328,24 @@ impl KernelObject for ProcessManager {
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
+}
+
+async fn write_all_to_object(object: &Arc<dyn KernelObject>, rights: AccessRights, bytes: &[u8]) -> Result<(), InvocationError> {
+    let mut written = 0;
+
+    while written < bytes.len() {
+        let op = FileOp::Write {
+            offset: 0,
+            buffer_ptr: unsafe { bytes.as_ptr().add(written) as usize },
+            len: bytes.len() - written,
+        };
+
+        let count = object.invoke(Invocation::File(op), rights).await?;
+        if count == 0 {
+            return Err(InvocationError::UnsupportedOperation);
+        }
+
+        written += count;
+    }
+    Ok(())
 }

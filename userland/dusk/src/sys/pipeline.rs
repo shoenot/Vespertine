@@ -44,6 +44,10 @@ pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
         Err(result) => return result,
     };
 
+    if let Err(result) = resume_processes(&run.processes) {
+        return result;
+    }
+
     let render_result = match run.output {
         SpawnedOutput::Terminal => Ok(()),
         SpawnedOutput::Piped { kind: AppIoMode::Typed, socket } => render_typed_stream(socket, HandleWriter::new(env::sink())),
@@ -51,16 +55,13 @@ pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
     };
 
     let mut final_result = ShellResult::None;
-
     for (name, process) in run.processes {
         match process.wait() {
             Ok(exit) => final_result = ShellResult::Launched(exit),
             Err(error) => return ShellResult::FailedToLaunch(name, error),
         }
     }
-
     let _ = unset_raw_mode();
-
     match render_result {
         Ok(()) => final_result,
         Err(error) => ShellResult::FailedToRender("pipeline".into(), error),
@@ -176,4 +177,11 @@ fn first_input_mode(node: &BaseNode) -> Result<Option<AppIoMode>, ShellResult> {
         BaseNode::Pipe(left, _) => first_input_mode(left),
         _ => Ok(None),
     }
+}
+
+fn resume_processes(processes: &[(String, Process)]) -> Result<(), ShellResult> {
+    for (name, process) in processes {
+        process.resume().map_err(|error| ShellResult::FailedToLaunch(name.clone(), error))?;
+    }
+    Ok(())
 }

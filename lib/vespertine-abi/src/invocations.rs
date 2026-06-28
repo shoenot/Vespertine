@@ -47,6 +47,7 @@ impl Invocation {
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
             Invocation::Vmo(VmoOp::MapIntoProc { .. }) => AccessRights::MUTATE,
+            Invocation::Proc(ProcOp::Resume) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::Terminate { .. }) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::GetInfo { .. }) => AccessRights::READ,
             Invocation::Proc(ProcOp::SpawnThread { .. }) => AccessRights::CREATE,

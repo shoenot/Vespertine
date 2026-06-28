@@ -125,6 +125,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             capabilities_len: capabilities.len(),
             args_buffer_ptr: 0,
             args_buffer_len: 0,
+            start_suspended: false,
         };
 
         let child_handle_id =

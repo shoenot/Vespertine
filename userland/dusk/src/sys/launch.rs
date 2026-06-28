@@ -67,6 +67,9 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
                 Ok(spawned) => spawned,
                 Err(result) => return result,
             };
+            if let Err(error) = spawned.process.resume() {
+                return ShellResult::FailedToLaunch(name.into(), error);
+            }
             wait_process(name, spawned.process)
         },
         AppIoMode::Typed => {
@@ -82,6 +85,10 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
                 );
             };
 
+            if let Err(error) = spawned.process.resume() {
+                return ShellResult::FailedToLaunch(name.into(), error);
+            }
+            
             let render_result = render_typed_stream(socket, HandleWriter::new(env::sink()));
             let wait_result = spawned.process.wait();
             let _ = unset_raw_mode();

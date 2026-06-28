@@ -53,6 +53,7 @@ pub enum VmoOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum ProcOp {
+    Resume,
     Terminate { reason: u32 },
     GetInfo { info_ptr: usize },
     SpawnThread { entry: usize, stack_top: usize, arg: usize, priority: u8 },
@@ -93,6 +94,8 @@ pub enum ProcManOp {
 
         args_buffer_ptr: usize,
         args_buffer_len: usize,
+
+        start_suspended: bool,
     },
     List { offset: usize, sink: HandleID },
     Open { pid: usize, rights: AccessRights },
