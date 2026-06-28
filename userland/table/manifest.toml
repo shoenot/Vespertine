@@ -7,3 +7,4 @@ binary = "table"
 input = "typed"
 modes = ["text", "terminal"]
 default = "text"
+

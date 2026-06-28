@@ -59,6 +59,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "details"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-cli",
+ "vespertine-rt",
+ "vespertine-std",
+]
+
+[[package]]
 name = "dt"
 version = "0.1.0"
 dependencies = [
@@ -89,9 +99,8 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 name = "hesper"
 version = "0.1.0"
 dependencies = [
- "serde",
- "toml",
  "vespertine-abi",
+ "vespertine-config",
  "vespertine-rt",
  "vespertine-std",
 ]
@@ -228,6 +237,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "select"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-cli",
+ "vespertine-rt",
+ "vespertine-std",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,6 +333,7 @@ name = "table"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
 ]
@@ -411,6 +431,14 @@ name = "vespertine-common"
 version = "0.1.0"
 
 [[package]]
+name = "vespertine-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "vespertine-rt"
 version = "0.1.0"
 dependencies = [
@@ -438,9 +466,8 @@ dependencies = [
 name = "vreg"
 version = "0.1.0"
 dependencies = [
- "serde",
- "toml",
  "vespertine-abi",
+ "vespertine-config",
  "vespertine-rt",
  "vespertine-std",
 ]

@@ -1,0 +1,13 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.details"
+bundle = "/Programs/details.app"
+default-entrypoint = "main"
+
+[application.aliases]
+details = "main"
+
+[installation]
+installed-ts = 2026-06-27T16:45:27Z
+updated-ts = 2026-06-27T16:45:27Z

@@ -1,0 +1,10 @@
+[application]
+name = "select"
+id = "core.vespertine.select"
+
+[entrypoints.main]
+binary = "select"
+input = "typed"
+modes = ["typed"]
+default = "typed"
+

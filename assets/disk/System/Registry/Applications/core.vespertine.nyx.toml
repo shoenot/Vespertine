@@ -9,5 +9,5 @@ default-entrypoint = "main"
 nyx = "main"
 
 [installation]
-installed_ts = 2026-06-27T04:42:34Z
-updated_ts = 2026-06-27T04:42:34Z
+installed-ts = 2026-06-27T04:42:34Z
+updated-ts = 2026-06-27T04:42:34Z

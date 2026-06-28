@@ -34,7 +34,7 @@ pub fn procs(args: &[String]) -> Result<(), Error> {
         ],
         &["pid", "state"],
     )?;
-
+    out.list_intent()?;
     out.table(&["pid", "user", "state", "threads", "memory", "reason", "code", "detail"])?;
 
     let mut proc_iter = list_processes()?;

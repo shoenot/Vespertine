@@ -12,7 +12,8 @@ use vespertine_rt::syscall::sys_write_bytes;
 use vespertine_std::fb::Framebuffer;
 use vte::Perform;
 
-static FONT_DATA: &[u8] = include_bytes!("zap-ext-light16.psf");
+use crate::font;
+
 pub const PADDING_X: usize = 12;
 pub const PADDING_Y: usize = 12;
 
@@ -205,16 +206,14 @@ impl Perform for TerminalGrid {
 impl TerminalGrid {
     pub fn draw_cell(&mut self, col: usize, row: usize) {
         let cell = self.cells[row * self.width_chars + col];
-        let glyph_size = 16;
-        // skip header with + 4
-        let glyph_offset = 4 + cell.char as usize * glyph_size;
-
-        let x_start = PADDING_X + col * 8;
-        let y_start = PADDING_Y + row * 16;
-
-        for y in 0..16 {
-            let font_byte = FONT_DATA[glyph_offset + y];
-            for x in 0..8 {
+    
+        let x_start = PADDING_X + col * font::glyph_width();
+        let y_start = PADDING_Y + row * font::glyph_height();
+    
+        for y in 0..font::glyph_height() {
+            let font_byte = font::glyph_row(cell.char, y);
+    
+            for x in 0..font::glyph_width() {
                 let bit_is_set = (font_byte & (0x80 >> x)) != 0;
                 let color = if bit_is_set { cell.fg } else { cell.bg };
                 self.fb.write_pixel(x_start + x, y_start + y, color);
@@ -226,10 +225,10 @@ impl TerminalGrid {
         let idx = row * self.width_chars + col;
         self.cells[idx] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
 
-        let x_start = PADDING_X + col * 8;
-        let y_start = PADDING_Y + row * 16;
-        for y in 0..16 {
-            for x in 0..8 {
+        let x_start = PADDING_X + col * font::glyph_width();
+        let y_start = PADDING_Y + row * font::glyph_height();
+        for y in 0..font::glyph_height() {
+            for x in 0..font::glyph_width() {
                 self.fb.write_pixel(x_start + x, y_start + y, self.current_bg);
             }
         }
@@ -257,8 +256,8 @@ impl TerminalGrid {
         let screen_words = info.pitch / 4;
 
         let dst_start = PADDING_Y * screen_words;
-        let src_start = (PADDING_Y + 16) * screen_words;
-        let num_lines = (self.height_chars - 1) * 16;
+        let src_start = (PADDING_Y + font::glyph_height()) * screen_words;
+        let num_lines = (self.height_chars - 1) * font::glyph_height();
 
         unsafe {
             let ptr = self.fb.pixel_ptr;
@@ -274,7 +273,7 @@ impl TerminalGrid {
         // fill bottom 16 scanlines with bg color
         unsafe {
             let ptr = self.fb.pixel_ptr;
-            let last_row_y_start = PADDING_Y + (self.height_chars - 1) * 16;
+            let last_row_y_start = PADDING_Y + (self.height_chars - 1) * font::glyph_height();
             let start_word = last_row_y_start * screen_words;
             let total_words = self.fb.size_in_bytes / 4;
             for i in start_word..total_words {
@@ -301,32 +300,31 @@ impl TerminalGrid {
         if !self.cursor_visible {
             return;
         }
-
+    
         let col = self.cursor_x;
         let row = self.cursor_y;
-
+    
         if col >= self.width_chars || row >= self.height_chars {
             return;
         }
-
+    
         let cell = self.cells[row * self.width_chars + col];
-        let glyph_size = 16;
-        let glyph_offset = 4 + cell.char as usize * glyph_size;
-
-        let x_start = PADDING_X + col * 8;
-        let y_start = PADDING_Y + row * 16;
-
-        for y in 0..16 {
-            let font_byte = FONT_DATA[glyph_offset + y];
-            for x in 0..8 {
+    
+        let x_start = PADDING_X + col * font::glyph_width();
+        let y_start = PADDING_Y + row * font::glyph_height();
+    
+        for y in 0..font::glyph_height() {
+            let font_byte = font::glyph_row(cell.char, y);
+    
+            for x in 0..font::glyph_width() {
                 let bit_is_set = (font_byte & (0x80 >> x)) != 0;
+    
                 let color = if show {
-                    // inverted colors (active cursor block)
                     if bit_is_set { cell.bg } else { cell.fg }
                 } else {
-                    // normal colors (restore text underneath)
                     if bit_is_set { cell.fg } else { cell.bg }
                 };
+    
                 self.fb.write_pixel(x_start + x, y_start + y, color);
             }
         }

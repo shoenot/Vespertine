@@ -4,12 +4,15 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use serde::Deserialize;
-use toml::value::Datetime;
+use config::manifest::select_entrypoint as config_select_entrypoint;
+use config::ConfigError;
+use config::manifest::{AppManifest, EntrypointMetadata, parse_manifest};
+use config::registry::{ApplicationRecord, InstallationMetadata, parse_registry_file, parse_registry_index};
 use vespertine_abi::app::hesper::{
     AppIoMode,
     AppIoModes,
 };
+use vespertine_abi::typed::DateTimeValue;
 use vespertine_std::fs::{
     File,
     Path,
@@ -18,6 +21,7 @@ use vespertine_std::hesper::{
     decode_io_mode_string,
     decode_io_modes_strings,
 };
+use vespertine_std::typed::{DateTimeValueExt, convert_iso_datetime};
 use vespertine_std::vreg::ResolvedApplication;
 use vespertine_std::{
     Error,
@@ -25,53 +29,6 @@ use vespertine_std::{
 };
 
 const REGISTRY_PATH: &str = "/System/Registry/Applications";
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-struct RegistryFile {
-    version: u32,
-    application: Vec<ApplicationRecord>,
-    installation: InstallationMetadata,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub struct ApplicationRecord {
-    pub id: String,
-    pub bundle: String,
-    pub default_entrypoint: String,
-
-    #[serde(default)]
-    pub aliases: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppManifest {
-    pub application: AppMetadata,
-    pub entrypoints: BTreeMap<String, EntrypointMetadata>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppMetadata {
-    pub name: String,
-    pub id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct EntrypointMetadata {
-    pub binary: String,
-    pub input: String,
-    pub modes: Vec<String>,
-
-    #[serde(default = "default_io_mode")]
-    pub default: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct InstallationMetadata {
-    pub installed_ts: Datetime,
-    pub updated_ts: Datetime,
-}
 
 #[derive(Debug, Clone)]
 pub struct LaunchTarget {
@@ -93,14 +50,13 @@ pub struct AppRegistry {
 
 const REGISTRY_INDEX: &str = "/System/Registry/index.toml";
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-struct RegistryIndex {
-    version: u32,
-    applications: Vec<String>,
+fn config_error(error: ConfigError) -> Error {
+    match error {
+        ConfigError::Invalid(message) => Error::invalid_argument(message),
+        ConfigError::Parse(message) => Error::invalid_encoding(message),
+        ConfigError::NotFound(message) => Error::not_found(message),
+    }
 }
-
-fn default_io_mode() -> String { String::from("text") }
 
 fn read_text(path: &str) -> Result<String, Error> {
     File::open(&Path::new(path))?.read_to_string()
@@ -130,24 +86,9 @@ fn validate_app_id(id: &str) -> Result<(), Error> {
 fn load_manifest(bundle: &str) -> Result<AppManifest, Error> {
     let manifest_path = format!("{}/manifest.toml", bundle);
     let text = read_text(&manifest_path)?;
-
-    let manifest = toml::from_str::<AppManifest>(&text)
-        .map_err(|error| Error::invalid_encoding(format!("invalid application manifest {}: {:?}", manifest_path, error).into()))?;
-
-    validate_app_id(&manifest.application.id)?;
-
-    if manifest.application.name.is_empty() {
-        return Err(Error::invalid_argument(format!("manifest {} has empty display name", manifest_path).into()));
-    }
-
-    if manifest.entrypoints.is_empty() {
-        return Err(Error::invalid_argument(format!("manifest {} has no entrypoints", manifest_path).into()));
-    }
+    let manifest = parse_manifest(&text, &manifest_path).map_err(config_error)?;
 
     for (name, entrypoint) in &manifest.entrypoints {
-        validate_component(name, "entrypoint name")?;
-        validate_component(&entrypoint.binary, "application binary name")?;
-
         let modes = decode_io_modes_strings(&entrypoint.modes)?;
         let default_mode = decode_io_mode_string(&entrypoint.default)?;
 
@@ -164,8 +105,7 @@ fn load_manifest(bundle: &str) -> Result<AppManifest, Error> {
 }
 
 fn select_entrypoint(manifest: &AppManifest, name: &str) -> Result<EntrypointMetadata, Error> {
-    manifest.entrypoints.get(name).cloned()
-        .ok_or_else(|| Error::not_found("application entrypoint was not found".into()))
+    config_select_entrypoint(manifest, name).map_err(config_error)
 }
 
 fn validate_record(path: &str, app: &ApplicationRecord) -> Result<(), Error> {
@@ -224,8 +164,7 @@ fn app_io(entrypoint: &EntrypointMetadata) -> Result<(AppIoMode, AppIoModes, App
 impl AppRegistry {
     pub fn load() -> Result<Self, Error> {
         let index_text = read_text(REGISTRY_INDEX)?;
-        let index = toml::from_str::<RegistryIndex>(&index_text)
-            .map_err(|error| Error::invalid_encoding(format!("invalid app registry index: {:?}", error).into()))?;
+        let index = parse_registry_index(&index_text).map_err(config_error)?;
 
         if index.version != 1 {
             return Err(Error::invalid_argument("unsupported app registry index version".into()));
@@ -243,8 +182,7 @@ impl AppRegistry {
 
             let path = format!("{}/{}.toml", REGISTRY_PATH, app_id);
             let text = read_text(&path)?;
-            let file = toml::from_str::<RegistryFile>(&text)
-                .map_err(|error| Error::invalid_encoding(format!("invalid app registry file {}: {:?}", path, error).into()))?;
+            let file = parse_registry_file(&text, &path).map_err(config_error)?;
 
             if file.version != 1 {
                 return Err(Error::invalid_argument(format!("unsupported app registry version in {}", path).into()));
@@ -346,6 +284,9 @@ impl AppRegistry {
 
         let entrypoint = select_entrypoint(&manifest, &target.entrypoint)?;
         let (input, modes, default_mode) = app_io(&entrypoint)?;
+        let inst = &app_record.installation;
+        let installed_ts = convert_iso_datetime(inst.installed_ts.clone());
+        let updated_ts = convert_iso_datetime(inst.updated_ts.clone());
 
         Ok(ResolvedApplication {
             command: target.command,
@@ -357,8 +298,8 @@ impl AppRegistry {
             modes,
             default_mode,
             display_name: manifest.application.name,
-            installed_ts: app_record.installation.installed_ts.to_string(),
-            updated_ts: app_record.installation.updated_ts.to_string(),
+            installed_ts,
+            updated_ts, 
         })
     }
 }

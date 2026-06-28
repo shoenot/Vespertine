@@ -4,7 +4,6 @@ use core::{
     str,
 };
 extern crate alloc;
-use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -16,34 +15,20 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::typed::{
-    DateTimeValue,
-    DateValue,
-    FileSizeValue,
-    ListHeader,
-    RECORD_FIELD_NAME_MAX,
-    RECORD_PRESENTATION_DEFAULT,
-    RECORD_PRESENTATION_TABLE,
-    RecordField,
-    RecordPresentationHeader,
-    RecordSchemaHeader,
-    RecordValueHeader,
-    TimeValue,
-    ValueHeader,
-    ValueType,
+    DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX, RecordField, RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, StreamIntentHeader, TimeValue, ValueHeader, ValueType
 };
 
 use crate::typed::TypedValue;
 use crate::{
     Error,
     ErrorKind,
-    HandleWriter,
     Read,
     Write,
-    env,
 };
 
 #[derive(Debug, Clone)]
 pub enum ShellValue {
+    StreamIntent { intent: u16, flags: u16 },
     Value(TypedValue),
     RecordSchema { schema_id: u64, fields: Vec<RecordFieldInfo> },
     RecordPresentation { schema_id: u64, presentation: u16, fields: Vec<u16> },
@@ -171,6 +156,22 @@ impl<W: Write> TypedWriter<W> {
         Ok(())
     }
 
+    pub fn stream_intent(&self, intent: u16, flags: u16) -> Result<(), Error> {
+        let packet = PacketHeader {
+            magic: VESPER_MAGIC,
+            version: 1,
+            packet_flags: PacketFlags::IS_BUFFER,
+            packet_type: PacketType::StreamIntent as u32,
+            payload_len: size_of::<StreamIntentHeader>() as u32,
+            reserved: 0,
+        };
+
+        let header = StreamIntentHeader { intent, flags, reserved: 0 };
+
+        self.write_struct(&packet)?;
+        self.write_struct(&header)
+    }
+
     pub fn error(&self, message: &str) -> Result<(), Error> {
         let packet = PacketHeader {
             magic: VESPER_MAGIC,
@@ -292,13 +293,14 @@ impl<R: Read> TypedReader<R> {
                     return Err(Error::invalid_argument("trailing typed value bytes".into()));
                 }
                 Ok(Some(ShellValue::Value(value)))
-            }
+            },
             x if x == PacketType::StreamEnd as u32 => {
                 if header.payload_len != 0 {
                     return Err(Error::invalid_argument("stream_end packet had payload".into()));
                 }
                 Ok(Some(ShellValue::StreamEnd))
-            }
+            },
+            x if x == PacketType::StreamIntent as u32 => Ok(Some(self.read_stream_intent()?)),
             x if x == PacketType::ShellError as u32 => {
                 let message = self.read_string(header.payload_len)?;
                 Ok(Some(ShellValue::Error(message)))
@@ -364,6 +366,12 @@ impl<R: Read> TypedReader<R> {
         let bytes = unsafe { slice::from_raw_parts_mut(value as *mut _ as *mut u8, size_of::<T>()) };
 
         self.source.read_exact(bytes)
+    }
+
+    fn read_stream_intent(&self) -> Result<ShellValue, Error> {
+        let mut header = StreamIntentHeader { intent: 0, flags: 0, reserved: 0 };
+        self.read_struct(&mut header)?;
+        Ok(ShellValue::StreamIntent { intent: header.intent, flags: header.flags })
     }
 }
 
@@ -460,177 +468,3 @@ fn read_prefix<T: Copy>(buf: &[u8]) -> Result<T, Error> {
     Ok(unsafe { read_unaligned(buf.as_ptr() as *const T) })
 }
 
-pub struct TerminalRenderer<W> {
-    out: W,
-    schemas: BTreeMap<u64, Vec<RecordFieldInfo>>,
-    presentations: BTreeMap<(u64, u16), Vec<u16>>,
-    needs_separator: bool,
-}
-
-impl<W: Write> TerminalRenderer<W> {
-    pub fn new(out: W) -> Self { Self { out, schemas: BTreeMap::new(), presentations: BTreeMap::new(), needs_separator: false } }
-
-    fn begin_visible_value(&mut self) -> Result<(), Error> {
-        if self.needs_separator {
-            self.out.write_all(b"\n")?;
-        }
-        self.needs_separator = true;
-        Ok(())
-    }
-
-    pub fn render(&mut self, value: ShellValue) -> Result<(), Error> {
-        match value {
-            ShellValue::Value(v) => self.render_value(v),
-            ShellValue::RecordSchema { schema_id, fields } => {
-                self.schemas.insert(schema_id, fields);
-                Ok(())
-            }
-            ShellValue::RecordPresentation { schema_id, presentation, fields } => {
-                self.presentations.insert((schema_id, presentation), fields);
-                Ok(())
-            }
-            ShellValue::Error(message) => {
-                self.begin_visible_value()?;
-                self.out.write_all(b"error: ")?;
-                self.out.write_all(message.as_bytes())
-            }
-            ShellValue::StreamEnd => Ok(()),
-        }
-    }
-
-    fn render_value(&mut self, value: TypedValue) -> Result<(), Error> {
-        self.begin_visible_value()?;
-
-        match value {
-            TypedValue::Record { schema_id, fields } => self.render_record(schema_id, &fields),
-            other => {
-                let text = other.display_with(Default::default());
-                self.out.write_all(text.as_bytes())
-            }
-        }
-    }
-
-    fn render_record(&mut self, schema_id: u64, values: &[TypedValue]) -> Result<(), Error> {
-        if let Some(fields) = self.presentations.get(&(schema_id, RECORD_PRESENTATION_DEFAULT)) {
-            let mut printed = false;
-
-            for field in fields {
-                let index = *field as usize;
-
-                if let Some(value) = values.get(index) {
-                    if printed {
-                        self.out.write_all(b" ")?;
-                    }
-
-                    let rendered = value.display_with(Default::default());
-                    self.out.write_all(rendered.as_bytes())?;
-                    printed = true;
-                }
-            }
-
-            if printed {
-                return Ok(());
-            }
-        }
-
-        if let Some(first) = values.first() {
-            let rendered = first.display_with(Default::default());
-            self.out.write_all(rendered.as_bytes())?;
-        }
-
-        Ok(())
-    }
-}
-
-pub fn render_typed_stream<R: Read, W: Write>(source: R, sink: W) -> Result<(), Error> {
-    let reader = TypedReader::new(source);
-    let mut renderer = TerminalRenderer::new(sink);
-
-    while let Some(value) = reader.next_value()? {
-        renderer.render(value)?;
-    }
-
-    Ok(())
-}
-
-impl TypedWriter<HandleWriter> {
-    pub fn out() -> Self { Self::new(HandleWriter::new(env::sink())) }
-}
-
-pub struct RecordStream<W> {
-    writer: TypedWriter<W>,
-    schema_id: u64,
-    fields: Vec<String>,
-    finished: bool,
-}
-
-impl RecordStream<HandleWriter> {
-    pub fn out(schema_id: u64, fields: &[&str]) -> Result<Self, Error> { Self::new(TypedWriter::out(), schema_id, fields) }
-
-    pub fn default_out(schema_id: u64, fields: &[&str], default_fields: &[&str]) -> Result<Self, Error> {
-        let stream = Self::out(schema_id, fields)?;
-        stream.default(default_fields)?;
-        Ok(stream)
-    }
-
-    pub fn typed_out(schema_id: u64, fields: &[(&str, ValueType)]) -> Result<Self, Error> {
-        Self::new_typed(TypedWriter::out(), schema_id, fields)
-    }
-
-    pub fn typed_default_out(schema_id: u64, fields: &[(&str, ValueType)], default_fields: &[&str]) -> Result<Self, Error> {
-        let stream = Self::typed_out(schema_id, fields)?;
-        stream.default(default_fields)?;
-        Ok(stream)
-    }
-}
-
-impl<W: Write> RecordStream<W> {
-    pub fn new(writer: TypedWriter<W>, schema_id: u64, fields: &[&str]) -> Result<Self, Error> {
-        let specs = fields.iter().map(|field| (*field, ValueType::String)).collect::<Vec<_>>();
-
-        Self::new_typed(writer, schema_id, &specs)
-    }
-
-    pub fn new_typed(writer: TypedWriter<W>, schema_id: u64, fields: &[(&str, ValueType)]) -> Result<Self, Error> {
-        writer.record_schema(schema_id, fields)?;
-
-        Ok(Self { writer, schema_id, fields: fields.iter().map(|(name, _)| String::from(*name)).collect(), finished: false })
-    }
-
-    pub fn default(&self, fields: &[&str]) -> Result<(), Error> { self.presentation(RECORD_PRESENTATION_DEFAULT, fields) }
-
-    pub fn table(&self, fields: &[&str]) -> Result<(), Error> { self.presentation(RECORD_PRESENTATION_TABLE, fields) }
-
-    pub fn row_values(&self, values: &[TypedValue]) -> Result<(), Error> {
-        if values.len() != self.fields.len() {
-            return Err(Error::invalid_argument("record row has wrong field count".into()));
-        }
-
-        self.writer.value(&TypedValue::Record { schema_id: self.schema_id, fields: values.to_vec() })
-    }
-
-    pub fn row(&self, values: &[&str]) -> Result<(), Error> {
-        let values = values.iter().map(|value| TypedValue::String(String::from(*value))).collect::<Vec<_>>();
-        self.row_values(&values)
-    }
-
-    pub fn finish(&mut self) -> Result<(), Error> {
-        if self.finished {
-            return Ok(());
-        }
-        self.finished = true;
-        self.writer.stream_end()
-    }
-
-    fn presentation(&self, presentation: u16, fields: &[&str]) -> Result<(), Error> {
-        let mut indices = Vec::new();
-
-        for field in fields {
-            let Some(idx) = self.fields.iter().position(|known| known == field) else {
-                return Err(Error::invalid_argument("unknown record presentation format".into()));
-            };
-            indices.push(idx as u16);
-        }
-        self.writer.record_presentation(self.schema_id, presentation, &indices)
-    }
-}

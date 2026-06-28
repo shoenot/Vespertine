@@ -1,12 +1,7 @@
-use alloc::collections::BTreeMap;
 use alloc::format;
-use alloc::string::{
-    String,
-    ToString,
-};
+use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::vec::Vec;
-
-use serde::Deserialize;
 use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_PROCMAN};
 use vespertine_abi::{
     AccessRights,
@@ -23,61 +18,18 @@ use vespertine_std::{
     Read,
 };
 
-use crate::meta::AppManifest;
+use config::policy::{
+    GrantFile,
+    GrantSet,
+    parse_archetype_file,
+    parse_grant_file,
+};
+use config::ConfigError;
+use config::manifest::AppManifest;
 
 const ARCHETYPES_PATH: &str = "/System/Policy/archetypes.toml";
 
 const GRANTS_PATH: &str = "/System/Policy/Grants";
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "kebab-case", deny_unknown_fields)]
-struct GrantSet {
-    #[serde(default)]
-    root_rights: Vec<String>,
-
-    #[serde(default)]
-    cwd_rights: Vec<String>,
-
-    #[serde(default)]
-    capabilities: Vec<String>,
-}
-
-impl GrantSet {
-    fn extend(&mut self, other: &GrantSet) {
-        self.root_rights.extend(other.root_rights.iter().cloned());
-        self.cwd_rights.extend(other.cwd_rights.iter().cloned());
-        self.capabilities.extend(other.capabilities.iter().cloned());
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ArchetypeFile {
-    version: u32,
-    defaults: GrantSet,
-
-    #[serde(default)]
-    archetype: BTreeMap<String, GrantSet>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ApplicationGrant {
-    id: String,
-    bundle: String,
-
-    #[serde(default)]
-    archetype: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GrantFile {
-    application: ApplicationGrant,
-
-    #[serde(default)]
-    grants: GrantSet,
-}
 
 #[derive(Debug)]
 pub struct LaunchPolicy {
@@ -100,12 +52,19 @@ pub struct CapabilityPolicy {
 
 fn read_text(path: &str) -> Result<String, Error> { File::open(&Path::new(path))?.read_to_string() }
 
+fn config_error(error: ConfigError) -> Error {
+    match error {
+        ConfigError::Invalid(message) => Error::invalid_argument(message),
+        ConfigError::Parse(message) => Error::invalid_encoding(message),
+        ConfigError::NotFound(message) => Error::not_found(message),
+    }
+}
+
 impl PolicyStore {
     pub fn load() -> Result<Self, Error> {
         let archetypes_text = read_text(ARCHETYPES_PATH)?;
 
-        let archetypes = toml::from_str::<ArchetypeFile>(&archetypes_text)
-            .map_err(|error| Error::invalid_encoding(format!("invalid launcher archetype policy: {:?}", error,).into()))?;
+        let archetypes = parse_archetype_file(&archetypes_text).map_err(config_error)?;
 
         if archetypes.version != 1 {
             return Err(Error::invalid_argument("unsupported launcher policy version".into()));
@@ -127,8 +86,7 @@ impl PolicyStore {
 
             let text = read_text(&path)?;
 
-            let grant = toml::from_str::<GrantFile>(&text)
-                .map_err(|error| Error::invalid_encoding(format!("invalid grant file {}: {:?}", path, error,).into()))?;
+            let grant = parse_grant_file(&text, &path).map_err(config_error)?;
 
             if grant.application.id != app_id {
                 return Err(Error::invalid_argument(format!("grant app ID does not match bundle app ID {}", grant.application.id,).into()));

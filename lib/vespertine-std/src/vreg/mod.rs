@@ -10,6 +10,7 @@ use vespertine_abi::app::hesper::{
 use vespertine_abi::app::vreg::*;
 use vespertine_abi::tag::CAP_VREG_CONNECT;
 use vespertine_abi::AccessRights;
+use vespertine_abi::typed::{DATETIME_EMPTY, DateTimeValue};
 
 use crate::broker::Broker;
 use crate::fs::{
@@ -23,6 +24,7 @@ use crate::hesper::{
 };
 use crate::payload::{PayloadReader, write_string, write_u8, write_u16, write_u32};
 use crate::socket::Socket;
+use crate::typed::{DateTimeValueExt, convert_iso_datetime};
 use crate::{
     Error,
     ErrorKind,
@@ -48,8 +50,8 @@ pub struct ResolvedApplication {
     pub default_mode: AppIoMode,
     pub display_name: String,
 
-    pub installed_ts: String,
-    pub updated_ts: String,
+    pub installed_ts: DateTimeValue,
+    pub updated_ts: DateTimeValue,
 }
 
 #[derive(Debug)]
@@ -99,8 +101,8 @@ fn read_application(reader: &mut PayloadReader<'_>) -> Result<ResolvedApplicatio
     let default_mode = decode_io_mode(reader.read_u8()?)?;
     let _flags = reader.read_u8()?;
     let display_name = reader.read_string(MAX_DISPLAY_NAME, "application display name")?;
-    let installed_ts = reader.read_string(MAX_TIMESTAMP, "application install timestamp")?;
-    let updated_ts = reader.read_string(MAX_TIMESTAMP, "application update timestamp")?;
+    let installed_ts = convert_iso_datetime(reader.read_string(MAX_TIMESTAMP, "application install timestamp")?);
+    let updated_ts = convert_iso_datetime(reader.read_string(MAX_TIMESTAMP, "application update timestamp")?);
 
     Ok(ResolvedApplication {
         command, app_id, bundle, entrypoint, binary,
@@ -120,8 +122,8 @@ fn write_application(output: &mut Vec<u8>, app: &ResolvedApplication) -> Result<
     write_u8(output, app.default_mode as u8);
     write_u8(output, 0);
     write_string(output, &app.display_name, MAX_DISPLAY_NAME, "application display name")?;
-    write_string(output, &app.installed_ts, MAX_TIMESTAMP, "application install timestamp")?;
-    write_string(output, &app.updated_ts, MAX_TIMESTAMP, "application update timestamp")?;
+    write_string(output, &app.installed_ts.as_iso_string(), MAX_TIMESTAMP, "application install timestamp")?;
+    write_string(output, &app.updated_ts.as_iso_string(), MAX_TIMESTAMP, "application update timestamp")?;
     Ok(())
 }
 

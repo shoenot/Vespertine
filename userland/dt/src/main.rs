@@ -100,7 +100,7 @@ fn dt_now(dt: DateTime<Utc>, args: &[String]) -> Result<(), Error> {
     };
 
     match display {
-        DateTimeStyle::Iso => {
+        DateTimeStyle::Iso | DateTimeStyle::Standard | DateTimeStyle::StandardUS => {
             out.value(&TypedValue::DateTime(value))?;
         }
         DateTimeStyle::Unix => {
@@ -159,7 +159,7 @@ fn dt_from(args: &[String]) -> Result<(), Error> {
     };
 
     match display {
-        DateTimeStyle::Iso => {
+        DateTimeStyle::Iso | DateTimeStyle::Standard | DateTimeStyle::StandardUS => {
             out.value(&TypedValue::DateTime(value))?;
         }
         DateTimeStyle::Unix => {

@@ -58,7 +58,7 @@ pub fn list(args: &[String]) -> Result<(), Error> {
         ],
         &["name"],
     )?;
-
+    out.list_intent()?;
     out.table(&["name", "kind", "size", "owner", "mode", "created", "modified"])?;
 
     let mut dir_iter = dir.list()?;
@@ -113,7 +113,6 @@ pub fn list(args: &[String]) -> Result<(), Error> {
             }),
         ])?;
     }
-
     out.finish()?;
 
     Ok(())

@@ -33,6 +33,7 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     match command.as_str() {
         "i" | "installed" => command::installed(command_args)?,
+        "I" | "info" => command::info(command_args)?,
         _ => return Err(Error::invalid_argument(HELP_TEXT.into())),
     }
 

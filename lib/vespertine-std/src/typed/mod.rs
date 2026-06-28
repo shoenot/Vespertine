@@ -4,3 +4,5 @@ mod value;
 pub use value::*;
 mod dt;
 pub use dt::*;
+mod render;
+pub use render::*;

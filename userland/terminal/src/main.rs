@@ -2,6 +2,7 @@
 #![no_main]
 
 mod term;
+pub mod font;
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -60,8 +61,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     let width_cols = info.width - 2 * PADDING_X;
     let height_rows = info.height - 2 * PADDING_Y;
-    let width_chars = width_cols / 8;
-    let height_chars = height_rows / 16;
+    let width_chars = width_cols / font::glyph_width();
+    let height_chars = height_rows / font::glyph_height();
 
     let (term_stdin, app_stdin) = Socket::new_pair()?;
     let (term_stdout, app_stdout) = Socket::new_pair()?;

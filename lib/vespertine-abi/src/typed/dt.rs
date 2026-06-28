@@ -1,6 +1,7 @@
 pub const DATETIME_HAS_OFFSET: u32 = 1 << 0;
 pub const DATETIME_DATE_ONLY: u32 = 1 << 1;
 pub const DATETIME_TIME_ONLY: u32 = 1 << 2;
+pub const DATETIME_EMPTY: u32 = 1 << 3;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

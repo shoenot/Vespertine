@@ -67,7 +67,7 @@ impl Default for DisplayOptions {
         Self {
             filesize_style: FileSizeStyle::Iec,
             filesize_precision: 1,
-            datetime_style: DateTimeStyle::Iso,
+            datetime_style: DateTimeStyle::Standard,
             datetime_show_tz: true,
             datetime_show_subsec: false,
         }

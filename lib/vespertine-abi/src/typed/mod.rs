@@ -38,8 +38,9 @@ impl ValueType {
 
 pub const RECORD_FIELD_NAME_MAX: usize = 128;
 
-pub const RECORD_PRESENTATION_DEFAULT: u16 = 1;
-pub const RECORD_PRESENTATION_TABLE: u16 = 2;
+pub const RECORD_PRESENTATION_DEFAULT: u16 = 0;
+pub const RECORD_PRESENTATION_TABLE: u16 = 1;
+pub const RECORD_PRESENTATION_DETAILS: u16 = 2;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,4 +102,19 @@ pub struct ListHeader {
     pub flags: u16,
     pub count: u32,
     pub payload_len: u32,
+}
+
+pub const STREAM_INTENT_DEFAULT: u16 = 0;
+pub const STREAM_INTENT_LIST: u16 = 1;
+pub const STREAM_INTENT_DETAILS: u16 = 2;
+pub const STREAM_INTENT_LOG: u16 = 3;
+pub const STREAM_INTENT_METRICS: u16 = 4;
+pub const STREAM_INTENT_CHOICES: u16 = 5;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamIntentHeader {
+    pub intent: u16,
+    pub flags: u16,
+    pub reserved: u32,
 }

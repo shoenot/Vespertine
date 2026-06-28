@@ -69,6 +69,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
                 ShellValue::StreamEnd => break,
                 ShellValue::RecordSchema { .. } | ShellValue::RecordPresentation { .. } => {}
                 ShellValue::Error(message) => return Err(Error::invalid_argument(message)),
+                ShellValue::StreamIntent { .. } => {},
             }
         }
     };

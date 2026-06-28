@@ -1,0 +1,13 @@
+version = 1
+
+[[application]]
+id = "core.vespertine.select"
+bundle = "/Programs/select.app"
+default-entrypoint = "main"
+
+[application.aliases]
+select = "main"
+
+[installation]
+installed-ts = 2026-06-27T17:38:42Z
+updated-ts = 2026-06-27T17:38:42Z

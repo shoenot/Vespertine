@@ -1,9 +1,11 @@
 version = 1
 
 applications = [
+    "core.vespertine.details",
     "core.vespertine.dt",
     "core.vespertine.ns",
     "core.vespertine.nyx",
+    "core.vespertine.select",
     "core.vespertine.stream",
     "core.vespertine.sys",
     "core.vespertine.table",

@@ -11,7 +11,7 @@ use vespertine_abi::{
 use vespertine_rt::syscall::{sys_close, sys_yield};
 use vespertine_std::fs::Path;
 use vespertine_std::hesper::{
-    CapabilityOffer, ExecuteRequest, HesperRequest, decode_io_mode_string, decode_io_modes_strings, send_app_metadata_response, send_execute_response
+    CapabilityOffer, ExecuteRequest, HesperRequest, send_app_metadata_response, send_execute_response
 };
 use vespertine_std::log::SystemLog;
 use vespertine_std::portal::{
@@ -27,12 +27,7 @@ use vespertine_std::{
     Write,
 };
 
-use crate::meta::{
-    AppManifest,
-    EntrypointMetadata,
-    load_manifest,
-    select_entrypoint,
-};
+use crate::meta::load_manifest;
 use crate::policy::{
     CapabilityPolicy,
     PolicyStore,
