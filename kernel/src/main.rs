@@ -59,7 +59,7 @@ use crate::drivers::pci::{
 };
 use crate::drivers::virtio::blk::init_block_device;
 use crate::drivers::virtio::mmio::init_virtio;
-use crate::memory::GLOBAL_PMM;
+use crate::memory::{GLOBAL_PMM, PAGER};
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::tasks::vfs_init::BLOCK_DEVICE;
 
@@ -125,6 +125,11 @@ pub extern "C" fn kmain() -> ! {
 
     // setup_interrupts now handles spawning per-core worker threads and MSI-X steering
     blk_arc.setup_interrupts().ok();
+
+    {
+        let kernel_pml4 = PAGER.lock().get_l4_addr();
+        KERNEL_PROCESS.vmm.write().refresh_kernel_half(kernel_pml4);
+    }
 
     let blk_dyn: Arc<dyn AsyncBlockDevice> = blk_arc.clone();
     BLOCK_DEVICE.get_or_init(|| blk_dyn);

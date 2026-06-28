@@ -1,5 +1,6 @@
 use core::hint;
 use core::sync::atomic::{
+    AtomicBool,
     AtomicUsize,
     Ordering,
 };
@@ -10,32 +11,91 @@ use crate::core::cpu::{
     NUM_CORES,
     get_core_data_for,
 };
-use crate::core::sync::TicketLock;
 use crate::memory::paging::flush_tlb;
 
 pub struct TLBShootdownInfo {
     pub addr: AtomicUsize,
+    pub generation: AtomicUsize,
     pub counter: AtomicUsize,
 }
 
-pub static SHOOTDOWN_INFO: TLBShootdownInfo = TLBShootdownInfo { addr: AtomicUsize::new(0), counter: AtomicUsize::new(0) };
-pub static SHOOTDOWN_LOCK: TicketLock<()> = TicketLock::new(());
+pub struct ShootdownLock {
+    locked: AtomicBool,
+}
+
+impl ShootdownLock {
+    pub const fn new() -> Self {
+        Self { locked: AtomicBool::new(false) }
+    }
+
+    pub fn lock(&self) -> ShootdownLockGuard<'_> {
+        while self.locked.swap(true, Ordering::Acquire) {
+            service_pending_shootdown();
+            hint::spin_loop();
+        }
+        ShootdownLockGuard { lock: self }
+    }
+
+    fn unlock(&self) {
+        self.locked.store(false, Ordering::Release);
+    }
+}
+
+pub struct ShootdownLockGuard<'a> {
+    lock: &'a ShootdownLock,
+}
+
+impl Drop for ShootdownLockGuard<'_> {
+    fn drop(&mut self) {
+        self.lock.unlock();
+    }
+}
+
+pub static SHOOTDOWN_INFO: TLBShootdownInfo = TLBShootdownInfo {
+    addr: AtomicUsize::new(0),
+    generation: AtomicUsize::new(0),
+    counter: AtomicUsize::new(0),
+};
+
+pub static SHOOTDOWN_LOCK: ShootdownLock = ShootdownLock::new();
+
+pub fn service_pending_shootdown() {
+    let generation = SHOOTDOWN_INFO.generation.load(Ordering::Acquire);
+    if generation == 0 { return; }
+
+    let core = get_core_data();
+    let seen = core.shootdown_generation.load(Ordering::Acquire);
+    if seen == generation { return; }
+
+    let addr = SHOOTDOWN_INFO.addr.load(Ordering::Acquire);
+    flush_tlb(addr as u64);
+
+    core.shootdown_generation.store(generation, Ordering::Release);
+    SHOOTDOWN_INFO.counter.fetch_sub(1, Ordering::AcqRel);
+}
 
 #[allow(unused)]
 pub fn shootdown(addr: usize, size: usize) {
     let this_core_id = get_core_data().logical_id;
-    let lock = SHOOTDOWN_LOCK.lock();
+    let _lock = SHOOTDOWN_LOCK.lock();
+
     SHOOTDOWN_INFO.addr.store(addr, Ordering::Release);
     SHOOTDOWN_INFO.counter.store(*NUM_CORES - 1, Ordering::Release);
+
+    let generation = SHOOTDOWN_INFO.generation.fetch_add(1, Ordering::AcqRel) + 1;
+
     for id in 0..*NUM_CORES {
         if id == this_core_id {
             continue;
         }
         get_core_data_for(id).apic_mode.send_ipi(get_core_data_for(id).lapic_id as u32, 41);
     }
+
     flush_tlb(addr as u64);
+    get_core_data().shootdown_generation.store(generation, Ordering::Release);
+
     while SHOOTDOWN_INFO.counter.load(Ordering::Acquire) != 0 {
+        service_pending_shootdown();
         hint::spin_loop();
     }
-    drop(lock);
 }

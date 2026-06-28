@@ -17,7 +17,7 @@ use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::extable::fixup_exception;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
-use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
+use crate::arch::x86_64::interrupts::shootdown::service_pending_shootdown;
 use crate::arch::x86_64::io;
 use crate::core::object::models::process::ProcTermination;
 use crate::core::sync::TicketLock;
@@ -28,7 +28,6 @@ use crate::core::time::get_time;
 use crate::drivers::keyboard;
 use crate::klogln;
 use crate::memory::handle_page_fault;
-use crate::memory::paging::flush_tlb;
 
 pub(in crate::arch::x86_64) static IRQ_HANDLERS: TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
 
@@ -167,7 +166,5 @@ pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
 }
 
 pub(in crate::arch::x86_64::interrupts) fn shootdown_handler() {
-    let addr = SHOOTDOWN_INFO.addr.load(Ordering::Acquire);
-    flush_tlb(addr as u64);
-    SHOOTDOWN_INFO.counter.fetch_sub(1, Ordering::Release);
+    service_pending_shootdown();
 }

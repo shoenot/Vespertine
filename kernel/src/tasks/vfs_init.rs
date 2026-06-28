@@ -53,12 +53,10 @@ pub async fn init_vfs() {
 
     let dev_dir = Arc::new(Directory::new());
     let srv_dir = Arc::new(Directory::new());
-    let log_dir = Arc::new(Directory::new());
 
     // mount all dirs
     mount_kernel_object(root_dir, "Devices", dev_dir.clone()).await.expect("Failed to mount /Devices");
     mount_kernel_object(sys_dir.clone(), "Services", srv_dir.clone()).await.expect("Failed to mount /System/Services");
-    mount_kernel_object(sys_dir, "Logs", log_dir).await.expect("Failed to mount /System/Logs");
 
     let proc_man = Arc::new(ProcessManager {});
     let mut proc_man_broker = Broker::new();
@@ -82,7 +80,7 @@ pub async fn init_vfs() {
     portal_broker.publish(CAP_PORTAL_FACTORY, Arc::new(PortalFactory), AccessRights::CREATE);
     link_kernel_object(srv_dir.clone(), "Portal", Arc::new(portal_broker)).await.expect("Failed to mount Portal");
 
-    let log_obj = Arc::new(Log {});
+    let log_obj = Arc::new(Log::new());
     link_kernel_object(srv_dir, "Log", log_obj).await.expect("Failed to mount Log");
 
     let fb_obj = Arc::new(init_framebuffer());

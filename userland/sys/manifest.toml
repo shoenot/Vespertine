@@ -10,3 +10,4 @@ default = "typed"
 
 [permissions]
 filesystem = "mutable"
+capabilities = [ "procman-list" ]

@@ -473,6 +473,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vlog"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-common",
+ "vespertine-rt",
+ "vespertine-std",
+]
+
+[[package]]
 name = "vreg"
 version = "0.1.0"
 dependencies = [

@@ -6,6 +6,7 @@ global copy_to_user
 section .text
 
 _syscall_entry: 
+    cli
     swapgs 
 
     mov [gs:0x08], rsp  ; save user rsp 
@@ -29,7 +30,6 @@ _syscall_entry:
     push r15 
     
     mov rdi, rsp 
-    
     call syscall_dispatch 
 
     pop r15 

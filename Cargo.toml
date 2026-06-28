@@ -11,6 +11,7 @@ members = [
     "userland/hesper", 
     "userland/ns", 
     "userland/terminal", "userland/stream", "userland/table", "userland/testapp", "userland/sys", "userland/nyx", "userland/vreg", "lib/vk-hal", "lib/vespertine-config", "userland/details", "userland/select", "userland/auth",
+    "userland/vlog",
 ]
 
 resolver = "2"

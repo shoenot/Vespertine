@@ -149,7 +149,10 @@ pub fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 impl VirtMemManager {
     pub fn new(allocator: &'static PCAllocator) -> Self {
         let mut pager = Pager::new(allocator);
-        pager.init_process_pager().expect("Failed to initialize process pager");
+        let kernel_pml4 = {
+            crate::memory::PAGER.lock().get_l4_addr()
+        };
+        pager.init_process_pager_from_kernel(kernel_pml4).expect("Failed to initialize process pager");
 
         Self { 
             head: None, pager: TicketLock::new(pager), allocator, 
@@ -160,6 +163,10 @@ impl VirtMemManager {
     pub fn accounting(&self) -> Arc<VmAccounting> { self.accounting.clone() }
 
     pub fn get_pml4_addr(&self) -> usize { self.pager.lock().get_l4_addr() as usize }
+
+    pub fn refresh_kernel_half(&mut self, kernel_pml4_phys: u64) {
+        self.pager.lock().refresh_kernel_half_from(kernel_pml4_phys);
+    }
 
     // temp for now
     pub fn mmap(&mut self, size: usize, flags: usize) -> Option<usize> {

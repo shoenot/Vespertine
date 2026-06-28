@@ -55,6 +55,13 @@ fn get_or_create_next(entry: &mut PageTableEntry, phys_offset: u64, allocator: &
     Some((entry.get_addr() + phys_offset) as *mut PageTable)
 }
 
+pub fn copy_kernel_half(dst: &mut PageTable, src_pml4_phys: u64) {
+    let src = unsafe { &*((src_pml4_phys + *HHDMOFFSET as u64) as *const PageTable) };
+    for idx in 256..512 {
+        dst.entries[idx] = src.entries[idx];
+    }
+}
+
 pub fn get_flags(
     present: bool, writable: bool, user_access: bool, writethru: bool, no_cache: bool, accessed: bool, dirty: bool, huge: bool,
     global: bool, no_execute: bool,
@@ -283,42 +290,40 @@ impl Pager {
 
     pub fn init(&mut self) -> Option<()> {
         let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
-
-        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
+    
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut
+        PageTable) };
         new_pml4_table.zero();
-
+    
         let old_pml4_table_addr = get_cr3() & 0x000F_FFFF_FFFF_F000;
-        let old_pml4_table = unsafe { &*((old_pml4_table_addr + *HHDMOFFSET as u64) as *const PageTable) };
-
-        for idx in 256..512 {
-            new_pml4_table.entries[idx] = old_pml4_table.entries[idx];
-        }
-
+        copy_kernel_half(new_pml4_table, old_pml4_table_addr);
+    
         load_cr3(pml4_table_frame);
-
+    
         self.active_l4_addr = pml4_table_frame;
         Some(())
     }
 
-    pub fn init_process_pager(&mut self) -> Option<()> {
+    pub fn init_process_pager_from_kernel(&mut self, kernel_pml4_phys: u64) -> Option<()> {
         let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
-
-        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
+    
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut
+        PageTable) };
         new_pml4_table.zero();
-
-        let old_pml4_table_addr = get_cr3() & 0x000F_FFFF_FFFF_F000;
-        let old_pml4_table = unsafe { &*((old_pml4_table_addr + *HHDMOFFSET as u64) as *const PageTable) };
-
-        for idx in 256..512 {
-            new_pml4_table.entries[idx] = old_pml4_table.entries[idx];
-        }
-
+    
+        copy_kernel_half(new_pml4_table, kernel_pml4_phys);
+    
         self.active_l4_addr = pml4_table_frame;
         Some(())
     }
 
     // get pml4 frame addr
     pub fn get_l4_addr(&self) -> u64 { self.active_l4_addr }
+
+    pub fn refresh_kernel_half_from(&mut self, kernel_pml4_phys: u64) {
+        let table = unsafe { &mut *((self.active_l4_addr + *HHDMOFFSET as u64) as *mut PageTable) };
+        copy_kernel_half(table, kernel_pml4_phys);
+    }
 
     pub fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, phys_offset: u64, size: BlockSize) -> Option<()> {
         if size == BlockSize::Normal {

@@ -4,13 +4,14 @@ use alloc::vec::Vec;
 use vespertine_abi::app::hesper::{
     AppIoMode, AppIoModes, HESPER_STATUS_INVALID_REQUEST, HESPER_STATUS_LAUNCH_FAILED, HESPER_STATUS_NOT_FOUND, HESPER_STATUS_NOT_IMPLEMENTED, HESPER_STATUS_OK
 };
-use vespertine_abi::tag::CAP_LOGGER;
+use vespertine_abi::tag::{CAP_LOGGER, CAP_PROCMAN};
 use vespertine_abi::{
     AccessRights,
     HandleID, UserID,
 };
 use vespertine_rt::syscall::{sys_close, sys_yield};
-use vespertine_std::fs::Path;
+use vespertine_std::broker::Broker;
+use vespertine_std::fs::{Path, resolve};
 use vespertine_std::hesper::{
     CapabilityOffer, ExecuteRequest, HesperRequest, send_app_metadata_response, send_execute_response
 };
@@ -156,7 +157,29 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         }
     };
 
-    let accepted_capabilities = match accept_capabilities(session, &request.capability_offers, &policy.capabilities) {
+    let mut system_capabilities = Vec::new();
+    let mut caller_capabilities = Vec::new();
+    
+    for capability in &policy.capabilities {
+        match request_system_capability(*capability) {
+            Ok(Some(capability)) => system_capabilities.push(capability),
+            Ok(None) => caller_capabilities.push(*capability),
+            Err(error) => {
+                let _ = send_execute_response(
+                    socket,
+                    request_id,
+                    HESPER_STATUS_INVALID_REQUEST,
+                    None,
+                    "application launch policy denied the request",
+                );
+    
+                return Err(error);
+            },
+        }
+    }
+    
+    let mut accepted_capabilities = match accept_capabilities(session, &request.capability_offers,
+    &caller_capabilities) {
         Ok(capabilities) => capabilities,
 
         Err(error) => {
@@ -171,6 +194,8 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
             return Err(error);
         }
     };
+
+    accepted_capabilities.extend(system_capabilities);
 
     log.write_string(format!("launching {}:{} as {}", app.app_id, app.entrypoint, app.binary))?;
     
@@ -188,9 +213,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
         for capability in &accepted_capabilities {
             exec = exec.grant_new(capability.handle.handle(), capability.policy.capability, capability.policy.rights)?;
         }
-        if let Some(grant) = env::capability(CAP_LOGGER) {
-            exec = exec.grant_new(grant.id, CAP_LOGGER, AccessRights::WRITE)?;
-        }
+
         exec.spawn()
     })();
 
@@ -227,6 +250,24 @@ fn send_launcher_not_found(sock: &Socket, id: u32) {
 fn send_launcher_invalid_request(sock: &Socket, id: u32) {
     let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_INVALID_REQUEST, 
         AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
+}
+
+fn request_system_capability(policy: CapabilityPolicy) -> Result<Option<AcceptedCapability>, Error> {
+    match policy.capability {
+        CAP_PROCMAN => {
+            let broker_handle = resolve(&Path::new("/System/Services/ProcManager"),
+            AccessRights::READ)?;
+            let broker = Broker::from_handle(broker_handle);
+            let handle = broker.request(policy.capability, policy.rights)?;
+
+            Ok(Some(AcceptedCapability {
+                handle: AcceptedHandle { handle },
+                policy,
+            }))
+        },
+
+        _ => Ok(None),
+    }
 }
 
 fn accept_capabilities(

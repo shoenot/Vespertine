@@ -99,6 +99,20 @@ fn spawn_launcher_session(handle: HandleID, caller_process: HandleID, policy: Ar
     .map_err(Error::from)
 }
 
+fn launch_vlog(log: &SystemLog) -> Result<(), Error> {
+    log.write_string("Launching vlog".into())?;
+
+    Exec::open(&Path::new("/System/Core/vlog"), "vlog".into())?
+        .source(env::source())
+        .sink(env::sink())
+        .cwd(env::cwd(), AccessRights::all())
+        .root_rights(AccessRights::all())
+        .grant(CAP_LOGGER, AccessRights::WRITE)?
+        .spawn()?;
+
+    Ok(())
+}
+
 fn launch_vreg(log: &SystemLog) -> Result<(), Error> {
     log.write_string("Launching vreg".into())?;
 
@@ -180,6 +194,8 @@ fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let log = SystemLog::connect();
     println!("[INFO] Hesper init system online");
     log.write_string("Hesper init system online".into())?;
+
+    launch_vlog(&log)?;
 
     launch_auth(&log)?;
     wait_for_auth(&log)?;

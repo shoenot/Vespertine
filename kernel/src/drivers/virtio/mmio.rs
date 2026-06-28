@@ -74,30 +74,33 @@ pub fn init_virtio() -> Option<VirtioBlockDriver> {
             continue;
         }
 
-        let bar_virt = if mapped_bars[bar_idx] == 0 {
-            if let PCIBar::Memory { addr, size, .. } = get_bar(dev, cap.bar_idx) {
-                let mut pager = PAGER.lock();
-
-                let start_phys = addr & !0xFFF;
-                let end_phys = (addr + size).div_ceil(4096) * 4096;
-                let num_pages = (end_phys - start_phys) / 4096;
-
-                for i in 0..num_pages {
-                    let page_phys = start_phys + (i * 4096);
-                    pager.map_mmio_addr(page_phys).unwrap();
-                }
-
-                let virt = addr + *HHDMOFFSET as u64;
-                mapped_bars[bar_idx] = virt;
-                virt
-            } else {
-                continue;
-            }
-        } else {
-            mapped_bars[bar_idx]
+        let bar_addr = match get_bar(dev, cap.bar_idx) {
+            PCIBar::Memory { addr, .. } => addr,
+            PCIBar::IOSpace { .. } => continue,
         };
-
-        let block_virt = bar_virt + cap.bar_offset as u64;
+        
+        let cap_start = bar_addr + cap.bar_offset as u64;
+        let cap_len = core::cmp::max(cap.bar_len as u64, 1);
+        let cap_end = cap_start + cap_len;
+        
+        let start_phys = cap_start & !0xFFF;
+        let end_phys = cap_end.div_ceil(4096) * 4096;
+        
+        {
+            let mut pager = PAGER.lock();
+        
+            let mut page_phys = start_phys;
+            while page_phys < end_phys {
+                pager.map_mmio_addr(page_phys).unwrap();
+                page_phys += 4096;
+            }
+        }
+        
+        if mapped_bars[bar_idx] == 0 {
+            mapped_bars[bar_idx] = bar_addr + *HHDMOFFSET as u64;
+        }
+        
+        let block_virt = cap_start + *HHDMOFFSET as u64;
 
         match cap.cfg_type {
             1 => common_cfg = block_virt as *mut VirtioCommonCfg,

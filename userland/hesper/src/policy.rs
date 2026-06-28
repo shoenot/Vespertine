@@ -141,7 +141,6 @@ fn resolve_capability(name: &str) -> Result<CapabilityPolicy, Error> {
     match name {
         "term-control" => Ok(CapabilityPolicy { capability: CAP_APP_TERMCTRL, rights: AccessRights::READ | AccessRights::WRITE }),
         "procman-list" => Ok(CapabilityPolicy { capability: CAP_PROCMAN, rights: AccessRights::READ | AccessRights::LIST }),
-        "logger" => Ok(CapabilityPolicy { capability: CAP_LOGGER, rights: AccessRights::WRITE }),
         _ => Err(Error::invalid_argument(format!("unknown capability {}", name,).into())),
     }
 }

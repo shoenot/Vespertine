@@ -39,6 +39,7 @@ pub struct KernelCoreData {
     pub timer_daemon_awoken: AtomicBool,
     pub magazine: Magazine,
     pub steal_requester: AtomicUsize,
+    pub shootdown_generation: AtomicUsize,
 }
 
 impl KernelCoreData {
@@ -53,6 +54,7 @@ impl KernelCoreData {
             timer_daemon_awoken: AtomicBool::new(false),
             magazine: Magazine::init(),
             steal_requester: AtomicUsize::new(NO_STEAL_REQUEST),
+            shootdown_generation: AtomicUsize::new(0),
         }
     }
 }
