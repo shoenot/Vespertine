@@ -117,13 +117,38 @@ impl<W: Write> TerminalRenderer<W> {
 
 pub fn render_typed_stream<R: Read, W: Write>(source: R, sink: W) -> Result<(), Error> {
     let reader = TypedReader::new(source);
-    let mut renderer = TerminalRenderer::new(sink);
+    let opts = DisplayOptions::default();
+    let mut stream = BufferedRecordStream::new();
 
-    while let Some(value) = reader.next_value()? {
-        renderer.render(value)?;
+    stream.read_from(&reader, &sink, opts)?;
+
+    let Some(schema) = stream.schema() else { return Ok(()); };
+
+    match stream.intent {
+        STREAM_INTENT_DETAILS => render_record_details(
+            &sink,
+            schema,
+            stream.presentation(RECORD_PRESENTATION_DETAILS),
+            &[],
+            &stream.rows,
+            opts,
+        ),
+        STREAM_INTENT_LIST | STREAM_INTENT_CHOICES => render_record_table(
+            &sink,
+            schema,
+            stream.presentation(RECORD_PRESENTATION_TABLE),
+            &[],
+            &stream.rows,
+            opts,
+        ),
+        _ => render_default_records(
+            &sink,
+            schema,
+            stream.presentation(RECORD_PRESENTATION_DEFAULT),
+            &stream.rows,
+            opts,
+        ),
     }
-
-    Ok(())
 }
 
 impl TypedWriter<HandleWriter> {
@@ -216,6 +241,59 @@ impl<W: Write> RecordStream<W> {
         }
         self.writer.record_presentation(self.schema_id, presentation, &indices)
     }
+}
+
+pub fn render_default_records<W: Write>(
+    out: &W,
+    schema: &[RecordFieldInfo],
+    default_presentation: Option<&Vec<u16>>,
+    rows: &[Vec<TypedValue>],
+    opts: DisplayOptions,
+) -> Result<(), Error> {
+    let fields = if let Some(fields) = default_presentation {
+        if fields.is_empty() {
+            Vec::new()
+        } else {
+            fields.clone()
+        }
+    } else {
+        Vec::new()
+    };
+
+    for row in rows {
+        if !fields.is_empty() {
+            let mut printed = false;
+
+            for field in &fields {
+                let idx = *field as usize;
+
+                if let Some(value) = row.get(idx) {
+                    if printed {
+                        out.write_all(b" ")?;
+                    }
+
+                    let rendered = value.display_with(opts);
+                    out.write_all(rendered.as_bytes())?;
+                    printed = true;
+                }
+            }
+
+            if printed {
+                out.write_all(b"\n")?;
+                continue;
+            }
+        }
+
+        if let Some(first) = row.first() {
+            let rendered = first.display_with(opts);
+            out.write_all(rendered.as_bytes())?;
+            out.write_all(b"\n")?;
+        } else if !schema.is_empty() {
+            out.write_all(b"\n")?;
+        }
+    }
+
+    Ok(())
 }
 
 pub fn render_record_table<W: Write>(
