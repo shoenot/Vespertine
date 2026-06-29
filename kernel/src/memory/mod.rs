@@ -14,7 +14,7 @@ use core::sync::atomic::{
 };
 
 pub use bootalloc::*;
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
@@ -30,7 +30,7 @@ pub use pmm::{
 use vespertine_common::slab::SlabAllocator;
 use vmm::*;
 
-use crate::arch::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
@@ -107,7 +107,7 @@ impl PCAllocator {
             BlockSize::Normal => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
-                let ret = get_core_data().magazine.alloc();
+                let ret = current_core_mut().magazine.alloc();
                 if int_state {
                     enable_interrupts();
                 }
@@ -126,7 +126,7 @@ impl PCAllocator {
             BlockSize::Normal => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
-                get_core_data().magazine.free(addr);
+                current_core_mut().magazine.free(addr);
                 if int_state {
                     enable_interrupts();
                 }

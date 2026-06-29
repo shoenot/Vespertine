@@ -5,18 +5,16 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 
-use crate::arch::get_core_data;
+use crate::arch::send_reschedule_ipi;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::core::cpu::{
-    NO_STEAL_REQUEST,
-    NUM_CORES,
-    get_core_data_for,
+    NO_STEAL_REQUEST, NUM_CORES, current_core_id, current_core_mut, get_core_data_for
 };
 use crate::core::thread::ThreadState;
 use crate::core::thread::dispatch::{
@@ -37,11 +35,11 @@ use crate::{
     terminate_thread,
 };
 
-fn current_thread() -> &'static crate::core::thread::ThreadControlBlock { unsafe { &*get_core_data().scheduler.get_current_thread() } }
+fn current_thread() -> &'static crate::core::thread::ThreadControlBlock { unsafe { &*current_core_mut().scheduler.get_current_thread() } }
 
 fn test_yield() {
     let restore_interrupts = interrupts_enabled();
-    get_core_data().scheduler.schedule(ScheduleReason::Yield);
+    current_core_mut().scheduler.schedule(ScheduleReason::Yield);
     if restore_interrupts {
         enable_interrupts();
     }
@@ -75,7 +73,7 @@ extern "C" fn wake_race_target(_arg: usize) -> ! {
 }
 
 extern "C" fn steal_worker(owner_core: usize) -> ! {
-    if get_core_data().logical_id != owner_core {
+    if current_core_id() != owner_core {
         STEAL_REMOTE_RUNS.fetch_add(1, Ordering::Release);
     }
     STEAL_WORKERS_DONE.fetch_add(1, Ordering::Release);
@@ -83,7 +81,7 @@ extern "C" fn steal_worker(owner_core: usize) -> ! {
 }
 
 extern "C" fn migrated_wake_target(_arg: usize) -> ! {
-    let core_data = get_core_data();
+    let core_data = current_core_mut();
     let thread = core_data.scheduler.get_current_thread();
     MIGRATED_FIRST_CORE.store(core_data.logical_id, Ordering::Release);
     unsafe {
@@ -91,7 +89,7 @@ extern "C" fn migrated_wake_target(_arg: usize) -> ! {
     }
     MIGRATED_BLOCKED_THREAD.store(thread, Ordering::Release);
     core_data.scheduler.schedule(ScheduleReason::Blocked);
-    MIGRATED_SECOND_CORE.store(get_core_data().logical_id, Ordering::Release);
+    MIGRATED_SECOND_CORE.store(current_core_id(), Ordering::Release);
     terminate_thread!();
 }
 
@@ -102,8 +100,8 @@ fn enqueue_test_thread_on_core(thread: *mut crate::core::thread::ThreadControlBl
     let target_data = get_core_data_for(core);
     target_data.scheduler.mailbox.lock().push(thread);
 
-    if core != get_core_data().logical_id {
-        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
+    if core != current_core_id() {
+        send_reschedule_ipi(core);
     }
 }
 
@@ -117,7 +115,7 @@ fn test_two_cpu_wakes_enqueue_blocked_thread_once() {
         .expect("failed to create wake target");
     unsafe {
         (*target).set_state(ThreadState::Blocked);
-        (*target).set_assigned_core(get_core_data().logical_id);
+        (*target).set_assigned_core(current_core_id());
     }
     WAKE_TARGET.store(target, Ordering::Release);
 
@@ -164,7 +162,7 @@ fn test_wake_immediately_after_blocking_makes_thread_ready() {
 }
 
 fn test_early_timer_event_preserves_quantum() {
-    let thread = get_core_data().scheduler.get_current_thread();
+    let thread = current_core_mut().scheduler.get_current_thread();
     let now = 100;
     let expiry = 200;
 
@@ -208,7 +206,7 @@ fn test_boost_decays_once_per_completed_quantum() {
 }
 
 fn test_migration_disabled_thread_is_never_donated() {
-    let core = get_core_data().logical_id;
+    let core = current_core_id();
     let pinned = create_tcb(wake_race_target as *const () as usize, 0, ThreadPriority::LOW, KERNEL_PROCESS.clone())
         .expect("failed to create pinned target");
     let migratable = create_tcb(wake_race_target as *const () as usize, 0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone())
@@ -229,7 +227,7 @@ fn test_migration_disabled_thread_is_never_donated() {
 
 fn test_idle_cpu_obtains_migratable_work() {
     assert!(*NUM_CORES >= 2, "work-stealing test requires at least two CPUs");
-    let owner = get_core_data().logical_id;
+    let owner = current_core_id();
     STEAL_WORKERS_DONE.store(0, Ordering::Release);
     STEAL_REMOTE_RUNS.store(0, Ordering::Release);
     disable_interrupts();
@@ -240,19 +238,19 @@ fn test_idle_cpu_obtains_migratable_work() {
         unsafe {
             (*worker).set_assigned_core(owner);
         }
-        get_core_data().scheduler.push(worker);
+        current_core_mut().scheduler.push(worker);
     }
 
     let target = get_core_data_for(1);
-    get_core_data().apic_mode.send_ipi(target.lapic_id as u32, 40);
+    send_reschedule_ipi(target.logical_id);
 
     for _ in 0..SMP_TEST_WAIT_ITERATIONS {
-        if get_core_data().steal_requester.load(Ordering::Acquire) != NO_STEAL_REQUEST {
+        if current_core_mut().steal_requester.load(Ordering::Acquire) != NO_STEAL_REQUEST {
             break;
         }
         core::hint::spin_loop();
     }
-    assert_ne!(get_core_data().steal_requester.load(Ordering::Acquire), NO_STEAL_REQUEST, "idle CPU did not request work");
+    assert_ne!(current_core_mut().steal_requester.load(Ordering::Acquire), NO_STEAL_REQUEST, "idle CPU did not request work");
 
     for _ in 0..SMP_TEST_WAIT_ITERATIONS {
         if STEAL_WORKERS_DONE.load(Ordering::Acquire) == 2 {
@@ -268,7 +266,7 @@ fn test_idle_cpu_obtains_migratable_work() {
 
 fn test_stolen_thread_wakeup_routes_to_assigned_cpu() {
     assert!(*NUM_CORES >= 2, "wake routing test requires at least two CPUs");
-    let owner = get_core_data().logical_id;
+    let owner = current_core_id();
     MIGRATED_BLOCKED_THREAD.store(core::ptr::null_mut(), Ordering::Release);
     MIGRATED_FIRST_CORE.store(usize::MAX, Ordering::Release);
     MIGRATED_SECOND_CORE.store(usize::MAX, Ordering::Release);
@@ -282,19 +280,19 @@ fn test_stolen_thread_wakeup_routes_to_assigned_cpu() {
         (*target).set_assigned_core(owner);
         (*filler).set_assigned_core(owner);
     }
-    get_core_data().scheduler.push(target);
-    get_core_data().scheduler.push(filler);
+    current_core_mut().scheduler.push(target);
+    current_core_mut().scheduler.push(filler);
 
     let remote = get_core_data_for(1);
-    get_core_data().apic_mode.send_ipi(remote.lapic_id as u32, 40);
+    send_reschedule_ipi(remote.logical_id);
 
     for _ in 0..SMP_TEST_WAIT_ITERATIONS {
-        if get_core_data().steal_requester.load(Ordering::Acquire) != NO_STEAL_REQUEST {
+        if current_core_mut().steal_requester.load(Ordering::Acquire) != NO_STEAL_REQUEST {
             break;
         }
         core::hint::spin_loop();
     }
-    assert_ne!(get_core_data().steal_requester.load(Ordering::Acquire), NO_STEAL_REQUEST, "idle CPU did not request routed work");
+    assert_ne!(current_core_mut().steal_requester.load(Ordering::Acquire), NO_STEAL_REQUEST, "idle CPU did not request routed work");
 
     for _ in 0..SMP_TEST_WAIT_ITERATIONS {
         let blocked = MIGRATED_BLOCKED_THREAD.load(Ordering::Acquire);

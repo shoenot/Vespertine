@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 
-use hal::arch::interrupts::enable_interrupts;
+use hal::interrupts::enable_interrupts;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
     CAP_LOGGER,
@@ -18,7 +18,6 @@ use vespertine_abi::{
     SpawnCredentials,
 };
 
-use crate::arch::get_core_data;
 use crate::core::asynchronous::{
     Executor,
     executor_thread,
@@ -30,6 +29,7 @@ use crate::core::object::vfs::{
     kernel_register_obj,
     kernel_walk,
 };
+use crate::core::cpu::current_core_mut;
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::reap::reaper_daemon;

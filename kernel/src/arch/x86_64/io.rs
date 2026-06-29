@@ -1,1 +1,1 @@
-pub use hal::arch::io::*;
+pub use hal::io::*;

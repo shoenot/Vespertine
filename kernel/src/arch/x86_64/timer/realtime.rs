@@ -1,6 +1,6 @@
 use core::hint::spin_loop;
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,

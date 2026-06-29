@@ -11,7 +11,7 @@ use core::task::{
     Poll,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
@@ -21,7 +21,7 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::arch::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::TicketLock;
@@ -65,7 +65,7 @@ impl Wake for ThreadWaker {
 }
 
 pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
-    let tcb = get_core_data().scheduler.get_current_thread();
+    let tcb = current_core_mut().scheduler.get_current_thread();
     let mut future = Box::pin(kernel_invoke(handle, invocation));
 
     let waker_inner = ThreadWaker::new(tcb);
@@ -96,7 +96,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
                     continue;
                 }
 
-                let sched = &mut get_core_data().scheduler;
+                let sched = &mut current_core_mut().scheduler;
                 sched.schedule(ScheduleReason::Blocked);
 
                 if int_state {
@@ -108,7 +108,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
 }
 
 pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
-    let tcb = get_core_data().scheduler.get_current_thread();
+    let tcb = current_core_mut().scheduler.get_current_thread();
     let waker_inner = ThreadWaker::new(tcb);
     let waker = waker_inner.clone().into();
     let mut context = Context::from_waker(&waker);
@@ -137,7 +137,7 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
                     continue;
                 }
 
-                let sched = &mut get_core_data().scheduler;
+                let sched = &mut current_core_mut().scheduler;
                 sched.schedule(ScheduleReason::Blocked);
 
                 if int_state {

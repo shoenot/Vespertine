@@ -17,12 +17,13 @@ mod util;
 use alloc::sync::Arc;
 
 use ::core::sync::atomic::Ordering;
-use arch::get_core_data;
+use crate::core::cpu::{KernelCoreData, current_core_mut};
+use crate::core::time::callout::init_timer_daemon;
 use boot::smp::BSP_CR3;
 pub use boot::*;
 use drivers::logger::LOGGER;
-use hal::arch::interrupts::enable_interrupts;
-use memory::paging::get_cr3;
+use hal::interrupts::enable_interrupts;
+use hal::mmu::get_cr3;
 use memory::{
     BOOTSTRAP_ALLOC,
     BlockSize,
@@ -32,7 +33,6 @@ pub use vespertine_common::define_bitflags;
 
 use crate::arch::x86_64::cpu::core::{
     CPULocalData,
-    init_timer_daemon,
 };
 use crate::core::cpu::init_smp;
 use crate::core::object::handle::{
@@ -105,10 +105,10 @@ pub extern "C" fn kmain() -> ! {
 
     init_kernel_process();
 
-    get_core_data().scheduler.init_threads(0);
+    current_core_mut().scheduler.init_threads(0);
 
     time::init();
-    let data_ptr = get_core_data() as *mut CPULocalData;
+    let data_ptr = current_core_mut() as *mut KernelCoreData;
     init_timer_daemon(data_ptr);
 
     let cr3 = get_cr3();

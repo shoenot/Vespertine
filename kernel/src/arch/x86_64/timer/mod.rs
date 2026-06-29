@@ -4,7 +4,7 @@ pub(crate) mod hpet;
 mod realtime;
 pub(crate) mod tsc;
 
-use hal::arch::cpuid::*;
+use hal::cpu::cpuid::*;
 pub use realtime::read_rtc;
 
 use crate::arch::x86_64::apic::lapic::*;
@@ -131,4 +131,12 @@ pub fn init() {
         USE_TSC_DEADLINE.store(false, Ordering::Relaxed);
         core_data.apic_mode.timer_setup(35, 0, TimerMode::OneShot);
     }
+}
+
+pub fn arm_local_timer_oneshot(ticks: u32) {
+    get_core_data().apic_mode.arm_oneshot(ticks);
+}
+
+pub fn stop_local_timer() {
+    get_core_data().apic_mode.stop_timer();
 }

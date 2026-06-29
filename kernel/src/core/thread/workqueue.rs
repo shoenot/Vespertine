@@ -6,7 +6,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::sync::{
     Semaphore,
     TicketLock,
@@ -46,9 +46,9 @@ impl_queue_methods!(WorkItemQueue, WorkItem, head, tail);
 
 pub extern "C" fn worker_thread() -> ! {
     loop {
-        get_core_data().work_queue.items_ready.wait();
+        current_core_mut().work_queue.items_ready.wait();
 
-        let mut queue = get_core_data().work_queue.items.lock();
+        let mut queue = current_core_mut().work_queue.items.lock();
         let item = queue.pop();
         drop(queue);
 

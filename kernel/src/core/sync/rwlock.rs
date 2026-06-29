@@ -9,13 +9,13 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 
-use crate::arch::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
@@ -71,7 +71,7 @@ impl<T> RwLock<T> {
                 let mut rq = self.reader_queue.lock();
 
                 if (self.state.load(Ordering::Acquire) & WRITER_BIT) != 0 || self.writers_waiting.load(Ordering::Relaxed) != 0 {
-                    let thread = get_core_data().scheduler.get_current_thread();
+                    let thread = current_core_mut().scheduler.get_current_thread();
                     unsafe {
                         (*thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.reader_queue as *const _ });
                         (*thread).transition(ThreadState::Running, ThreadState::Blocked).expect("rwlock reader was not running")
@@ -79,7 +79,7 @@ impl<T> RwLock<T> {
                     rq.push(thread);
                     drop(rq);
 
-                    get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                    current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
                     if int_state {
                         enable_interrupts()
                     };
@@ -110,7 +110,7 @@ impl<T> RwLock<T> {
                 let mut wq = self.writer_queue.lock();
 
                 if self.state.load(Ordering::Acquire) != 0 {
-                    let thread = get_core_data().scheduler.get_current_thread();
+                    let thread = current_core_mut().scheduler.get_current_thread();
                     unsafe {
                         (*thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.writer_queue as *const _ });
                         (*thread).transition(ThreadState::Running, ThreadState::Blocked).expect("rwlock writer was not running")
@@ -118,7 +118,7 @@ impl<T> RwLock<T> {
                     wq.push(thread);
                     drop(wq);
 
-                    get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                    current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
                     if int_state {
                         enable_interrupts()
                     };

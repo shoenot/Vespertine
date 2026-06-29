@@ -5,16 +5,18 @@ use core::sync::atomic::{
 };
 use core::task::Waker;
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
 
-use crate::arch::get_core_data;
+use crate::KERNEL_PROCESS;
+use crate::core::cpu::{KernelCoreData, current_core_id, current_core_mut};
 use crate::core::sync::TicketLock;
 use crate::core::thread::ThreadState;
 use crate::core::thread::block::ThreadWakeRegistration;
-use crate::core::thread::dispatch::cancel_block_if_awoken;
+use crate::core::thread::dispatch::{cancel_block_if_awoken, create_tcb};
+use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::get_time;
 
 pub struct TimerRegistration {
@@ -103,11 +105,11 @@ pub fn dispatch_callout_payload(payload: CalloutPayload) {
 
 pub extern "C" fn timer_daemon(_arg: usize) -> ! {
     loop {
-        get_core_data().timer_daemon_awoken.store(false, core::sync::atomic::Ordering::Release);
+        current_core_mut().timer_daemon_awoken.store(false, core::sync::atomic::Ordering::Release);
         disable_interrupts();
 
         loop {
-            let mut queue = get_core_data().callout_queue.lock();
+            let mut queue = current_core_mut().callout_queue.lock();
             let current_time = get_time();
 
             if let Some(earliest) = queue.peek() {
@@ -124,15 +126,27 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
             break;
         }
 
-        let thread = unsafe { &*get_core_data().scheduler.current_thread };
+        let thread = unsafe { &*current_core_mut().scheduler.current_thread };
         thread.transition(ThreadState::Running, ThreadState::Blocked).expect("timer daemon was not running");
 
-        if cancel_block_if_awoken(thread, &get_core_data().timer_daemon_awoken) {
+        if cancel_block_if_awoken(thread, &current_core_mut().timer_daemon_awoken) {
             enable_interrupts();
             continue;
         }
 
-        get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+        current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
         enable_interrupts();
     }
 }
+
+pub fn init_timer_daemon(data_ptr: *mut KernelCoreData) {
+    assert!(!data_ptr.is_null(), "timer daemon core data was null");
+    unsafe {
+        let core_data = &mut *data_ptr;
+        let timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
+        (*timer_daemon_tcb).pin_to_core(core_data.logical_id);
+        core_data.timer_daemon_tcb = timer_daemon_tcb;
+        core_data.scheduler.push(timer_daemon_tcb);
+    }
+}
+

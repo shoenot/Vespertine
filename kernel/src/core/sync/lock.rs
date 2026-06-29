@@ -4,7 +4,7 @@ use core::ops::{
     DerefMut,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,

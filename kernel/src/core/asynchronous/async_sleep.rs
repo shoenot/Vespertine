@@ -5,7 +5,7 @@ use core::task::{
     Poll,
 };
 
-use crate::arch::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::time::callout::{
     Callout,
     CalloutPayload,
@@ -41,7 +41,7 @@ impl Future for AsyncSleep {
             // Futures using AsyncSleep must not migrate between executors.
             let callout = Callout { wake_time: self.target_ticks, payload: CalloutPayload::WakeTimer(self.registration.clone()) };
 
-            get_core_data().callout_queue.lock().push(callout);
+            current_core_mut().callout_queue.lock().push(callout);
             update_hardware_timer();
         }
 

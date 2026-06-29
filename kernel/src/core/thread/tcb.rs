@@ -9,7 +9,7 @@ use core::sync::atomic::{
 
 use super::priority::ThreadPriority;
 use crate::KERNEL_PROCESS;
-use crate::arch::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::object::models::process::{
     Process,
     ProcessControlBlock,
@@ -152,7 +152,7 @@ impl ThreadControlBlock {
 }
 
 pub fn get_current_process<'a>() -> Option<&'a Process> {
-    let thread = get_core_data().scheduler.get_current_thread();
+    let thread = current_core_mut().scheduler.get_current_thread();
     if thread.is_null() { KERNEL_PROCESS.get() } else { unsafe { Some(&(*thread).process) } }
 }
 

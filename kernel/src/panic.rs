@@ -1,6 +1,6 @@
 use core::panic::PanicInfo;
 
-use hal::arch::cpu::halt_loop;
+use hal::cpu::halt_loop;
 
 use crate::drivers::logger::LOGGER;
 use crate::klogln;

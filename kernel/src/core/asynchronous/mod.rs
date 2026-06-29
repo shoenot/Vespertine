@@ -24,13 +24,13 @@ use core::task::{
     Waker,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 
-use crate::arch::get_core_data;
+use crate::core::cpu::{current_core_id, current_core_mut};
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::{
     cancel_block_if_awoken,
@@ -91,7 +91,7 @@ fn enqueue_task(task: Arc<Task>) {
         return; // thread not registered yet
     }
     let executor_is_local_and_blocked =
-        unsafe { (*ptr).assigned_core() == get_core_data().logical_id && (*ptr).state() == ThreadState::Blocked };
+        unsafe { (*ptr).assigned_core() == current_core_id() && (*ptr).state() == ThreadState::Blocked };
     wake_thread(ptr);
     if executor_is_local_and_blocked {
         // A local wake can make the executor ready while the current CPU's
@@ -194,7 +194,7 @@ impl Executor {
     }
 
     pub fn run(&self) -> ! {
-        let tcb = get_core_data().scheduler.get_current_thread();
+        let tcb = current_core_mut().scheduler.get_current_thread();
         EXECUTOR_THREAD_PTR.store(tcb, Ordering::Release);
 
         loop {
@@ -208,7 +208,7 @@ impl Executor {
                 // Hold the queue through the blocked transition so enqueue and wake cannot race it.
                 let queue = RUN_QUEUE.lock();
                 if queue.is_empty() {
-                    let sched = &mut get_core_data().scheduler;
+                    let sched = &mut current_core_mut().scheduler;
                     let current_thread = sched.get_current_thread();
 
                     let int_state = interrupts_enabled();

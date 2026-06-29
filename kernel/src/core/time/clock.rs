@@ -2,14 +2,14 @@ use core::arch::asm;
 use core::mem::transmute;
 use core::sync::atomic::Ordering;
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
 
-use crate::arch::get_rtc_unix_timestamp;
+use crate::arch::{arm_local_timer_oneshot, get_rtc_unix_timestamp, stop_local_timer};
 use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::block::ThreadWakeRegistration;
 use crate::core::thread::dispatch::wake_thread;
@@ -75,8 +75,7 @@ pub fn arm_sleep_ns(ns: usize) {
         let lapic_fq = *LAPIC_FQ;
         let lapic_ticks = (ns as usize * lapic_fq) / 1_000_000_000;
 
-        let core_data = get_core_data();
-        core_data.apic_mode.arm_oneshot(lapic_ticks as u32);
+        arm_local_timer_oneshot(lapic_ticks as u32);
     }
 }
 
@@ -100,8 +99,7 @@ pub fn arm_sleep_ticks(ticks: usize) {
         let lapic_fq = *LAPIC_FQ;
 
         let lapic_ticks = ((ticks as u128 * lapic_fq as u128) / global_fq as u128).max(1);
-        let core_data = get_core_data();
-        core_data.apic_mode.arm_oneshot(lapic_ticks as u32);
+        arm_local_timer_oneshot(lapic_ticks as u32);
     }
 }
 
@@ -115,7 +113,7 @@ pub fn get_time() -> usize {
 
 // compares the current quantum and the next callout and sets timer to the earlier of the two.
 pub fn update_hardware_timer() {
-    let core_data = get_core_data();
+    let core_data = current_core_mut();
     let current_time = get_time();
 
     let mut next_event = unsafe {
@@ -155,7 +153,7 @@ pub fn update_hardware_timer() {
         let ticks = if diff > u32::MAX as usize { u32::MAX as usize } else { diff };
         arm_sleep_ticks(ticks);
     } else if arm_hardware {
-        core_data.apic_mode.stop_timer();
+        stop_local_timer();
     }
 }
 
@@ -164,8 +162,7 @@ pub fn sleep(ns: usize) {
 
     disable_interrupts();
 
-    let core_data = get_core_data();
-    let sched = &mut core_data.scheduler;
+    let sched = &mut current_core_mut().scheduler;
     let current_thread = sched.get_current_thread();
     let registration = ThreadWakeRegistration::new(current_thread);
 
@@ -177,7 +174,7 @@ pub fn sleep(ns: usize) {
     let callout = Callout { wake_time: target_time, payload: CalloutPayload::WakeThread(registration) };
 
     {
-        let mut queue = get_core_data().callout_queue.lock();
+        let mut queue = current_core_mut().callout_queue.lock();
         queue.push(callout);
         unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("sleeping thread was not running");
     }

@@ -25,6 +25,9 @@ const CURRENT_COUNT_OFFSET: usize = 0x390;
 
 const IA32_APIC_BASE: usize = 0x1B;
 
+const RESCHEDULE_IPI_VECTOR: u32 = 40;
+const TLB_SHOOTDOWN_IPI_VECTOR: u32 = 41;
+
 #[derive(Clone)]
 pub(crate) struct XApicDriver {
     pub base_addr: usize,
@@ -225,8 +228,8 @@ pub fn check_enable_x2apic() -> bool {
 /// for xapic: message_address_low is 0xfee0_0000 | (dest_apic_id << 12), high=0, data contains the vector in bits[0:7].
 /// for x2apic: message_address_low is 0, message_address_high contains the full destination x2apic id, data contains the vector.
 pub fn msi_message_fields_for_target(core_logical_id: usize, vector: u8) -> (u32, u32, u32) {
-    let lapic_id = crate::core::cpu::get_core_data_for(core_logical_id).lapic_id as u32;
-    msi_message_fields_for_lapic_id(lapic_id, vector)
+    let core = crate::arch::x86_64::cpu::core::arch_core_data_for(core_logical_id);
+    msi_message_fields_for_lapic_id(core.lapic_id as u32, vector)
 }
 
 pub fn msi_message_fields_for_lapic_id(lapic_id: u32, vector: u8) -> (u32, u32, u32) {
@@ -288,4 +291,17 @@ impl ApicDriver for ApicMode {
             Self::X2Apic(a) => a.send_ipi(target_id, vector),
         }
     }
+}
+
+pub fn send_ipi_to_core(logical_id: usize, vector: u32) {
+    let target = crate::arch::x86_64::cpu::core::arch_core_data_for(logical_id);
+    get_core_data().apic_mode.send_ipi(target.lapic_id as u32, vector);
+}
+
+pub fn send_reschedule_ipi(logical_id: usize) {
+    send_ipi_to_core(logical_id, RESCHEDULE_IPI_VECTOR);
+}
+
+pub fn send_tlb_shootdown_ipi(logical_id: usize) {
+    send_ipi_to_core(logical_id, TLB_SHOOTDOWN_IPI_VECTOR);
 }

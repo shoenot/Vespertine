@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use core::fmt::Display;
 use core::mem::zeroed;
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
@@ -15,6 +15,7 @@ use hal::usercopy::{
 };
 use vespertine_abi::Invocation;
 
+use crate::core::cpu::current_core_mut;
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::context::SyscallFrame;
 use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;

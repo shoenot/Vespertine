@@ -2,7 +2,7 @@ use core::arch::asm;
 use core::ptr::copy_nonoverlapping;
 use core::sync::atomic::Ordering;
 
-use hal::arch::interrupts::enable_interrupts;
+use hal::interrupts::enable_interrupts;
 
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::cpu::gdt::{

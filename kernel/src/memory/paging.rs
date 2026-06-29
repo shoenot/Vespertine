@@ -2,6 +2,9 @@
 
 use core::arch::asm;
 
+use hal::mmu::get_cr3;
+use hal::mmu::flush_tlb;
+use hal::mmu::load_cr3;
 use super::pmm::*;
 use crate::memory::{
     GLOBAL_PMM,
@@ -98,32 +101,6 @@ pub fn get_flags(
         flags |= 1 << 63
     }
     flags
-}
-
-pub fn get_cr3() -> u64 {
-    let cr3: u64;
-    unsafe {
-        asm!("mov {0}, cr3", 
-            out(reg) cr3,
-            options(nostack, preserves_flags));
-    };
-    cr3
-}
-
-pub fn load_cr3(addr: u64) {
-    unsafe {
-        asm!("mov cr3, {0}",
-            in(reg) addr,
-            options(nostack, preserves_flags));
-    };
-}
-
-pub fn flush_tlb(virt: u64) {
-    unsafe {
-        asm!("invlpg [{0}]", 
-            in(reg) virt,
-            options(nostack, preserves_flags))
-    }
 }
 
 // struct methods

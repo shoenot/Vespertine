@@ -28,6 +28,7 @@ use crate::memory::{
     GLOBAL_PMM,
     PCAllocator,
 };
+use hal::mmu::flush_tlb;
 use crate::storage::fs::VfsNode;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;

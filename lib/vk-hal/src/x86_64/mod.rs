@@ -1,6 +1,9 @@
 pub mod cpu;
-pub mod cpuid;
+pub mod smp;
 pub mod interrupts;
 pub mod io;
 pub mod msr;
 pub mod usercopy;
+pub mod registers;
+pub mod mmu;
+pub mod tlb;

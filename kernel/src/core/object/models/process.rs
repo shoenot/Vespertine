@@ -35,12 +35,12 @@ use vespertine_abi::{
 };
 use vespertine_common::lock::TicketLock;
 
-use crate::arch::get_core_data;
 use crate::core::asynchronous::waiter::{
     AsyncWaiter,
     WaiterList,
     wake_all,
 };
+use crate::core::cpu::current_core_mut;
 use crate::core::object::handle::HandleTable;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
@@ -404,7 +404,7 @@ impl KernelObject for ProcessControlBlock {
                 WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
             }
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
-                let current_thread = get_core_data().scheduler.get_current_thread();
+                let current_thread = current_core_mut().scheduler.get_current_thread();
                 if current_thread.is_null() {
                     return Err(InvocationError::InvalidHandle);
                 }

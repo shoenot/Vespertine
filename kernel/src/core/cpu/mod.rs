@@ -32,6 +32,7 @@ pub const NO_STEAL_REQUEST: usize = usize::MAX;
 
 #[repr(C)]
 pub struct KernelCoreData {
+    pub logical_id: usize,
     pub scheduler: SchedulerState,
     pub work_queue: WorkQueue,
     pub callout_queue: TicketLock<BinaryHeap<Callout>>,
@@ -47,6 +48,7 @@ impl KernelCoreData {
         let mut scheduler = SchedulerState::new();
         scheduler.init_basic(logical_id);
         Self {
+            logical_id,
             scheduler,
             work_queue: WorkQueue::new(),
             callout_queue: TicketLock::new(BinaryHeap::new()),
@@ -62,9 +64,9 @@ impl KernelCoreData {
 pub const MAX_CORES: usize = 256;
 pub static NUM_CORES: KernelOnceCell<usize> = KernelOnceCell::new();
 
-static GLOBAL_CPU_DATA: [AtomicPtr<CPULocalData>; MAX_CORES] = [const { AtomicPtr::new(null_mut()) }; MAX_CORES];
+static GLOBAL_CPU_DATA: [AtomicPtr<KernelCoreData>; MAX_CORES] = [const { AtomicPtr::new(null_mut()) }; MAX_CORES];
 
-pub fn register_core_data(logical_id: usize, data_ptr: *mut CPULocalData) {
+pub fn register_core_data(logical_id: usize, data_ptr: *mut KernelCoreData) {
     assert!(logical_id < MAX_CORES, "Invalid Core ID");
     GLOBAL_CPU_DATA[logical_id].store(data_ptr, Ordering::Release);
 }
@@ -72,7 +74,9 @@ pub fn register_core_data(logical_id: usize, data_ptr: *mut CPULocalData) {
 pub fn init_smp() {
     let mp_resp = MP_REQUEST.response().expect("[FATAL] No SMP Response from limine");
     let bsp_id = mp_resp.bsp_lapic_id;
-    register_core_data(0, get_core_data());
+    let bsp = crate::arch::get_core_data();
+    crate::arch::x86_64::cpu::core::register_arch_core_data(0, bsp);
+    register_core_data(0, &mut bsp.kernel_data as *mut KernelCoreData);
 
     let mut logical_id = 1;
     for core in mp_resp.cpus() {
@@ -81,11 +85,11 @@ pub fn init_smp() {
         }
 
         let ap_data_ptr = init_core_data(core.lapic_id as usize, logical_id, get_core_data().apic_mode.clone());
+        crate::arch::x86_64::cpu::core::register_arch_core_data(logical_id, ap_data_ptr);
 
-        register_core_data(logical_id, ap_data_ptr);
-
-        // let att = test_thread as *const ();
-        // (*ap_data_ptr).scheduler.spawn(att as usize, core.processor_id as usize).unwrap();
+        unsafe {
+            register_core_data(logical_id, &mut (*ap_data_ptr).kernel_data as *mut KernelCoreData);
+        }
 
         let ap_data_addr = ap_data_ptr as u64;
         let ap_entry_ptr = ap_entry as MpGotoFunction;
@@ -100,23 +104,46 @@ pub fn init_smp() {
     NUM_CORES.get_or_init(|| logical_id);
 }
 
-pub fn get_core_data_for(logical_id: usize) -> &'static CPULocalData {
+pub fn get_core_data_for(logical_id: usize) -> &'static KernelCoreData {
     assert!(logical_id < MAX_CORES, "Invalid Core ID");
     let ptr = GLOBAL_CPU_DATA[logical_id].load(Ordering::Acquire);
     assert!(!ptr.is_null(), "Uninitialized core");
     unsafe { &mut *ptr }
 }
 
-pub fn try_get_core_data_for(logical_id: usize) -> Option<&'static CPULocalData> {
+pub fn get_core_data_for_mut(logical_id: usize) -> &'static mut KernelCoreData {
+    assert!(logical_id < MAX_CORES, "Invalid Core ID");
+    let ptr = GLOBAL_CPU_DATA[logical_id].load(Ordering::Acquire);
+    assert!(!ptr.is_null(), "Uninitialized core");
+    unsafe { &mut *ptr }
+}
+
+pub fn try_get_core_data_for(logical_id: usize) -> Option<&'static KernelCoreData> {
     assert!(logical_id < MAX_CORES, "Invalid Core ID");
     let ptr = GLOBAL_CPU_DATA[logical_id].load(Ordering::Acquire);
     if ptr.is_null() { None } else { Some(unsafe { &mut *ptr }) }
 }
 
-pub fn get_active_cores() -> Vec<u32> {
+pub fn get_active_cores() -> Vec<usize> {
     let mut ret = Vec::new();
     for core in 0..*NUM_CORES {
-        ret.push(get_core_data_for(core).lapic_id as u32);
+        ret.push(core);
     }
     ret
+}
+
+pub fn current_core() -> &'static KernelCoreData {
+    let ptr = crate::arch::current_kernel_core_data();
+    assert!(!ptr.is_null(), "Current core data was not initialized");
+    unsafe { &*ptr }
+}
+
+pub fn current_core_mut() -> &'static mut KernelCoreData {
+    let ptr = crate::arch::current_kernel_core_data();
+    assert!(!ptr.is_null(), "Current core data was not initialized");
+    unsafe { &mut *ptr }
+}
+
+pub fn current_core_id() -> usize {
+    current_core().logical_id
 }

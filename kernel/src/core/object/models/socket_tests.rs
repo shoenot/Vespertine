@@ -21,8 +21,8 @@ use super::{
     SocketWaitFuture,
     SocketWriteFuture,
 };
-use crate::arch::get_core_data;
 use crate::core::asynchronous::waiter::AsyncWaiter;
+use crate::core::cpu::current_core_mut;
 use crate::core::time::callout::{
     CalloutPayload,
     TimerRegistration,
@@ -48,7 +48,7 @@ fn context() -> (Arc<CountingWaker>, core::task::Waker) {
 fn poll<F: Future>(future: &mut F, context: &mut Context<'_>) -> Poll<F::Output> { unsafe { Pin::new_unchecked(future) }.poll(context) }
 
 fn remove_timer_registrations(registrations: &[Arc<TimerRegistration>]) {
-    let mut queue = get_core_data().callout_queue.lock();
+    let mut queue = current_core_mut().callout_queue.lock();
     let mut retained = vec![];
 
     while let Some(callout) = queue.pop() {

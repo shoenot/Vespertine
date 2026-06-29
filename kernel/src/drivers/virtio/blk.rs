@@ -20,13 +20,14 @@ use core::task::{
     Poll,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 
-use crate::arch::get_core_data;
+use crate::core::cpu::{current_core, current_core_id};
+use crate::core::cpu::current_core_mut;
 use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
 use crate::core::asynchronous::waiter::AsyncWaiter;
 use crate::core::sync::TicketLock;
@@ -560,7 +561,7 @@ impl VirtioBlockDevice {
 
     pub fn transfer_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64, is_write: bool) -> Result<BlockTransferFuture, ()> {
         let drv = &self.driver;
-        let core_id = get_core_data().logical_id;
+        let core_id = current_core_id();
         let vq_idx = core_id % self.queues.len();
         let vq_state = &self.queues[vq_idx];
 
@@ -774,11 +775,11 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                 };
 
                 if !recheck {
-                    let current_thread = get_core_data().scheduler.get_current_thread();
+                    let current_thread = current_core_mut().scheduler.get_current_thread();
                     (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("virtio worker was not running");
 
                     if !cancel_block_if_awoken(&*current_thread, &(*vq_state).awoken) {
-                        get_core_data().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                        current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
                     }
                 }
 

@@ -13,7 +13,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::arch::cpuid::{
+use hal::cpu::cpuid::{
     check_xsave_support,
     get_xsave_details,
 };

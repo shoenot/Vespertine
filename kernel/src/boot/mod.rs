@@ -1,6 +1,6 @@
 pub mod smp;
 
-use hal::arch::cpu::halt_loop;
+use hal::cpu::halt_loop;
 use limine::request::{
     FramebufferRequest,
     HhdmRequest,

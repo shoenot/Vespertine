@@ -3,10 +3,12 @@ use core::ops::{
     Deref,
     DerefMut,
 };
+use core::ptr::null_mut;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use super::gdt::*;
 use crate::arch::x86_64::apic::lapic::ApicMode;
-use crate::core::cpu::KernelCoreData;
+use crate::core::cpu::{KernelCoreData, MAX_CORES};
 use crate::core::thread::dispatch::create_tcb;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::callout::timer_daemon;
@@ -17,6 +19,8 @@ use crate::{
 };
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
+
+static ARCH_CPU_DATA: [AtomicPtr<CPULocalData>; MAX_CORES] = [const { AtomicPtr::new(null_mut()) }; MAX_CORES];
 
 #[repr(C)]
 pub struct CPULocalData {
@@ -57,16 +61,6 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
     }
 }
 
-pub fn init_timer_daemon(data_ptr: *mut CPULocalData) {
-    unsafe {
-        let data = &mut *data_ptr;
-        let timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
-        (*timer_daemon_tcb).pin_to_core(data.logical_id);
-        data.timer_daemon_tcb = timer_daemon_tcb;
-        data.scheduler.push(timer_daemon_tcb);
-    }
-}
-
 unsafe extern "sysv64" {
     pub(in crate::arch::x86_64::cpu) fn load_gdt(ptr: &GDTPointer);
 }
@@ -92,4 +86,28 @@ pub fn get_core_data() -> &'static mut CPULocalData {
         asm!("mov {}, gs:[0]", out(reg) data_addr, options(nomem, nostack, preserves_flags));
         &mut *(data_addr as *mut CPULocalData)
     }
+}
+
+
+pub fn register_arch_core_data(logical_id: usize, data_ptr: *mut CPULocalData) {
+    assert!(logical_id < MAX_CORES, "Invalid Core ID");
+    ARCH_CPU_DATA[logical_id].store(data_ptr, Ordering::Release);
+}
+
+pub fn arch_core_data_for(logical_id: usize) -> &'static CPULocalData {
+    assert!(logical_id < MAX_CORES, "Invalid Core ID");
+    let ptr = ARCH_CPU_DATA[logical_id].load(Ordering::Acquire);
+    assert!(!ptr.is_null(), "Uninitialized arch core");
+    unsafe { &*ptr }
+}
+
+pub fn arch_core_data_for_mut(logical_id: usize) -> &'static mut CPULocalData {
+    assert!(logical_id < MAX_CORES, "Invalid Core ID");
+    let ptr = ARCH_CPU_DATA[logical_id].load(Ordering::Acquire);
+    assert!(!ptr.is_null(), "Uninitialized arch core");
+    unsafe { &mut *ptr }
+}
+
+pub fn current_kernel_core_data() -> *mut KernelCoreData {
+    &mut get_core_data().kernel_data as *mut KernelCoreData
 }

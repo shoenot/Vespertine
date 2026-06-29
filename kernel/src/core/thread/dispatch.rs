@@ -6,13 +6,11 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::get_core_data;
+use crate::arch::send_reschedule_ipi;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::task::context::init_thread_stack;
 use crate::core::cpu::{
-    NUM_CORES,
-    get_core_data_for,
-    try_get_core_data_for,
+    NUM_CORES, current_core_id, current_core_mut, get_core_data_for, try_get_core_data_for
 };
 use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;
@@ -44,7 +42,7 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
         (*tcb_ptr).set_assigned_core(best_core);
     }
 
-    let this_core = get_core_data().logical_id;
+    let this_core = current_core_id();
     let target_data = get_core_data_for(best_core);
 
     if best_core == this_core {
@@ -54,7 +52,7 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
         mailbox.push(tcb_ptr);
         drop(mailbox);
 
-        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
+        send_reschedule_ipi(best_core);
     }
     tcb_ptr
 }
@@ -82,7 +80,7 @@ pub fn spawn_user_thread(
         (*tcb_ptr).set_assigned_core(best_core);
     }
 
-    let this_core = get_core_data().logical_id;
+    let this_core = current_core_id();
     let target_data = get_core_data_for(best_core);
 
     if best_core == this_core {
@@ -92,7 +90,7 @@ pub fn spawn_user_thread(
         mailbox.push(tcb_ptr);
         drop(mailbox);
 
-        get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
+        send_reschedule_ipi(best_core);
     }
     tcb_ptr
 }
@@ -170,11 +168,10 @@ pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
     }
     unsafe {
         let tgt_core = (*thread).assigned_core();
-        let this_core = get_core_data().logical_id;
+        let this_core = current_core_id();
 
         if tgt_core != this_core {
-            let tgt_data = get_core_data_for(tgt_core);
-            get_core_data().apic_mode.send_ipi(tgt_data.lapic_id as u32, 40);
+            send_reschedule_ipi(tgt_core);
         }
     }
 }
@@ -185,17 +182,17 @@ pub fn enqueue_ready_thread(thread: *mut ThreadControlBlock) {
     }
 
     unsafe {
-        let this_core = get_core_data().logical_id;
+        let this_core = current_core_id();
         let target_core = (*thread).assigned_core();
 
         if this_core == target_core {
-            get_core_data().scheduler.push(thread);
+            current_core_mut().scheduler.push(thread);
         } else {
             let target_data = get_core_data_for(target_core);
             let mut mailbox = target_data.scheduler.mailbox.lock();
             mailbox.push(thread);
             drop(mailbox);
-            get_core_data().apic_mode.send_ipi(target_data.lapic_id as u32, 40);
+            send_reschedule_ipi(target_core);
         }
     }
 }

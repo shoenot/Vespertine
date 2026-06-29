@@ -1,0 +1,31 @@
+use core::arch::asm;
+
+#[inline(always)]
+pub fn get_cr3() -> u64 {
+    let cr3: u64;
+    unsafe {
+        asm!("mov {0}, cr3", 
+            out(reg) cr3,
+            options(nostack, preserves_flags));
+    };
+    cr3
+}
+
+#[inline(always)]
+pub fn load_cr3(addr: u64) {
+    unsafe {
+        asm!("mov cr3, {0}",
+            in(reg) addr,
+            options(nostack, preserves_flags));
+    };
+}
+
+#[inline(always)]
+pub fn flush_tlb(virt: u64) {
+    unsafe {
+        asm!("invlpg [{0}]", 
+            in(reg) virt,
+            options(nostack, preserves_flags))
+    }
+}
+

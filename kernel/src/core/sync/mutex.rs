@@ -9,13 +9,13 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::arch::interrupts::{
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 
-use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::core::cpu::current_core_mut;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
@@ -56,7 +56,7 @@ impl<T> Mutex<T> {
 
             disable_interrupts();
 
-            let sched = &mut get_core_data().scheduler;
+            let sched = &mut current_core_mut().scheduler;
             let mut wq = self.wait_queue.lock();
 
             // check if someone unlocked it while we were grabbing locks

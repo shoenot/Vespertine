@@ -5,13 +5,13 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::get_core_data;
+use crate::arch::{get_core_data, send_tlb_shootdown_ipi};
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::core::cpu::{
     NUM_CORES,
     get_core_data_for,
 };
-use crate::memory::paging::flush_tlb;
+use hal::mmu::flush_tlb;
 
 pub struct TLBShootdownInfo {
     pub addr: AtomicUsize,
@@ -83,7 +83,7 @@ pub fn shootdown(addr: usize, size: usize) {
         if id == this_core_id {
             continue;
         }
-        get_core_data_for(id).apic_mode.send_ipi(get_core_data_for(id).lapic_id as u32, 41);
+        send_tlb_shootdown_ipi(id);
     }
 
     flush_tlb(addr as u64);

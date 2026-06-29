@@ -11,16 +11,14 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::arch::cpu::halt_loop;
-use hal::arch::interrupts::disable_interrupts;
+use hal::cpu::halt_loop;
+use hal::interrupts::disable_interrupts;
 
-use crate::arch::get_core_data;
+use crate::arch::{send_reschedule_ipi, set_kernel_stack};
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::core::cpu::{
-    NO_STEAL_REQUEST,
-    NUM_CORES,
-    get_core_data_for,
+    NO_STEAL_REQUEST, NUM_CORES, current_core_mut, get_core_data_for
 };
 use crate::core::sync::TicketLock;
 use crate::core::thread::idle::*;
@@ -36,7 +34,7 @@ use crate::core::time::{
     ns_to_ticks,
     update_hardware_timer,
 };
-use crate::memory::paging::load_cr3;
+use hal::mmu::load_cr3;
 use crate::util::write_to_msr;
 use crate::{
     BOOTSTRAP_ALLOC,
@@ -238,10 +236,7 @@ impl SchedulerState {
         self.current_thread = next_thread;
 
         let next_stack_top = unsafe { (*next_thread).stack_base + (*next_thread).stack_size };
-        let core_data = get_core_data();
-        core_data.core_gdt.tss.rsp[0] = next_stack_top as u64;
-        core_data.kernel_rsp = next_stack_top;
-
+        set_kernel_stack(next_stack_top);
         update_hardware_timer();
 
         if prev_retired {
@@ -422,7 +417,7 @@ impl SchedulerState {
     }
 
     fn process_steal_request(&mut self) {
-        let requester = get_core_data().steal_requester.swap(NO_STEAL_REQUEST, Ordering::AcqRel);
+        let requester = current_core_mut().steal_requester.swap(NO_STEAL_REQUEST, Ordering::AcqRel);
 
         if requester == NO_STEAL_REQUEST || requester == self.core_logical_id {
             return;
@@ -444,7 +439,7 @@ impl SchedulerState {
         let target = get_core_data_for(requester);
         target.scheduler.mailbox.lock().push(donated);
 
-        get_core_data().apic_mode.send_ipi(target.lapic_id as u32, 40);
+        send_reschedule_ipi(requester);
     }
 
     fn request_stolen_work(&self) {
@@ -474,7 +469,7 @@ impl SchedulerState {
         };
 
         if victim.steal_requester.compare_exchange(NO_STEAL_REQUEST, this_core, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-            get_core_data().apic_mode.send_ipi(victim.lapic_id as u32, 40);
+            send_reschedule_ipi(victim.logical_id);
         }
     }
 }

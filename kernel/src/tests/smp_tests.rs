@@ -3,6 +3,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use crate::arch::send_reschedule_ipi;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::core::sync::{
     Mutex,
@@ -11,16 +12,16 @@ use crate::core::sync::{
 use crate::core::thread::schedule::ScheduleReason;
 use crate::time::sleep;
 use crate::{
-    get_core_data,
     klogln,
     terminate_thread,
 };
+use crate::core::cpu::{current_core_id, current_core_mut};
 
 #[allow(dead_code)]
 pub fn ap_test_thread(thread_id: usize) -> ! {
     let mut count: usize = 0;
     loop {
-        klogln!("This is thread {} on core {} and the counter is at {}", thread_id, get_core_data().lapic_id, count);
+        klogln!("This is thread {} on core {} and the counter is at {}", thread_id, current_core_id(), count);
         count += 1;
     }
 }
@@ -33,7 +34,7 @@ pub extern "C" fn contention_mutex_thread(_arg: usize) -> ! {
     for _ in 0..100_000 {
         let mut guard = MUTEX_RACE.lock();
         *guard += 1;
-        get_core_data().scheduler.schedule(ScheduleReason::Yield);
+        current_core_mut().scheduler.schedule(ScheduleReason::Yield);
         drop(guard);
     }
     THREADS_FINISHED.fetch_add(1, Ordering::Relaxed);
@@ -41,19 +42,17 @@ pub extern "C" fn contention_mutex_thread(_arg: usize) -> ! {
 }
 
 pub extern "C" fn ipi_sniper_thread(_id: usize) -> ! {
-    let apic = get_core_data().apic_mode.clone();
-
     for _ in 0..5 {
         sleep(1_000_000_000);
         klogln!("Core 1: Firing IPIs at sleeping cores");
 
-        apic.send_ipi(0, 40);
-        apic.send_ipi(2, 40);
-        apic.send_ipi(3, 40);
-        apic.send_ipi(4, 40);
-        apic.send_ipi(5, 40);
-        apic.send_ipi(6, 40);
-        apic.send_ipi(7, 40);
+        send_reschedule_ipi(0);
+        send_reschedule_ipi(2);
+        send_reschedule_ipi(3);
+        send_reschedule_ipi(4);
+        send_reschedule_ipi(5);
+        send_reschedule_ipi(6);
+        send_reschedule_ipi(7);
     }
 
     loop {
@@ -82,7 +81,7 @@ pub extern "C" fn producer_thread(_arg: usize) -> ! {
         }
 
         if tail % 4 == 0 {
-            get_core_data().scheduler.schedule(ScheduleReason::Yield);
+            current_core_mut().scheduler.schedule(ScheduleReason::Yield);
         }
 
         ITEMS_READY.signal();

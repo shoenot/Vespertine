@@ -2,8 +2,8 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
-use hal::arch::cpu::halt_loop;
-use hal::arch::interrupts::{
+use hal::cpu::halt_loop;
+use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
