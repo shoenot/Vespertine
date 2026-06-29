@@ -9,7 +9,8 @@ test = false
 bench = false
 
 [dependencies]
-vespertine-rt = { path = "../../lib/vespertine-rt" }
-vespertine-abi = { path = "../../lib/vespertine-abi" }
-vespertine-std = { path = "../../lib/vespertine-std" }
+vrt = { package = "vespertine-rt", path = "../../lib/vespertine-rt" }
+vabi = { package = "vespertine-abi", path = "../../lib/vespertine-abi" }
+vstd = { package = "vespertine-std", path = "../../lib/vespertine-std" }
+vapp = { package = "vespertine-app", path = "../../lib/vespertine-app" }
 vte = { version = "0.15.0", default-features = false }

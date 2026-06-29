@@ -78,28 +78,28 @@ pub fn init_virtio() -> Option<VirtioBlockDriver> {
             PCIBar::Memory { addr, .. } => addr,
             PCIBar::IOSpace { .. } => continue,
         };
-        
+
         let cap_start = bar_addr + cap.bar_offset as u64;
         let cap_len = core::cmp::max(cap.bar_len as u64, 1);
         let cap_end = cap_start + cap_len;
-        
+
         let start_phys = cap_start & !0xFFF;
         let end_phys = cap_end.div_ceil(4096) * 4096;
-        
+
         {
             let mut pager = PAGER.lock();
-        
+
             let mut page_phys = start_phys;
             while page_phys < end_phys {
                 pager.map_mmio_addr(page_phys).unwrap();
                 page_phys += 4096;
             }
         }
-        
+
         if mapped_bars[bar_idx] == 0 {
             mapped_bars[bar_idx] = bar_addr + *HHDMOFFSET as u64;
         }
-        
+
         let block_virt = cap_start + *HHDMOFFSET as u64;
 
         match cap.cfg_type {

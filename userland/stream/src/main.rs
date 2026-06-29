@@ -1,32 +1,15 @@
 #![no_std]
 #![no_main]
 extern crate alloc;
-
+use vstd::prelude::*;
 mod echo;
 mod read;
 mod write;
 
-use alloc::format;
 
-use vespertine_abi::{
-    HandleID,
-    ProcessInitPackage,
-};
-use vespertine_rt::syscall::{
-    sys_close,
+use vrt::syscall::{
     sys_read,
     sys_write,
-};
-use vespertine_std::fs::{
-    File,
-    Path,
-};
-use vespertine_std::typed::TypedWriter;
-use vespertine_std::{
-    Error,
-    Read,
-    Write,
-    env,
 };
 
 pub enum Input {
@@ -68,18 +51,8 @@ pub fn input_from_path(path: Option<&str>) -> Result<Input, Error> {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-    if let Err(e) = run(pkg) {
-        let out = TypedWriter::out();
-        let _ = out.error(&*format!("stream error: {:?}", e));
-        let _ = out.stream_end();
-    }
-    let _ = sys_close(env::sink());
-}
-
-fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
+#[vapp::main]
+fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     let args = env::args();
 
     let Some(command) = args.get(1) else {

@@ -165,6 +165,4 @@ pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     }
 }
 
-pub(in crate::arch::x86_64::interrupts) fn shootdown_handler() {
-    service_pending_shootdown();
-}
+pub(in crate::arch::x86_64::interrupts) fn shootdown_handler() { service_pending_shootdown(); }

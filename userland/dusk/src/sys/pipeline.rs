@@ -1,16 +1,9 @@
-use alloc::string::String;
-use alloc::vec;
-use alloc::vec::Vec;
-
-use vespertine_abi::app::hesper::AppIoMode;
-use vespertine_abi::HandleID;
-use vespertine_rt::thread as rt_thread;
-use vespertine_std::socket::Socket;
-use vespertine_std::term::unset_raw_mode;
-use vespertine_std::typed::render_typed_stream;
-use vespertine_std::{
-    env,
-    Error,
+use vabi::app::hesper::AppIoMode;
+use vrt::thread as rt_thread;
+use vstd::prelude::*;
+use vstd::term::unset_raw_mode;
+use vstd::typed::render_typed_stream;
+use vstd::{
     HandleWriter,
     Process,
 };
@@ -20,16 +13,16 @@ use crate::parser::ast::{
     CommandNode,
 };
 use crate::runtime::env::ShellContext;
+use crate::sys::ShellResult;
 use crate::sys::launch::{
-    spawn_command,
     SpawnedOutput,
+    spawn_command,
 };
 use crate::sys::metadata::load_program_metadata;
 use crate::sys::mode::{
-    choose_mode,
     CommandSink,
+    choose_mode,
 };
-use crate::sys::ShellResult;
 
 struct PipelineRun {
     processes: Vec<(String, Process)>,
@@ -89,13 +82,13 @@ fn spawn_base(base: &BaseNode, context: &ShellContext, source: HandleID, sink: C
 
             let right_source = if left_kind == AppIoMode::Typed && right_input == Some(AppIoMode::Text) {
                 let (text_rx, text_tx) = Socket::new_pair().map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), e))?;
-            
+
                 let source_socket = pipe_source;
                 let thread = rt_thread::spawn(move || {
                     let _ = render_typed_stream(source_socket, HandleWriter::new(text_tx.handle()));
                 })
                 .map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), Error::from(e)))?;
-            
+
                 let handle = text_rx.handle();
                 adapter_sockets.push(text_rx);
                 adapter_threads.push(thread);
@@ -104,15 +97,15 @@ fn spawn_base(base: &BaseNode, context: &ShellContext, source: HandleID, sink: C
                 let handle = pipe_source.handle();
                 let right_run = spawn_base(right, context, handle, sink)?;
                 drop(pipe_source);
-            
+
                 let mut processes = left_run.processes;
                 processes.extend(right_run.processes);
                 adapter_sockets.extend(right_run.adapter_sockets);
                 adapter_threads.extend(right_run.adapter_threads);
-            
+
                 return Ok(PipelineRun { processes, output: right_run.output, adapter_sockets, adapter_threads });
             };
-            
+
             let right_run = spawn_base(right, context, right_source, sink)?;
 
             let mut processes = left_run.processes;
@@ -121,7 +114,7 @@ fn spawn_base(base: &BaseNode, context: &ShellContext, source: HandleID, sink: C
             adapter_threads.extend(right_run.adapter_threads);
 
             Ok(PipelineRun { processes, output: right_run.output, adapter_sockets, adapter_threads })
-        },
+        }
     }
 }
 

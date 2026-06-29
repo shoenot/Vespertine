@@ -1,15 +1,13 @@
-use alloc::format;
-use alloc::vec::Vec;
 use core::cmp;
 use core::ptr::{
     read_volatile,
     write_volatile,
 };
 
-use vespertine_abi::HandleID;
-use vespertine_abi::app::termios::*;
-use vespertine_rt::syscall::sys_write_bytes;
-use vespertine_std::fb::Framebuffer;
+use vabi::app::termios::*;
+use vrt::syscall::sys_write_bytes;
+use vstd::fb::Framebuffer;
+use vstd::prelude::*;
 use vte::Perform;
 
 use crate::font;
@@ -206,13 +204,13 @@ impl Perform for TerminalGrid {
 impl TerminalGrid {
     pub fn draw_cell(&mut self, col: usize, row: usize) {
         let cell = self.cells[row * self.width_chars + col];
-    
+
         let x_start = PADDING_X + col * font::glyph_width();
         let y_start = PADDING_Y + row * font::glyph_height();
-    
+
         for y in 0..font::glyph_height() {
             let font_byte = font::glyph_row(cell.char, y);
-    
+
             for x in 0..font::glyph_width() {
                 let bit_is_set = (font_byte & (0x80 >> x)) != 0;
                 let color = if bit_is_set { cell.fg } else { cell.bg };
@@ -300,31 +298,27 @@ impl TerminalGrid {
         if !self.cursor_visible {
             return;
         }
-    
+
         let col = self.cursor_x;
         let row = self.cursor_y;
-    
+
         if col >= self.width_chars || row >= self.height_chars {
             return;
         }
-    
+
         let cell = self.cells[row * self.width_chars + col];
-    
+
         let x_start = PADDING_X + col * font::glyph_width();
         let y_start = PADDING_Y + row * font::glyph_height();
-    
+
         for y in 0..font::glyph_height() {
             let font_byte = font::glyph_row(cell.char, y);
-    
+
             for x in 0..font::glyph_width() {
                 let bit_is_set = (font_byte & (0x80 >> x)) != 0;
-    
-                let color = if show {
-                    if bit_is_set { cell.bg } else { cell.fg }
-                } else {
-                    if bit_is_set { cell.fg } else { cell.bg }
-                };
-    
+
+                let color = if show { if bit_is_set { cell.bg } else { cell.fg } } else { if bit_is_set { cell.fg } else { cell.bg } };
+
                 self.fb.write_pixel(x_start + x, y_start + y, color);
             }
         }

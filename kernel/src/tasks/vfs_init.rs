@@ -15,7 +15,6 @@ use crate::core::object::models::log::Log;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::mount::mount;
 use crate::core::object::models::namespace::{
-    DirLocation,
     kernel_namespace_authority,
     resolve_kernel_object,
 };
@@ -23,7 +22,6 @@ use crate::core::object::models::portal::PortalFactory;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{
-    ROOT_DIRECTORY,
     kernel_root_location,
     link_kernel_object,
     mount_kernel_object,

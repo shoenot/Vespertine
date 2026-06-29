@@ -5,7 +5,11 @@ use alloc::vec::Vec;
 use core::fmt::Display;
 
 use vespertine_abi::typed::{
-    DATETIME_EMPTY, DATETIME_HAS_OFFSET, DateTimeValue, DateValue, TimeValue
+    DATETIME_EMPTY,
+    DATETIME_HAS_OFFSET,
+    DateTimeValue,
+    DateValue,
+    TimeValue,
 };
 use vespertine_common::datetime::{
     datetime_to_epoch,
@@ -73,7 +77,7 @@ pub fn format_datetime(v: DateTimeValue, opts: DisplayOptions) -> String {
             let tz =
                 if opts.datetime_show_tz && (v.flags & DATETIME_HAS_OFFSET) != 0 { format_tz(v.offset_minutes) } else { String::new() };
             format!("{:04}-{:02}-{:02}T{}{}", dt.year, dt.month, dt.day, format_time(&dt, v.nanos, opts), tz)
-        },
+        }
     }
 }
 
@@ -150,19 +154,23 @@ impl DateTimeValueExt for DateTimeValue {
 
     fn from_iso_string(iso: &str) -> Option<DateTimeValue> {
         let bytes = iso.as_bytes();
-        if bytes.len() < 19 { return None; } // YYYY-MM-DDTHH:MM:SS at minimum
+        if bytes.len() < 19 {
+            return None;
+        } // YYYY-MM-DDTHH:MM:SS at minimum
 
         // date
         if bytes[4] != b'-' || bytes[7] != b'-' || (bytes[10] != b'T' && bytes[10] != b' ') {
             return None;
         }
-        
+
         let year = parse_digits(&bytes[0..4])? as i32;
         let month = parse_digits(&bytes[5..7])? as u8;
         let day = parse_digits(&bytes[8..10])? as u8;
-        
-        if bytes[13] != b':' || bytes[16] != b':' { return None; }
-       
+
+        if bytes[13] != b':' || bytes[16] != b':' {
+            return None;
+        }
+
         // time
         let hour = parse_digits(&bytes[11..13])? as u8;
         let minute = parse_digits(&bytes[14..16])? as u8;
@@ -184,7 +192,9 @@ impl DateTimeValueExt for DateTimeValue {
                 cursor += 1;
             }
             let digit_count = cursor - start;
-            if digit_count == 0 { return None; }
+            if digit_count == 0 {
+                return None;
+            }
 
             let mut fraction = parse_digits(&bytes[start..cursor])?;
             // scale to nanoseconds (9 digits)
@@ -197,20 +207,28 @@ impl DateTimeValueExt for DateTimeValue {
         }
 
         // tz offset
-        if cursor >= bytes.len() { return None; } // no tz indicator
-        
+        if cursor >= bytes.len() {
+            return None;
+        } // no tz indicator
+
         let offset_minutes = match bytes[cursor] {
             b'Z' | b'z' => {
-                if cursor + 1 != bytes.len() { return None; } // Z but its not the last letter
+                if cursor + 1 != bytes.len() {
+                    return None;
+                } // Z but its not the last letter
                 0
             }
             sign @ (b'+' | b'-') => {
                 let tz_bytes = &bytes[cursor + 1..];
-                if tz_bytes.len() != 5 || tz_bytes[2] != b':' { return None; }
-                
+                if tz_bytes.len() != 5 || tz_bytes[2] != b':' {
+                    return None;
+                }
+
                 let tz_hour = parse_digits(&tz_bytes[0..2])? as i32;
                 let tz_min = parse_digits(&tz_bytes[3..5])? as i32;
-                if tz_hour > 23 || tz_min > 59 { return None; }
+                if tz_hour > 23 || tz_min > 59 {
+                    return None;
+                }
 
                 let total_minutes = tz_hour * 60 + tz_min;
                 if sign == b'-' { -total_minutes } else { total_minutes }
@@ -218,12 +236,8 @@ impl DateTimeValueExt for DateTimeValue {
             _ => return None, // invalid timezone symbol
         };
 
-        let date = DateValue {
-            year, month, day, calendar: 0, flags: 0, 
-        };
-        let time = TimeValue {
-            hour, minute, second, nanos, offset_minutes, reserved: 0, flags: DATETIME_HAS_OFFSET
-        };
+        let date = DateValue { year, month, day, calendar: 0, flags: 0 };
+        let time = TimeValue { hour, minute, second, nanos, offset_minutes, reserved: 0, flags: DATETIME_HAS_OFFSET };
 
         Some(DateTimeValue::from_date_and_time(date, time))
     }
@@ -280,17 +294,16 @@ impl DateTimeValueExt for DateTimeValue {
 pub fn convert_iso_datetime(iso: String) -> DateTimeValue {
     match DateTimeValue::from_iso_string(iso.as_str()) {
         Some(dt) => dt,
-        None => DateTimeValue { 
-            unix_seconds: 0, nanos: 0, offset_minutes: 0,
-            flags: DATETIME_EMPTY, reserved: 0, calendar: 0,
-        },
+        None => DateTimeValue { unix_seconds: 0, nanos: 0, offset_minutes: 0, flags: DATETIME_EMPTY, reserved: 0, calendar: 0 },
     }
 }
 
 fn parse_digits(bytes: &[u8]) -> Option<u32> {
     let mut val = 0u32;
     for &b in bytes {
-        if !b.is_ascii_digit() { return None; }
+        if !b.is_ascii_digit() {
+            return None;
+        }
         val = val.checked_mul(10)?.checked_add((b - b'0') as u32)?;
     }
     Some(val)
@@ -298,14 +311,14 @@ fn parse_digits(bytes: &[u8]) -> Option<u32> {
 
 fn write_digits(buf: &mut alloc::vec::Vec<u8>, mut val: u32, width: usize) {
     let start_idx = buf.len();
-    
+
     // write digits backwards
     for _ in 0..width {
         let digit = (val % 10) as u8;
         buf.push(b'0' + digit);
         val /= 10;
     }
-    
+
     // reverse the newly appended slice to match correct order
     buf[start_idx..].reverse();
 }

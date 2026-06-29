@@ -1,34 +1,24 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
 mod error;
 mod lexer;
 mod parser;
 mod runtime;
 mod sys;
-use alloc::string::String;
 
 use error::ShellError;
-use vespertine_abi::ProcessInitPackage;
-use vespertine_rt::println;
-use vespertine_rt::source::read_line;
-use vespertine_std::term::get_term_cursor_position;
+use vrt::source::read_line;
+use vstd::prelude::*;
+use vstd::term::get_term_cursor_position;
 
 use crate::runtime::ShellRuntime;
 use crate::sys::ShellResult;
 
-extern crate alloc;
-
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-    if let Err(e) = run(pkg) {
-        println!("[ERROR] shell error: {:?}", e);
-    }
-}
-
-#[unsafe(no_mangle)]
-fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), ShellError> {
+#[vapp::main]
+fn main(_pkg: &ProcessInitPackage) -> Result<(), ShellError> {
     let mut runtime = ShellRuntime::new();
 
     loop {

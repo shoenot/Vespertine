@@ -1,32 +1,37 @@
-use alloc::format;
-use alloc::vec::Vec;
-
-use vespertine_abi::app::hesper::{
-    AppIoMode, AppIoModes, HESPER_STATUS_INVALID_REQUEST, HESPER_STATUS_LAUNCH_FAILED, HESPER_STATUS_NOT_FOUND, HESPER_STATUS_NOT_IMPLEMENTED, HESPER_STATUS_OK
+use vabi::UserID;
+use vabi::app::hesper::{
+    AppIoMode,
+    AppIoModes,
+    HESPER_STATUS_INVALID_REQUEST,
+    HESPER_STATUS_LAUNCH_FAILED,
+    HESPER_STATUS_NOT_FOUND,
+    HESPER_STATUS_OK,
 };
-use vespertine_abi::tag::{CAP_LOGGER, CAP_PROCMAN};
-use vespertine_abi::{
-    AccessRights,
-    HandleID, UserID,
+use vabi::tag::CAP_PROCMAN;
+use vrt::syscall::{
+    sys_close,
+    sys_yield,
 };
-use vespertine_rt::syscall::{sys_close, sys_yield};
-use vespertine_std::broker::Broker;
-use vespertine_std::fs::{Path, resolve};
-use vespertine_std::hesper::{
-    CapabilityOffer, ExecuteRequest, HesperRequest, send_app_metadata_response, send_execute_response
+use vstd::Exec;
+use vstd::broker::Broker;
+use vstd::fs::resolve;
+use vstd::hesper::{
+    CapabilityOffer,
+    ExecuteRequest,
+    HesperRequest,
+    send_app_metadata_response,
+    send_execute_response,
 };
-use vespertine_std::log::SystemLog;
-use vespertine_std::portal::{
+use vstd::log::SystemLog;
+use vstd::portal::{
     accept_handle,
     offer_handle,
     revoke_offer,
 };
-use vespertine_std::socket::Socket;
-use vespertine_std::vreg::{ResolvedApplication, VRegistryClient};
-use vespertine_std::{
-    Error,
-    Exec,
-    Write, env,
+use vstd::prelude::*;
+use vstd::vreg::{
+    ResolvedApplication,
+    VRegistryClient,
 };
 
 use crate::meta::load_manifest;
@@ -72,21 +77,21 @@ fn resolve_request(name: &str) -> Result<ResolvedApplication, Error> {
     registry.resolve(name)
 }
 
-pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID) -> Result<(), Error> {
+pub fn handle_request(
+    socket: &Socket, request: HesperRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID,
+) -> Result<(), Error> {
     match request {
         HesperRequest::AppMetadata { request_id, request } => match resolve_request(&request.app_name) {
-            Ok(app) => {
-                send_app_metadata_response(
-                    socket,
-                    request_id,
-                    HESPER_STATUS_OK,
-                    app.input,
-                    app.modes,
-                    app.default_mode,
-                    &app.app_id,
-                    &app.display_name,
-                )
-            },
+            Ok(app) => send_app_metadata_response(
+                socket,
+                request_id,
+                HESPER_STATUS_OK,
+                app.input,
+                app.modes,
+                app.default_mode,
+                &app.app_id,
+                &app.display_name,
+            ),
             Err(error) => {
                 log.write_string(format!("metadata lookup failed for {}: {:?}", request.app_name, error))?;
                 send_launcher_not_found(socket, request_id);
@@ -96,11 +101,13 @@ pub fn handle_request(socket: &Socket, request: HesperRequest, log: &SystemLog, 
         HesperRequest::Execute { request_id, request } => {
             log.write_string(format!("execute requested: {} with {} arguments", request.app_name, request.arguments.len()))?;
             handle_execute(socket, request_id, request, log, policy, caller_user)
-        },
+        }
     }
 }
 
-fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID) -> Result<(), Error> {
+fn handle_execute(
+    socket: &Socket, request_id: u32, request: ExecuteRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID,
+) -> Result<(), Error> {
     let app = match resolve_request(&request.app_name) {
         Ok(app) => app,
         Err(error) => {
@@ -108,7 +115,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
             return Err(error);
         }
     };
-    
+
     let metadata = match load_manifest(&app.bundle) {
         Ok(metadata) => metadata,
         Err(error) => {
@@ -116,12 +123,18 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
             return Err(error);
         }
     };
-    
+
     if metadata.application.id != app.app_id {
-        let _ = send_execute_response(socket, request_id, HESPER_STATUS_INVALID_REQUEST, None, "application registry does not match bundle manifest");
+        let _ = send_execute_response(
+            socket,
+            request_id,
+            HESPER_STATUS_INVALID_REQUEST,
+            None,
+            "application registry does not match bundle manifest",
+        );
         return Err(Error::access_denied("registry app ID does not match bundle manifest".into()));
     }
-    
+
     let policy = match policy.resolve(&app.app_id, &metadata) {
         Ok(policy) => policy,
         Err(error) => {
@@ -133,11 +146,17 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
                 "application launch policy denied the request",
             );
             return Err(error);
-        },
+        }
     };
-    
+
     if request.mode == AppIoMode::Any || !app.modes.contains_mode(request.mode) {
-        let _ = send_execute_response(socket, request_id, HESPER_STATUS_INVALID_REQUEST, None, "application does not support requested launch mode");
+        let _ = send_execute_response(
+            socket,
+            request_id,
+            HESPER_STATUS_INVALID_REQUEST,
+            None,
+            "application does not support requested launch mode",
+        );
         return Err(Error::invalid_argument("application does not support requested launch mode".into()));
     }
 
@@ -159,7 +178,7 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
 
     let mut system_capabilities = Vec::new();
     let mut caller_capabilities = Vec::new();
-    
+
     for capability in &policy.capabilities {
         match request_system_capability(*capability) {
             Ok(Some(capability)) => system_capabilities.push(capability),
@@ -172,14 +191,13 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
                     None,
                     "application launch policy denied the request",
                 );
-    
+
                 return Err(error);
-            },
+            }
         }
     }
-    
-    let mut accepted_capabilities = match accept_capabilities(session, &request.capability_offers,
-    &caller_capabilities) {
+
+    let mut accepted_capabilities = match accept_capabilities(session, &request.capability_offers, &caller_capabilities) {
         Ok(capabilities) => capabilities,
 
         Err(error) => {
@@ -198,10 +216,11 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
     accepted_capabilities.extend(system_capabilities);
 
     log.write_string(format!("launching {}:{} as {}", app.app_id, app.entrypoint, app.binary))?;
-    
+
     let binary_path = format!("{}/bin/{}", app.bundle, app.binary);
-    
-    let spawn_result = (|| { let mut exec = Exec::open(&Path::new(&binary_path), app.binary)?
+
+    let spawn_result = (|| {
+        let mut exec = Exec::open(&Path::new(&binary_path), app.binary)?
             .start_suspended()
             .args(&request.arguments)
             .source(source.handle())
@@ -243,28 +262,22 @@ fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log
 }
 
 fn send_launcher_not_found(sock: &Socket, id: u32) {
-    let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_NOT_FOUND, 
-        AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
+    let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_NOT_FOUND, AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
 }
 
 fn send_launcher_invalid_request(sock: &Socket, id: u32) {
-    let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_INVALID_REQUEST, 
-        AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
+    let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_INVALID_REQUEST, AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
 }
 
 fn request_system_capability(policy: CapabilityPolicy) -> Result<Option<AcceptedCapability>, Error> {
     match policy.capability {
         CAP_PROCMAN => {
-            let broker_handle = resolve(&Path::new("/System/Services/ProcManager"),
-            AccessRights::READ)?;
+            let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ)?;
             let broker = Broker::from_handle(broker_handle);
             let handle = broker.request(policy.capability, policy.rights)?;
 
-            Ok(Some(AcceptedCapability {
-                handle: AcceptedHandle { handle },
-                policy,
-            }))
-        },
+            Ok(Some(AcceptedCapability { handle: AcceptedHandle { handle }, policy }))
+        }
 
         _ => Ok(None),
     }

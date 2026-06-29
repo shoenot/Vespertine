@@ -1,30 +1,24 @@
-use alloc::string::String;
-
-use vespertine_abi::app::hesper::AppIoMode;
-use vespertine_abi::HandleID;
-use vespertine_std::hesper::Launcher;
-use vespertine_std::socket::Socket;
-use vespertine_std::term::unset_raw_mode;
-use vespertine_std::typed::render_typed_stream;
-use vespertine_std::{
-    env,
-    Error,
-    ErrorKind,
+use vabi::app::hesper::AppIoMode;
+use vstd::hesper::Launcher;
+use vstd::prelude::*;
+use vstd::term::unset_raw_mode;
+use vstd::typed::render_typed_stream;
+use vstd::{
     HandleWriter,
     Process,
 };
 
 use crate::runtime::env::ShellContext;
+use crate::sys::ShellResult;
 use crate::sys::metadata::{
-    load_program_metadata,
     ProgramMetadata,
+    load_program_metadata,
 };
 use crate::sys::mode::{
+    CommandSink,
     choose_mode,
     needs_empty_direct_source,
-    CommandSink,
 };
-use crate::sys::ShellResult;
 
 pub(super) enum SpawnedOutput {
     Terminal,
@@ -52,7 +46,7 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
             Ok((read_end, write_end)) => {
                 drop(write_end);
                 Some(read_end)
-            },
+            }
             Err(error) => return ShellResult::FailedToLaunch(name.into(), error),
         }
     } else {
@@ -71,7 +65,7 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
                 return ShellResult::FailedToLaunch(name.into(), error);
             }
             wait_process(name, spawned.process)
-        },
+        }
         AppIoMode::Typed => {
             let spawned = match spawn_command(name, args, context, source, CommandSink::Pipe, metadata) {
                 Ok(spawned) => spawned,
@@ -88,7 +82,7 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
             if let Err(error) = spawned.process.resume() {
                 return ShellResult::FailedToLaunch(name.into(), error);
             }
-            
+
             let render_result = render_typed_stream(socket, HandleWriter::new(env::sink()));
             let wait_result = spawned.process.wait();
             let _ = unset_raw_mode();
@@ -98,10 +92,10 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
                 (_, Err(error)) => ShellResult::FailedToLaunch(name.into(), error),
                 (Err(error), _) => ShellResult::FailedToRender(name.into(), error),
             }
-        },
+        }
         AppIoMode::Any => {
             ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application selected invalid launch mode".into()))
-        },
+        }
     }
 }
 
@@ -119,15 +113,16 @@ pub(super) fn spawn_command(
         CommandSink::Terminal => {
             let process = launcher.launch(name, args, mode, source, env::sink(), context.cwd_handle()).map_err(map_launch_error(name))?;
             Ok(SpawnedCommand { process, output: SpawnedOutput::Terminal })
-        },
+        }
         CommandSink::Pipe => {
             let (read_end, child_sink) = Socket::new_pair().map_err(|error| ShellResult::FailedToLaunch(name.into(), error))?;
-            let process = launcher.launch(name, args, mode, source, child_sink.handle(), context.cwd_handle()).map_err(map_launch_error(name))?;
+            let process =
+                launcher.launch(name, args, mode, source, child_sink.handle(), context.cwd_handle()).map_err(map_launch_error(name))?;
 
             drop(child_sink);
 
             Ok(SpawnedCommand { process, output: SpawnedOutput::Piped { kind: mode, socket: read_end } })
-        },
+        }
     }
 }
 
@@ -143,10 +138,6 @@ fn wait_process(name: &str, proc: Process) -> ShellResult {
 
 fn map_launch_error(name: &str) -> impl FnOnce(Error) -> ShellResult + '_ {
     move |error| {
-        if error.kind == ErrorKind::NotFound {
-            ShellResult::NotFound(name.into())
-        } else {
-            ShellResult::FailedToLaunch(name.into(), error)
-        }
+        if error.kind == ErrorKind::NotFound { ShellResult::NotFound(name.into()) } else { ShellResult::FailedToLaunch(name.into(), error) }
     }
 }

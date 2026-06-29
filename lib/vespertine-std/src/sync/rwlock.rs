@@ -34,13 +34,7 @@ unsafe impl<T: Send> Send for RwLock<T> {}
 unsafe impl<T: Send + Sync> Sync for RwLock<T> {}
 
 impl<T> RwLock<T> {
-    pub const fn new(data: T) -> Self {
-        Self {
-            state: AtomicU32::new(0),
-            writers_waiting: AtomicU32::new(0),
-            data: UnsafeCell::new(data),
-        }
-    }
+    pub const fn new(data: T) -> Self { Self { state: AtomicU32::new(0), writers_waiting: AtomicU32::new(0), data: UnsafeCell::new(data) } }
 
     pub fn read(&self) -> RwLockReadGuard<'_, T> {
         let addr = &self.state as *const AtomicU32 as usize;
@@ -95,9 +89,7 @@ impl<T> RwLock<T> {
 impl<T> Deref for RwLockReadGuard<'_, T> {
     type Target = T;
 
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.data.get() }
-    }
+    fn deref(&self) -> &Self::Target { unsafe { &*self.lock.data.get() } }
 }
 
 impl<T> Drop for RwLockReadGuard<'_, T> {
@@ -113,15 +105,11 @@ impl<T> Drop for RwLockReadGuard<'_, T> {
 impl<T> Deref for RwLockWriteGuard<'_, T> {
     type Target = T;
 
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.data.get() }
-    }
+    fn deref(&self) -> &Self::Target { unsafe { &*self.lock.data.get() } }
 }
 
 impl<T> DerefMut for RwLockWriteGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.data.get() }
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { unsafe { &mut *self.lock.data.get() } }
 }
 
 impl<T> Drop for RwLockWriteGuard<'_, T> {

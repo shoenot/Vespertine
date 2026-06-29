@@ -1,16 +1,10 @@
 pub mod ast;
 
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::vec::{
-    IntoIter,
-    Vec,
-};
-use vespertine_rt::println;
+use alloc::vec::IntoIter;
 use core::iter::Peekable;
 
 use ast::*;
-use vespertine_std::fs::PathBuf;
+use vstd::prelude::*;
 
 use crate::error::ShellError;
 use crate::lexer::Token;

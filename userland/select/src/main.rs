@@ -2,46 +2,21 @@
 #![no_std]
 
 extern crate alloc;
-
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 
-use vespertine_abi::ProcessInitPackage;
-use vespertine_abi::typed::STREAM_INTENT_DETAILS;
-use vespertine_cli::args::{
+use vabi::typed::STREAM_INTENT_DETAILS;
+use vcli::args::{
     Command,
     Opt,
 };
-use vespertine_rt::println;
-use vespertine_rt::syscall::sys_close;
-use vespertine_std::typed::{
-    RecordFieldInfo as StdRecordFieldInfo,
-    ShellValue,
-    TypedReader,
-    TypedValue,
-    TypedWriter,
-};
-use vespertine_std::{
-    Error,
+use vstd::prelude::*;
+use vstd::typed::RecordFieldInfo as StdRecordFieldInfo;
+use vstd::{
     HandleReader,
     HandleWriter,
-    env,
 };
 
-static SELECT_OPTIONS: &[Opt] = &[
-    Opt::flag("help", Some('h'), Some("help")),
-];
-
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let _pkg = unsafe { &*pkg_ptr };
-
-    if let Err(error) = run() {
-        println!("select error: {:?}", error);
-    }
-
-    let _ = sys_close(env::sink());
-}
+static SELECT_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
 
 struct Presentation {
     schema_id: u64,
@@ -54,12 +29,10 @@ struct Record {
     fields: Vec<TypedValue>,
 }
 
-fn run() -> Result<(), Error> {
+#[vapp::main]
+fn main() -> Result<(), Error> {
     let args = env::args();
-    let matches = Command::new("select")
-        .options(SELECT_OPTIONS)
-        .parse(&args[1..])
-        .map_err(Error::from)?;
+    let matches = Command::new("select").options(SELECT_OPTIONS).parse(&args[1..]).map_err(Error::from)?;
 
     if matches.flag("help") {
         println!("usage: select [index]");
@@ -80,25 +53,25 @@ fn run() -> Result<(), Error> {
 
     while let Some(value) = reader.next_value()? {
         match value {
-            ShellValue::StreamIntent { .. } => {},
+            ShellValue::StreamIntent { .. } => {}
             ShellValue::RecordSchema { schema_id, fields } => {
                 schemas.insert(schema_id, fields);
-            },
+            }
             ShellValue::RecordPresentation { schema_id, presentation, fields } => {
                 presentations.push(Presentation { schema_id, presentation, fields });
-            },
+            }
             ShellValue::Value(TypedValue::Record { schema_id, fields }) => {
                 records.push(Record { schema_id, fields });
-            },
+            }
             ShellValue::Value(_) => {
                 return Err(Error::invalid_argument("select expected a record stream".into()));
-            },
+            }
             ShellValue::StreamEnd => {
                 break;
-            },
+            }
             ShellValue::Error(message) => {
                 return Err(Error::invalid_argument(message));
-            },
+            }
         }
     }
 
@@ -121,10 +94,7 @@ fn run() -> Result<(), Error> {
         }
     }
 
-    writer.value(&TypedValue::Record {
-        schema_id: record.schema_id,
-        fields: record.fields.clone(),
-    })?;
+    writer.value(&TypedValue::Record { schema_id: record.schema_id, fields: record.fields.clone() })?;
 
     writer.stream_end()?;
 
@@ -153,9 +123,7 @@ fn parse_index(value: &str) -> Result<usize, Error> {
 }
 
 fn write_schema(writer: &TypedWriter<HandleWriter>, schema_id: u64, fields: &[StdRecordFieldInfo]) -> Result<(), Error> {
-    let specs = fields.iter()
-        .map(|field| (field.name.as_str(), field.ty))
-        .collect::<Vec<_>>();
+    let specs = fields.iter().map(|field| (field.name.as_str(), field.ty)).collect::<Vec<_>>();
 
     writer.record_schema(schema_id, &specs)
 }

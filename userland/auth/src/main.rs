@@ -2,59 +2,29 @@
 #![no_main]
 
 extern crate alloc;
+use vstd::prelude::*;
 
 mod accounts;
 
-use alloc::format;
-use alloc::sync::Arc;
-
-use vespertine_abi::AccessRights;
-use vespertine_abi::HandleID;
-use vespertine_abi::ProcessInitPackage;
-use vespertine_abi::app::auth::AUTH_DEFAULT_USER_RESPONSE;
-use vespertine_abi::app::auth::AUTH_LOOKUP_RESPONSE;
-use vespertine_abi::app::auth::AUTH_STATUS_OK;
-use vespertine_abi::tag::CAP_AUTH_CONNECT;
-use vespertine_rt::syscall::sys_close;
-use vespertine_rt::{
-    println,
-    thread as rt_thread,
-};
-use vespertine_std::auth::{
+use vabi::app::auth::AUTH_STATUS_OK;
+use vabi::tag::CAP_AUTH_CONNECT;
+use vrt::syscall::sys_close;
+use vrt::thread as rt_thread;
+use vstd::auth::{
     AuthRequest,
     recv_auth_request,
     send_account_response,
     status_from_error,
 };
-use vespertine_std::fs::{
-    Path,
+use vstd::fs::{
     link_object,
     resolve,
 };
-use vespertine_std::log::SystemLog;
-use vespertine_std::payload::PayloadReader;
-use vespertine_std::portal::PortalFactory;
-use vespertine_std::proc::Waiter;
-use vespertine_std::socket::Socket;
-use vespertine_std::{
-    Error,
-    ErrorKind,
-    Read,
-    Write,
-};
+use vstd::log::SystemLog;
+use vstd::portal::PortalFactory;
+use vstd::proc::Waiter;
 
 use crate::accounts::AccountStore;
-
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-
-    if let Err(error) = run() {
-        println!("[ERROR] auth failed: {:?}", error);
-    }
-
-    let _ = sys_close(pkg.sink_handle);
-}
 
 fn recv_auth_accept(socket: &Socket) -> Result<HandleID, Error> {
     let mut bytes = [0u8; 8];
@@ -64,14 +34,12 @@ fn recv_auth_accept(socket: &Socket) -> Result<HandleID, Error> {
 
 fn handle_request(socket: &Socket, request: AuthRequest, accounts: &AccountStore, log: &SystemLog) -> Result<(), Error> {
     match request {
-        AuthRequest::DefaultUser { request_id } => {
-            match accounts.default_user().and_then(|account| account.info()) {
-                Ok(account) => send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account)),
-                Err(error) => {
-                    let _ = log.write_string(format!("auth default user lookup failed: {:?}", error));
-                    send_account_response(socket, request_id, status_from_error(&error), None)?;
-                    Err(error)
-                },
+        AuthRequest::DefaultUser { request_id } => match accounts.default_user().and_then(|account| account.info()) {
+            Ok(account) => send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account)),
+            Err(error) => {
+                let _ = log.write_string(format!("auth default user lookup failed: {:?}", error));
+                send_account_response(socket, request_id, status_from_error(&error), None)?;
+                Err(error)
             }
         },
         AuthRequest::LookupId { request_id, user } => {
@@ -81,22 +49,20 @@ fn handle_request(socket: &Socket, request: AuthRequest, accounts: &AccountStore
                     let result = send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account));
                     let _ = log.write_string(format!("auth lookup id {} response sent", user.0));
                     result
-                },
+                }
                 Err(error) => {
                     let _ = log.write_string(format!("auth user id lookup failed for {}: {:?}", user.0, error));
                     send_account_response(socket, request_id, status_from_error(&error), None)?;
                     Err(error)
-                },
+                }
             }
-        },
-        AuthRequest::LookupName { request_id, name } => {
-            match accounts.by_name(&name).and_then(|account| account.info()) {
-                Ok(account) => send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account)),
-                Err(error) => {
-                    let _ = log.write_string(format!("auth user name lookup failed for {}: {:?}", name, error));
-                    send_account_response(socket, request_id, status_from_error(&error), None)?;
-                    Err(error)
-                },
+        }
+        AuthRequest::LookupName { request_id, name } => match accounts.by_name(&name).and_then(|account| account.info()) {
+            Ok(account) => send_account_response(socket, request_id, AUTH_STATUS_OK, Some(&account)),
+            Err(error) => {
+                let _ = log.write_string(format!("auth user name lookup failed for {}: {:?}", name, error));
+                send_account_response(socket, request_id, status_from_error(&error), None)?;
+                Err(error)
             }
         },
     }
@@ -110,11 +76,13 @@ fn spawn_auth_session(handle: HandleID, accounts: Arc<AccountStore>) -> Result<(
         loop {
             let request = match recv_auth_request(&socket) {
                 Ok(request) => request,
-                Err(error) if error.kind == ErrorKind::EndOfStream => { break; },
+                Err(error) if error.kind == ErrorKind::EndOfStream => {
+                    break;
+                }
                 Err(error) => {
                     let _ = log.write_string(format!("auth session failed: {:?}", error));
                     break;
-                },
+                }
             };
 
             if let Err(error) = handle_request(&socket, request, &accounts, &log) {
@@ -141,7 +109,8 @@ fn publish_service() -> Result<Socket, Error> {
     Ok(Socket::from_handle(accept))
 }
 
-fn run() -> Result<(), Error> {
+#[vapp::main]
+fn main() -> Result<(), Error> {
     let log = SystemLog::connect();
 
     println!("[INFO] auth starting");
@@ -156,7 +125,7 @@ fn run() -> Result<(), Error> {
             println!("[ERROR] auth account load failed: {:?}", error);
             let _ = log.write_string(format!("auth account load failed: {:?}", error));
             return Err(error);
-        },
+        }
     };
 
     println!("[INFO] auth publishing service");
@@ -168,7 +137,7 @@ fn run() -> Result<(), Error> {
             println!("[ERROR] auth service publish failed: {:?}", error);
             let _ = log.write_string(format!("auth service publish failed: {:?}", error));
             return Err(error);
-        },
+        }
     };
 
     println!("[INFO] auth online");
@@ -185,13 +154,12 @@ fn run() -> Result<(), Error> {
                     if let Err(error) = spawn_auth_session(session, accounts.clone()) {
                         let _ = log.write_string(format!("failed to spawn auth session: {:?}", error));
                     }
-                },
+                }
                 Err(error) => {
                     let _ = log.write_string(format!("invalid auth accept message: {:?}", error));
-                },
+                }
             }
         }
         waiter.clear();
     }
 }
-

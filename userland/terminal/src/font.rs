@@ -21,13 +21,9 @@ pub fn glyph_row(c: char, row: usize) -> u8 {
 
 fn font_charsize() -> usize { FONT_DATA[3] as usize }
 
-fn font_glyph_count() -> usize {
-    if (FONT_DATA[2] & PSF1_MODE512) != 0 { 512 } else { 256 }
-}
+fn font_glyph_count() -> usize { if (FONT_DATA[2] & PSF1_MODE512) != 0 { 512 } else { 256 } }
 
-fn font_has_unicode_table() -> bool {
-    (FONT_DATA[2] & PSF1_MODEHASTAB) != 0
-}
+fn font_has_unicode_table() -> bool { (FONT_DATA[2] & PSF1_MODEHASTAB) != 0 }
 
 fn font_glyph_offset(index: usize) -> Option<usize> {
     if FONT_DATA.len() < 4 || FONT_DATA[0] != PSF1_MAGIC0 || FONT_DATA[1] != PSF1_MAGIC1 {

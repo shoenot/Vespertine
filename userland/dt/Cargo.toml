@@ -9,9 +9,10 @@ test = false
 bench = false
 
 [dependencies]
-vespertine-rt = { path = "../../lib/vespertine-rt" }
-vespertine-abi = { path = "../../lib/vespertine-abi" }
-vespertine-std = { path = "../../lib/vespertine-std" }
-vespertine-cli = { path = "../../lib/vespertine-cli" }
+vrt = { package = "vespertine-rt", path = "../../lib/vespertine-rt" }
+vabi = { package = "vespertine-abi", path = "../../lib/vespertine-abi" }
+vstd = { package = "vespertine-std", path = "../../lib/vespertine-std" }
+vapp = { package = "vespertine-app", path = "../../lib/vespertine-app" }
+vcli = { package = "vespertine-cli", path = "../../lib/vespertine-cli/" }
 chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 chrono-tz = { version = "0.10", default-features = false, features = ["case-insensitive"] }

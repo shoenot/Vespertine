@@ -1,26 +1,15 @@
 pub mod env;
-use alloc::string::{
-    String,
-    ToString,
-};
-
-use vespertine_abi::app::hesper::{
+use vabi::app::hesper::{
     HESPER_STATUS_INVALID_REQUEST,
     HESPER_STATUS_NOT_FOUND,
     HESPER_STATUS_OK,
 };
-use vespertine_rt::{
-    print,
-    println,
-};
-use vespertine_std::hesper::{
+use vstd::hesper::{
     AppMetadataResponse,
     Launcher,
 };
-use vespertine_std::{
-    Error,
-    term,
-};
+use vstd::prelude::*;
+use vstd::term;
 
 use crate::error::ShellError;
 use crate::lexer::Tokenizer;
@@ -59,7 +48,7 @@ impl ShellRuntime {
     }
 
     pub fn draw_prompt(&self) {
-        print!("{} \x1b[35m{} >> \x1b[0m", self.context.cwd().to_string(), self.context.status());
+        print!("\x1b[34m{}\x1b[0m \x1b[35m{}\n>> \x1b[0m", self.context.cwd().to_string(), self.context.status());
     }
 
     pub fn run_command(&mut self, cmd: CommandNode) -> ShellResult {
@@ -83,8 +72,7 @@ impl ShellRuntime {
             },
             CommandNode::GetMetadata { app } => match get_app_metadata(app.as_str()) {
                 Ok(md) => {
-                    println!("id: {}; input: {}; modes: {}; default: {};", 
-                        md.app_id, md.input as u8, md.modes.0, md.default_mode as u8);
+                    println!("id: {}; input: {}; modes: {}; default: {};", md.app_id, md.input as u8, md.modes.0, md.default_mode as u8);
                     ShellResult::None
                 }
                 Err(error) => ShellResult::InternalError(error),
@@ -92,7 +80,7 @@ impl ShellRuntime {
             CommandNode::Autopsy => {
                 println!("{}", self.context.last_details());
                 ShellResult::None
-            },
+            }
             CommandNode::NoOp => ShellResult::None,
         }
     }

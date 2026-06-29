@@ -5,11 +5,13 @@ use alloc::vec::Vec;
 use core::ptr::read_unaligned;
 use core::slice;
 
-use vespertine_abi::AccessRights;
-use vespertine_abi::UserID;
 use vespertine_abi::app::auth::*;
 use vespertine_abi::tag::CAP_AUTH_CONNECT;
 use vespertine_abi::typed::UserValue;
+use vespertine_abi::{
+    AccessRights,
+    UserID,
+};
 
 use crate::broker::Broker;
 use crate::fs::{
@@ -50,11 +52,7 @@ pub enum AuthRequest {
 
 #[derive(Debug)]
 pub enum AuthResponse {
-    Account {
-        request_id: u32,
-        status: u32,
-        account: Option<AccountInfo>,
-    },
+    Account { request_id: u32, status: u32, account: Option<AccountInfo> },
 }
 
 fn read_auth_header(reader: &mut PayloadReader<'_>) -> Result<u32, Error> {
@@ -153,17 +151,17 @@ pub fn recv_auth_request(socket: &Socket) -> Result<AuthRequest, Error> {
         AUTH_DEFAULT_USER_REQUEST => {
             reader.finish()?;
             Ok(AuthRequest::DefaultUser { request_id })
-        },
+        }
         AUTH_LOOKUP_ID_REQUEST => {
             let user = UserID(reader.read_u32()?);
             reader.finish()?;
             Ok(AuthRequest::LookupId { request_id, user })
-        },
+        }
         AUTH_LOOKUP_NAME_REQUEST => {
             let name = reader.read_string(MAX_USER_NAME, "account name")?;
             reader.finish()?;
             Ok(AuthRequest::LookupName { request_id, name })
-        },
+        }
         _ => Err(Error::invalid_argument("unknown auth request type".into())),
     }
 }
@@ -179,7 +177,7 @@ pub fn recv_auth_response(socket: &Socket) -> Result<AuthResponse, Error> {
             let account = if status == AUTH_STATUS_OK { Some(read_account(&mut reader)?) } else { None };
             reader.finish()?;
             Ok(AuthResponse::Account { request_id, status, account })
-        },
+        }
         _ => Err(Error::invalid_argument("unknown auth response type".into())),
     }
 }
@@ -201,7 +199,9 @@ impl AuthClient {
     fn next_id(&mut self) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
-        if self.next_id == 0 { self.next_id = 1; }
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
         id
     }
 
@@ -239,7 +239,7 @@ impl AuthClient {
                 }
 
                 account.ok_or_else(|| Error::invalid_argument("successful auth response omitted account".into()))
-            },
+            }
         }
     }
 }

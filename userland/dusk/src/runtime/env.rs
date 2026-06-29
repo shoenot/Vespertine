@@ -1,20 +1,9 @@
 use alloc::collections::btree_map::BTreeMap;
-use alloc::format;
-use alloc::string::String;
 
-use vespertine_abi::{
-    AccessRights,
-    HandleID, ProcTermReason,
-};
-use vespertine_rt::syscall::sys_close;
-use vespertine_std::fs::{
-    PathBuf,
-    resolve_from,
-};
-use vespertine_std::{
-    Error,
-    env,
-};
+use vabi::ProcTermReason;
+use vrt::syscall::sys_close;
+use vstd::fs::resolve_from;
+use vstd::prelude::*;
 
 use crate::sys::ShellResult;
 
@@ -55,41 +44,22 @@ impl ShellContext {
                 } else {
                     format!("({}: {})", info.status_code(), info.short_status())
                 }
-            },
+            }
             ShellResult::None => format!(""),
             _ => format!("(err)"),
         }
     }
 
-
     pub fn last_details(&self) -> String {
         match self.last_result.clone() {
-            ShellResult::Launched(info) => {
-                match info.term_reason {
-                    ProcTermReason::None => format!(
-                        "pid: {}, state: {:?}, threads: {}, memory: {} bytes",
-                        info.pid,
-                        info.state,
-                        info.active_threads,
-                        info.memory_usage
-                    ),
-                    ProcTermReason::Exited => format!(
-                        "pid: {}, exited with code {}",
-                        info.pid,
-                        info.term_code
-                    ),
-                    ProcTermReason::Terminated => format!(
-                        "pid: {}, terminated with reason {}",
-                        info.pid,
-                        info.term_code
-                    ),
-                    ProcTermReason::Faulted => format!(
-                        "pid: {}, faulted: {}, detail: {:#x}",
-                        info.pid,
-                        info.fault_name(),
-                        info.term_detail
-                    ),
-                }
+            ShellResult::Launched(info) => match info.term_reason {
+                ProcTermReason::None => format!(
+                    "pid: {}, state: {:?}, threads: {}, memory: {} bytes",
+                    info.pid, info.state, info.active_threads, info.memory_usage
+                ),
+                ProcTermReason::Exited => format!("pid: {}, exited with code {}", info.pid, info.term_code),
+                ProcTermReason::Terminated => format!("pid: {}, terminated with reason {}", info.pid, info.term_code),
+                ProcTermReason::Faulted => format!("pid: {}, faulted: {}, detail: {:#x}", info.pid, info.fault_name(), info.term_detail),
             },
             _ => format!(""),
         }

@@ -1,12 +1,6 @@
 #![no_std]
 #![no_main]
 
-use alloc::format;
-use alloc::string::{
-    String,
-    ToString,
-};
-
 use chrono::{
     DateTime,
     NaiveDateTime,
@@ -15,30 +9,21 @@ use chrono::{
     Utc,
 };
 use chrono_tz::Tz;
-use vespertine_abi::ProcessInitPackage;
-use vespertine_abi::typed::{
+use vabi::typed::{
     DATETIME_HAS_OFFSET,
     DateTimeValue,
 };
-use vespertine_cli::args::{
+use vcli::args::{
     Command,
     Opt,
 };
-use vespertine_rt::syscall::sys_close;
-use vespertine_std::clock::Time;
-use vespertine_std::typed::{
+use vstd::HandleReader;
+use vstd::clock::Time;
+use vstd::prelude::*;
+use vstd::typed::{
     DateTimeStyle,
     ShellValue,
-    TypedReader,
-    TypedValue,
-    TypedWriter,
     datetime_display,
-};
-use vespertine_std::{
-    Error,
-    ErrorKind,
-    HandleReader,
-    env,
 };
 
 extern crate alloc;
@@ -47,18 +32,8 @@ static NOW_OPTIONS: &[Opt] = &[Opt::value("display", Some('d'), Some("display"))
 
 static FROM_OPTIONS: &[Opt] = &[Opt::value("display", Some('d'), Some("display")), Opt::value("timezone", Some('z'), Some("timezone"))];
 
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-    let out = TypedWriter::out();
-    if let Err(e) = run(pkg) {
-        let _ = out.error(&*format!("dt error: {:?}", e));
-    }
-    let _ = out.stream_end();
-    let _ = sys_close(env::sink());
-}
-
-fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
+#[vapp::main]
+fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     let args = env::args();
     let (ts, _) = Time::now();
     let dt = DateTime::from_timestamp_secs(ts as i64)

@@ -1,13 +1,38 @@
 extern crate alloc;
-use alloc::vec::Vec;
-use alloc::string::String;
-use alloc::string::ToString;
 use alloc::collections::BTreeMap;
-use vespertine_abi::typed::STREAM_INTENT_TABLE;
-use vespertine_abi::typed::{RECORD_PRESENTATION_DEFAULT, RECORD_PRESENTATION_DETAILS, RECORD_PRESENTATION_TABLE, STREAM_INTENT_CHOICES, STREAM_INTENT_DEFAULT, STREAM_INTENT_DETAILS, STREAM_INTENT_LIST, ValueType};
+use alloc::string::{
+    String,
+    ToString,
+};
+use alloc::vec::Vec;
 
-use crate::{Error, HandleWriter, Read, Write, env};
-use crate::typed::{DisplayOptions, RecordFieldInfo, ShellValue, TypedReader, TypedValue, TypedWriter};
+use vespertine_abi::typed::{
+    RECORD_PRESENTATION_DEFAULT,
+    RECORD_PRESENTATION_DETAILS,
+    RECORD_PRESENTATION_TABLE,
+    STREAM_INTENT_CHOICES,
+    STREAM_INTENT_DEFAULT,
+    STREAM_INTENT_DETAILS,
+    STREAM_INTENT_LIST,
+    STREAM_INTENT_TABLE,
+    ValueType,
+};
+
+use crate::typed::{
+    DisplayOptions,
+    RecordFieldInfo,
+    ShellValue,
+    TypedReader,
+    TypedValue,
+    TypedWriter,
+};
+use crate::{
+    Error,
+    HandleWriter,
+    Read,
+    Write,
+    env,
+};
 
 pub struct TerminalRenderer<W> {
     out: W,
@@ -18,14 +43,8 @@ pub struct TerminalRenderer<W> {
 }
 
 impl<W: Write> TerminalRenderer<W> {
-    pub fn new(out: W) -> Self { 
-        Self { 
-            out, 
-            intent: STREAM_INTENT_DEFAULT,
-            schemas: BTreeMap::new(), 
-            presentations: BTreeMap::new(), 
-            needs_separator: false 
-        } 
+    pub fn new(out: W) -> Self {
+        Self { out, intent: STREAM_INTENT_DEFAULT, schemas: BTreeMap::new(), presentations: BTreeMap::new(), needs_separator: false }
     }
 
     fn begin_visible_value(&mut self) -> Result<(), Error> {
@@ -42,20 +61,20 @@ impl<W: Write> TerminalRenderer<W> {
             ShellValue::RecordSchema { schema_id, fields } => {
                 self.schemas.insert(schema_id, fields);
                 Ok(())
-            },
+            }
             ShellValue::RecordPresentation { schema_id, presentation, fields } => {
                 self.presentations.insert((schema_id, presentation), fields);
                 Ok(())
-            },
+            }
             ShellValue::StreamIntent { intent, .. } => {
                 self.intent = intent;
                 Ok(())
-            },
+            }
             ShellValue::Error(message) => {
                 self.begin_visible_value()?;
                 self.out.write_all(b"error: ")?;
                 self.out.write_all(message.as_bytes())
-            },
+            }
             ShellValue::StreamEnd => Ok(()),
         }
     }
@@ -72,7 +91,6 @@ impl<W: Write> TerminalRenderer<W> {
         }
     }
 
-
     fn render_record(&mut self, schema_id: u64, values: &[TypedValue]) -> Result<(), Error> {
         if self.intent == STREAM_INTENT_DETAILS {
             if let Some(schema) = self.schemas.get(&schema_id) {
@@ -87,17 +105,17 @@ impl<W: Write> TerminalRenderer<W> {
                 );
             }
         }
-    
+
         if let Some(fields) = self.presentations.get(&(schema_id, RECORD_PRESENTATION_DEFAULT)) {
             let mut printed = false;
             for field in fields {
                 let index = *field as usize;
-    
+
                 if let Some(value) = values.get(index) {
                     if printed {
                         self.out.write_all(b" ")?;
                     }
-    
+
                     let rendered = value.display_with(Default::default());
                     self.out.write_all(rendered.as_bytes())?;
                     printed = true;
@@ -107,7 +125,7 @@ impl<W: Write> TerminalRenderer<W> {
                 return Ok(());
             }
         }
-    
+
         if let Some(first) = values.first() {
             let rendered = first.display_with(Default::default());
             self.out.write_all(rendered.as_bytes())?;
@@ -123,32 +141,20 @@ pub fn render_typed_stream<R: Read, W: Write>(source: R, sink: W) -> Result<(), 
 
     stream.read_from(&reader, &sink, opts)?;
 
-    let Some(schema) = stream.schema() else { return Ok(()); };
+    let Some(schema) = stream.schema() else {
+        return Ok(());
+    };
 
     match stream.intent {
-        STREAM_INTENT_DETAILS => render_record_details(
-            &sink,
-            schema,
-            stream.presentation(RECORD_PRESENTATION_DETAILS),
-            &[],
-            &stream.rows,
-            opts,
-        ),
-        STREAM_INTENT_TABLE | STREAM_INTENT_CHOICES => render_record_table(
-            &sink,
-            schema,
-            stream.presentation(RECORD_PRESENTATION_TABLE),
-            &[],
-            &stream.rows,
-            opts,
-        ),
-        STREAM_INTENT_LIST | STREAM_INTENT_DEFAULT | _ => render_default_records(
-            &sink,
-            schema,
-            stream.presentation(RECORD_PRESENTATION_DEFAULT),
-            &stream.rows,
-            opts,
-        ),
+        STREAM_INTENT_DETAILS => {
+            render_record_details(&sink, schema, stream.presentation(RECORD_PRESENTATION_DETAILS), &[], &stream.rows, opts)
+        }
+        STREAM_INTENT_TABLE | STREAM_INTENT_CHOICES => {
+            render_record_table(&sink, schema, stream.presentation(RECORD_PRESENTATION_TABLE), &[], &stream.rows, opts)
+        }
+        STREAM_INTENT_LIST | STREAM_INTENT_DEFAULT | _ => {
+            render_default_records(&sink, schema, stream.presentation(RECORD_PRESENTATION_DEFAULT), &stream.rows, opts)
+        }
     }
 }
 
@@ -203,13 +209,13 @@ impl<W: Write> RecordStream<W> {
     pub fn details(&self, fields: &[&str]) -> Result<(), Error> { self.presentation(RECORD_PRESENTATION_DETAILS, fields) }
 
     pub fn intent(&self, intent: u16) -> Result<(), Error> { self.writer.stream_intent(intent, 0) }
-    
+
     pub fn list_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_LIST) }
-    
+
     pub fn details_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_DETAILS) }
 
     pub fn table_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_TABLE) }
-    
+
     pub fn choices_intent(&self) -> Result<(), Error> { self.intent(STREAM_INTENT_CHOICES) }
 
     pub fn row_values(&self, values: &[TypedValue]) -> Result<(), Error> {
@@ -247,21 +253,10 @@ impl<W: Write> RecordStream<W> {
 }
 
 pub fn render_default_records<W: Write>(
-    out: &W,
-    schema: &[RecordFieldInfo],
-    default_presentation: Option<&Vec<u16>>,
-    rows: &[Vec<TypedValue>],
-    opts: DisplayOptions,
+    out: &W, schema: &[RecordFieldInfo], default_presentation: Option<&Vec<u16>>, rows: &[Vec<TypedValue>], opts: DisplayOptions,
 ) -> Result<(), Error> {
-    let fields = if let Some(fields) = default_presentation {
-        if fields.is_empty() {
-            Vec::new()
-        } else {
-            fields.clone()
-        }
-    } else {
-        Vec::new()
-    };
+    let fields =
+        if let Some(fields) = default_presentation { if fields.is_empty() { Vec::new() } else { fields.clone() } } else { Vec::new() };
 
     for row in rows {
         if !fields.is_empty() {
@@ -300,11 +295,7 @@ pub fn render_default_records<W: Write>(
 }
 
 pub fn render_record_table<W: Write>(
-    out: &W,
-    schema: &[RecordFieldInfo],
-    table_presentation: Option<&Vec<u16>>,
-    requested: &[&str],
-    rows: &[Vec<TypedValue>],
+    out: &W, schema: &[RecordFieldInfo], table_presentation: Option<&Vec<u16>>, requested: &[&str], rows: &[Vec<TypedValue>],
     opts: DisplayOptions,
 ) -> Result<(), Error> {
     let columns = resolve_table_columns(schema, table_presentation, requested)?;
@@ -332,48 +323,44 @@ pub fn render_record_table<W: Write>(
     }
 
     write_table_cell(out, b"#", index_width)?;
-    
+
     for (pos, field_idx) in columns.iter().enumerate() {
         write_table_separator(out)?;
-    
+
         let name = schema.get(*field_idx as usize).map(|field| field.name.as_str()).unwrap_or("");
         write_table_cell(out, name.as_bytes(), widths[pos])?;
     }
-    
+
     out.write_all(b"\n")?;
-    
+
     write_table_rule_cell(out, index_width)?;
-    
+
     for width in &widths {
         write_table_rule_separator(out)?;
         write_table_rule_cell(out, *width)?;
     }
-    
+
     out.write_all(b"\n")?;
-    
+
     for (row_index, row) in rows.iter().enumerate() {
         let index = row_index.to_string();
-    
+
         write_table_cell(out, index.as_bytes(), index_width)?;
-    
+
         for (pos, field_idx) in columns.iter().enumerate() {
             write_table_separator(out)?;
-    
+
             let rendered = row.get(*field_idx as usize).map(|value| value.display_with(opts)).unwrap_or_else(String::new);
             write_table_cell(out, rendered.as_bytes(), widths[pos])?;
         }
-    
+
         out.write_all(b"\n")?;
     }
     Ok(())
 }
 
 pub fn render_record_details<W: Write>(
-    out: &W,
-    schema: &[RecordFieldInfo],
-    details_presentation: Option<&Vec<u16>>,
-    requested: &[&str],
-    rows: &[Vec<TypedValue>],
+    out: &W, schema: &[RecordFieldInfo], details_presentation: Option<&Vec<u16>>, requested: &[&str], rows: &[Vec<TypedValue>],
     opts: DisplayOptions,
 ) -> Result<(), Error> {
     let fields = resolve_details_fields(schema, details_presentation, requested)?;
@@ -426,7 +413,9 @@ fn resolve_table_columns(schema: &[RecordFieldInfo], table_presentation: Option<
     Ok((0..schema.len()).map(|idx| idx as u16).collect())
 }
 
-fn resolve_details_fields(schema: &[RecordFieldInfo], details_presentation: Option<&Vec<u16>>, requested: &[&str]) -> Result<Vec<u16>, Error> {
+fn resolve_details_fields(
+    schema: &[RecordFieldInfo], details_presentation: Option<&Vec<u16>>, requested: &[&str],
+) -> Result<Vec<u16>, Error> {
     if !requested.is_empty() {
         let mut fields = Vec::new();
 
@@ -448,12 +437,7 @@ fn resolve_details_fields(schema: &[RecordFieldInfo], details_presentation: Opti
 }
 
 fn render_one_record_details<W: Write>(
-    out: &W,
-    schema: &[RecordFieldInfo],
-    fields: &[u16],
-    row: &[TypedValue],
-    opts: DisplayOptions,
-    indent: usize,
+    out: &W, schema: &[RecordFieldInfo], fields: &[u16], row: &[TypedValue], opts: DisplayOptions, indent: usize,
 ) -> Result<(), Error> {
     let mut name_width = 0usize;
 
@@ -473,8 +457,7 @@ fn render_one_record_details<W: Write>(
             continue;
         };
 
-        let rendered = row.get(idx).map(|value|
-        value.display_with(opts)).unwrap_or_else(String::new);
+        let rendered = row.get(idx).map(|value| value.display_with(opts)).unwrap_or_else(String::new);
 
         write_indent(out, indent)?;
         out.write_all(field.name.as_bytes())?;
@@ -500,8 +483,7 @@ fn title_field_index(schema: &[RecordFieldInfo]) -> Option<usize> {
     None
 }
 
-fn row_title(schema: &[RecordFieldInfo], row: &[TypedValue], row_index: usize, opts: DisplayOptions)
--> String {
+fn row_title(schema: &[RecordFieldInfo], row: &[TypedValue], row_index: usize, opts: DisplayOptions) -> String {
     if let Some(index) = title_field_index(schema) {
         if let Some(value) = row.get(index) {
             return value.display_with(opts);
@@ -529,13 +511,9 @@ fn write_padded<W: Write>(out: &W, bytes: &[u8], width: usize) -> Result<(), Err
     Ok(())
 }
 
-fn write_table_separator<W: Write>(out: &W) -> Result<(), Error> {
-    out.write_all(" │ ".as_bytes())
-}
+fn write_table_separator<W: Write>(out: &W) -> Result<(), Error> { out.write_all(" │ ".as_bytes()) }
 
-fn write_table_rule_separator<W: Write>(out: &W) -> Result<(), Error> {
-    out.write_all("─┼─".as_bytes())
-}
+fn write_table_rule_separator<W: Write>(out: &W) -> Result<(), Error> { out.write_all("─┼─".as_bytes()) }
 
 fn write_table_cell<W: Write>(out: &W, bytes: &[u8], width: usize) -> Result<(), Error> {
     out.write_all(b" ")?;
@@ -543,9 +521,7 @@ fn write_table_cell<W: Write>(out: &W, bytes: &[u8], width: usize) -> Result<(),
     out.write_all(b" ")
 }
 
-fn write_table_rule_cell<W: Write>(out: &W, width: usize) -> Result<(), Error> {
-    write_rule(out, width + 2)
-}
+fn write_table_rule_cell<W: Write>(out: &W, width: usize) -> Result<(), Error> { write_rule(out, width + 2) }
 
 fn write_rule<W: Write>(out: &W, width: usize) -> Result<(), Error> {
     for _ in 0..width {
@@ -605,21 +581,21 @@ impl BufferedRecordStream {
             ShellValue::StreamIntent { intent, .. } => {
                 self.intent = intent;
                 Ok(BufferedPush::Continue)
-            },
+            }
             ShellValue::RecordSchema { schema_id, fields } => {
                 self.active_schema = Some(schema_id);
                 self.schemas.insert(schema_id, fields);
                 Ok(BufferedPush::Continue)
-            },
+            }
             ShellValue::RecordPresentation { schema_id, presentation, fields } => {
                 self.presentations.insert((schema_id, presentation), fields);
                 Ok(BufferedPush::Continue)
-            },
+            }
             ShellValue::Value(TypedValue::Record { schema_id, fields }) => {
                 self.active_schema = Some(schema_id);
                 self.rows.push(fields);
                 Ok(BufferedPush::Continue)
-            },
+            }
             ShellValue::Value(value) => Ok(BufferedPush::Scalar(value)),
             ShellValue::StreamEnd => Ok(BufferedPush::End),
             ShellValue::Error(message) => Err(Error::invalid_argument(message)),
@@ -629,27 +605,23 @@ impl BufferedRecordStream {
     pub fn read_from<R: Read, W: Write>(&mut self, reader: &TypedReader<R>, scalar_out: &W, opts: DisplayOptions) -> Result<(), Error> {
         while let Some(value) = reader.next_value()? {
             match self.push(value)? {
-                BufferedPush::Continue => {},
+                BufferedPush::Continue => {}
                 BufferedPush::Scalar(value) => {
                     let text = value.display_with(opts);
                     scalar_out.write_all(text.as_bytes())?;
                     scalar_out.write_all(b"\n")?;
-                },
+                }
                 BufferedPush::End => break,
             }
         }
         Ok(())
     }
 
-    pub fn schema(&self) -> Option<&Vec<RecordFieldInfo>> {
-        self.active_schema.and_then(|schema_id| self.schemas.get(&schema_id))
-    }
+    pub fn schema(&self) -> Option<&Vec<RecordFieldInfo>> { self.active_schema.and_then(|schema_id| self.schemas.get(&schema_id)) }
 
     pub fn presentation(&self, presentation: u16) -> Option<&Vec<u16>> {
         self.active_schema.and_then(|schema_id| self.presentations.get(&(schema_id, presentation)))
     }
 
-    pub fn clear_rows(&mut self) {
-        self.rows.clear();
-    }
+    pub fn clear_rows(&mut self) { self.rows.clear(); }
 }

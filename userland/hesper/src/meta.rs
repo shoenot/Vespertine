@@ -1,20 +1,11 @@
-use alloc::format;
-
-use config::manifest::{
+use vconfig::ConfigError;
+use vconfig::manifest::{
     AppManifest,
     EntrypointMetadata,
     parse_manifest,
     select_entrypoint as config_select_entrypoint,
 };
-use config::ConfigError;
-use vespertine_std::fs::{
-    File,
-    Path,
-};
-use vespertine_std::{
-    Error,
-    Read,
-};
+use vstd::prelude::*;
 
 fn config_error(error: ConfigError) -> Error {
     match error {

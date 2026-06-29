@@ -179,7 +179,7 @@ impl Socket {
             match self.read_timeout(buf, timeout_ds) {
                 Ok(0) => {
                     return Err(Error::end_of_stream("unexpected end of stream during timed read".into()));
-                },
+                }
                 Ok(n) => buf = &mut buf[n..],
                 Err(error) => return Err(error),
             }
@@ -189,30 +189,28 @@ impl Socket {
 
     pub fn recv_frame_timeout(&self, timeout_ds: usize) -> Result<PacketFrame, Error> {
         let mut header = PacketHeader::default();
-    
-        let header_bytes = unsafe {
-            slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>())
-        };
-    
+
+        let header_bytes = unsafe { slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>()) };
+
         self.read_exact_timeout(header_bytes, timeout_ds)?;
-    
+
         if header.magic != VESPER_MAGIC {
             return Err(Error::invalid_argument("invalid packet magic".into()));
         }
-    
+
         if header.version != 1 {
             return Err(Error::invalid_argument("unsupported packet version".into()));
         }
-    
+
         let payload_len = header.payload_len as usize;
         if payload_len > MAX_PACKET_PAYLOAD {
             return Err(Error::invalid_argument("packet payload exceeds limit".into()));
         }
-    
+
         let mut payload = Vec::new();
         payload.resize(payload_len, 0);
         self.read_exact_timeout(&mut payload, timeout_ds)?;
-    
+
         Ok(PacketFrame { header, payload })
     }
 

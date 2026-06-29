@@ -4,47 +4,19 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::string::String;
 use core::str;
 
-use vespertine_abi::{
-    AccessRights,
-    ProcessInitPackage,
-};
-use vespertine_common::datetime::epoch_to_datetime;
-use vespertine_rt::println;
-use vespertine_rt::syscall::sys_close;
-use vespertine_std::clock::Time;
-use vespertine_std::fs::{
-    Dir,
-    File,
-    Path,
-    resolve,
-};
-use vespertine_std::log::LogReader;
-use vespertine_std::{
-    Error,
-    ErrorKind,
-    Read,
-    Write,
-};
+use common::datetime::epoch_to_datetime;
+use vrt::syscall::sys_close;
+use vstd::clock::Time;
+use vstd::fs::resolve;
+use vstd::log::LogReader;
+use vstd::prelude::*;
 
 const LOG_ROOT: &str = "/System/Logs";
 const LOG_BOOT_ROOT: &str = "/System/Logs/Boots";
 const MAX_RECORD_BYTES: usize = 4096;
 const RETAIN_BOOT_COUNT: usize = 8;
-
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-
-    if let Err(error) = run() {
-        println!("vlog failed: {:?}", error);
-    }
-
-    let _ = sys_close(pkg.sink_handle);
-}
 
 struct AppendFile {
     file: File,
@@ -70,7 +42,8 @@ impl AppendFile {
     }
 }
 
-fn run() -> Result<(), Error> {
+#[vapp::main]
+fn main() -> Result<(), Error> {
     println!("vlog starting");
 
     ensure_dir(LOG_ROOT)?;
@@ -124,7 +97,7 @@ fn ensure_dir(path: &str) -> Result<(), Error> {
         Ok(handle) => {
             sys_close(handle).map_err(Error::from)?;
             Ok(())
-        },
+        }
         Err(error) if error.kind == ErrorKind::NotFound => Dir::create_dir(&Path::new(path)).map(|_| ()),
         Err(error) => Err(error),
     }
@@ -154,7 +127,7 @@ fn remove_tree(path: &str) -> Result<(), Error> {
         Ok(dir) => dir,
         Err(_) => {
             return Dir::remove(&Path::new(path));
-        },
+        }
     };
 
     let mut children = alloc::vec::Vec::new();
@@ -214,7 +187,7 @@ fn json_string(record: &str, key: &str) -> Option<String> {
                     b't' => value.push('\t'),
                     other => value.push(other as char),
                 }
-            },
+            }
             byte => value.push(byte as char),
         }
 
@@ -237,5 +210,5 @@ fn sanitize_name(name: &str) -> String {
     if out.is_empty() {
         out.push_str("unknown");
     }
-    out 
+    out
 }

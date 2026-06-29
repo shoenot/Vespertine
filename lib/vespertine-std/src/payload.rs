@@ -1,9 +1,14 @@
 extern crate alloc;
 
-use crate::{Error, portal::PortalOfferId};
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::{
+    String,
+    ToString,
+};
 use alloc::vec::Vec;
+
+use crate::Error;
+use crate::portal::PortalOfferId;
 
 // ------ PACKET READING ------ //
 
@@ -104,4 +109,3 @@ pub fn write_string(output: &mut Vec<u8>, value: &str, maximum: usize, descripti
     output.extend_from_slice(value.as_bytes());
     Ok(())
 }
-

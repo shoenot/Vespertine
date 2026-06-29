@@ -26,10 +26,7 @@ use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::TicketLock;
 use crate::core::thread::block::ThreadWakeRegistration;
-use crate::core::thread::dispatch::{
-    cancel_block_if_awoken,
-    wake_thread,
-};
+use crate::core::thread::dispatch::cancel_block_if_awoken;
 use crate::core::thread::schedule::ScheduleReason;
 use crate::core::thread::{
     ThreadBlockState,

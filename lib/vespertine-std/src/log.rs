@@ -1,15 +1,21 @@
-use vespertine_abi::{AccessRights, HandleID};
-use vespertine_abi::tag::CAP_LOGGER;
+use vespertine_abi::{
+    AccessRights,
+    HandleID,
+};
 use vespertine_rt::syscall::{
-    sys_close, sys_read, sys_write
+    sys_close,
+    sys_read,
+    sys_write,
 };
 
-use crate::fs::{Path, resolve};
+use crate::fs::{
+    Path,
+    resolve,
+};
 use crate::{
     Error,
     Read,
     Write,
-    env,
 };
 
 pub struct SystemLog(HandleID);
@@ -40,9 +46,7 @@ impl LogReader {
 }
 
 impl Read for LogReader {
-    fn read(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        sys_read(self.0, buf.as_mut_ptr(), buf.len(), 0).map_err(Error::from)
-    }
+    fn read(&self, buf: &mut [u8]) -> Result<usize, Error> { sys_read(self.0, buf.as_mut_ptr(), buf.len(), 0).map_err(Error::from) }
 }
 
 impl Write for SystemLog {
@@ -50,7 +54,5 @@ impl Write for SystemLog {
 }
 
 impl Drop for SystemLog {
-    fn drop(&mut self) {
-        let _ = sys_close(self.0);
-    }
+    fn drop(&mut self) { let _ = sys_close(self.0); }
 }

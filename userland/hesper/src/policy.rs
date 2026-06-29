@@ -1,31 +1,20 @@
-use alloc::format;
 use alloc::collections::BTreeMap;
-use alloc::string::String;
-use alloc::vec::Vec;
-use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_LOGGER, CAP_PROCMAN};
-use vespertine_abi::{
-    AccessRights,
-    CapabilityID,
-};
-use vespertine_std::fs::{
-    Dir,
-    EntryKind,
-    File,
-    Path,
-};
-use vespertine_std::{
-    Error,
-    Read,
-};
 
-use config::policy::{
+use vabi::CapabilityID;
+use vabi::tag::{
+    CAP_APP_TERMCTRL,
+    CAP_PROCMAN,
+};
+use vconfig::ConfigError;
+use vconfig::manifest::AppManifest;
+use vconfig::policy::{
     GrantFile,
     GrantSet,
     parse_archetype_file,
     parse_grant_file,
 };
-use config::ConfigError;
-use config::manifest::AppManifest;
+use vstd::fs::EntryKind;
+use vstd::prelude::*;
 
 const ARCHETYPES_PATH: &str = "/System/Policy/archetypes.toml";
 
@@ -99,7 +88,7 @@ impl PolicyStore {
             }
 
             let app_id = grant.application.id.clone();
-            
+
             if applications.insert(app_id.clone(), grant).is_some() {
                 return Err(Error::invalid_argument(format!("duplicate policy for app ID {}", app_id).into()));
             }
@@ -193,7 +182,9 @@ fn requested_root_rights(manifest: &AppManifest) -> Result<AccessRights, Error> 
 
 impl PolicyStore {
     pub fn resolve(&self, app_id: &str, manifest: &AppManifest) -> Result<LaunchPolicy, Error> {
-        if manifest.application.id != app_id { return Err(Error::access_denied("manifest identity does not match launcher request".into())); }
+        if manifest.application.id != app_id {
+            return Err(Error::access_denied("manifest identity does not match launcher request".into()));
+        }
         let mut maximum = self.defaults.clone();
 
         if let Some(application) = self.applications.get(app_id) {
@@ -243,7 +234,5 @@ impl PolicyStore {
         Ok(LaunchPolicy { root_rights: requested_root, cwd_rights: parse_rights(&maximum.cwd_rights)?, capabilities })
     }
 
-    pub fn app_ids(&self) -> impl Iterator<Item = &str> {
-        self.applications.keys().map(|id| id.as_str())
-    }
+    pub fn app_ids(&self) -> impl Iterator<Item = &str> { self.applications.keys().map(|id| id.as_str()) }
 }

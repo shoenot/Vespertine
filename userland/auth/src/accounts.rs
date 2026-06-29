@@ -1,33 +1,20 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::string::{
-    String,
-    ToString,
-};
-use alloc::vec::Vec;
 
-use config::ConfigError;
-use config::accounts::{
+use vabi::{
+    SYSTEM_USER,
+    UserID,
+};
+use vconfig::ConfigError;
+use vconfig::accounts::{
     UserRecord,
     parse_account_file,
     parse_account_index,
 };
-use vespertine_abi::{
-    SYSTEM_USER,
-    UserID,
-};
-use vespertine_std::auth::AccountInfo;
-use vespertine_std::fs::{
-    File,
-    Path,
-};
-use vespertine_std::typed::named_user_value;
-use vespertine_std::{
-    Error,
-    Read,
-};
+use vstd::auth::AccountInfo;
+use vstd::prelude::*;
+use vstd::typed::named_user_value;
 
 const ACCOUNT_INDEX: &str = "/System/Accounts/index.toml";
 const ACCOUNT_USERS: &str = "/System/Accounts/Users";
@@ -57,9 +44,7 @@ fn config_error(error: ConfigError) -> Error {
     }
 }
 
-fn read_text(path: &str) -> Result<String, Error> {
-    File::open(&Path::new(path))?.read_to_string()
-}
+fn read_text(path: &str) -> Result<String, Error> { File::open(&Path::new(path))?.read_to_string() }
 
 fn validate_name(name: &str) -> Result<(), Error> {
     if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.as_bytes().contains(&0) {
@@ -95,7 +80,6 @@ fn validate_record(record: &UserRecord) -> Result<(), Error> {
     } else if !record.home.starts_with("/Users/") {
         return Err(Error::invalid_argument("user home directory must be under /Users".into()));
     }
-
 
     if record.display_name.is_empty() {
         return Err(Error::invalid_argument("user display name cannot be empty".into()));
@@ -175,29 +159,20 @@ impl AccountStore {
             return Err(Error::invalid_argument("default user does not exist".into()));
         }
 
-        Ok(Self {
-            default_user: index.default,
-            users_by_name,
-            users_by_id,
-        })
+        Ok(Self { default_user: index.default, users_by_name, users_by_id })
     }
 
     pub fn default_user(&self) -> Result<&UserAccount, Error> {
-        self.users_by_name.get(&self.default_user)
-            .ok_or_else(|| Error::not_found("default user does not exist".into()))
+        self.users_by_name.get(&self.default_user).ok_or_else(|| Error::not_found("default user does not exist".into()))
     }
 
     pub fn by_id(&self, user: UserID) -> Result<&UserAccount, Error> {
-        let name = self.users_by_id.get(&user.0)
-            .ok_or_else(|| Error::not_found("user account does not exist".into()))?;
+        let name = self.users_by_id.get(&user.0).ok_or_else(|| Error::not_found("user account does not exist".into()))?;
 
-        self.users_by_name.get(name)
-            .ok_or_else(|| Error::not_found("user account does not exist".into()))
+        self.users_by_name.get(name).ok_or_else(|| Error::not_found("user account does not exist".into()))
     }
 
     pub fn by_name(&self, name: &str) -> Result<&UserAccount, Error> {
-        self.users_by_name.get(name)
-            .ok_or_else(|| Error::not_found("user account does not exist".into()))
+        self.users_by_name.get(name).ok_or_else(|| Error::not_found("user account does not exist".into()))
     }
 }
-

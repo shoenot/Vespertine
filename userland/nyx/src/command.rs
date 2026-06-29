@@ -1,16 +1,18 @@
-use alloc::{string::String, vec::Vec};
-use vespertine_abi::{app::hesper::{AppIoMode, AppIoModes}, typed::ValueType};
-use vespertine_cli::args::Command;
-use vespertine_rt::println;
-use vespertine_std::{Error, typed::{RecordStream, TypedValue}, vreg::VRegistryClient};
+use vabi::app::hesper::{
+    AppIoMode,
+    AppIoModes,
+};
+use vabi::typed::ValueType;
+use vcli::args::Command;
+use vstd::prelude::*;
+use vstd::typed::TypedValue;
+use vstd::vreg::VRegistryClient;
 
 pub const NYX_INSTALLED_LIST_SCHEMA: u64 = 1;
 pub const NYX_APPLICATION_INFO_SCHEMA: u64 = 2;
 
 pub fn installed(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("installed")
-        .parse(args).
-        map_err(Error::from)?;
+    let matches = Command::new("installed").parse(args).map_err(Error::from)?;
 
     if matches.positional_count() > 0 {
         return Err(Error::invalid_argument("\'nyx installed\' does not take any further args".into()));
@@ -18,12 +20,7 @@ pub fn installed(args: &[String]) -> Result<(), Error> {
 
     let mut out = RecordStream::typed_default_out(
         NYX_INSTALLED_LIST_SCHEMA,
-        &[
-            ("name", ValueType::String),
-            ("app_id", ValueType::String),
-            ("installed", ValueType::DateTime),
-            ("updated", ValueType::DateTime),
-        ],
+        &[("name", ValueType::String), ("app_id", ValueType::String), ("installed", ValueType::DateTime), ("updated", ValueType::DateTime)],
         &["name"],
     )?;
     out.list_intent()?;
@@ -47,9 +44,7 @@ pub fn installed(args: &[String]) -> Result<(), Error> {
 }
 
 pub fn info(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("info")
-        .parse(args)
-        .map_err(Error::from)?;
+    let matches = Command::new("info").parse(args).map_err(Error::from)?;
 
     if matches.positional_count() != 1 {
         return Err(Error::invalid_argument("usage: nyx info [app]".into()));
@@ -91,14 +86,7 @@ pub fn info(args: &[String]) -> Result<(), Error> {
         "updated",
     ])?;
 
-    out.table(&[
-        "name",
-        "app_id",
-        "entrypoint",
-        "binary",
-        "installed",
-        "updated",
-    ])?;
+    out.table(&["name", "app_id", "entrypoint", "binary", "installed", "updated"])?;
 
     out.row_values(&[
         TypedValue::String(app.display_name),

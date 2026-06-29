@@ -24,9 +24,7 @@ pub struct ShootdownLock {
 }
 
 impl ShootdownLock {
-    pub const fn new() -> Self {
-        Self { locked: AtomicBool::new(false) }
-    }
+    pub const fn new() -> Self { Self { locked: AtomicBool::new(false) } }
 
     pub fn lock(&self) -> ShootdownLockGuard<'_> {
         while self.locked.swap(true, Ordering::Acquire) {
@@ -36,9 +34,7 @@ impl ShootdownLock {
         ShootdownLockGuard { lock: self }
     }
 
-    fn unlock(&self) {
-        self.locked.store(false, Ordering::Release);
-    }
+    fn unlock(&self) { self.locked.store(false, Ordering::Release); }
 }
 
 pub struct ShootdownLockGuard<'a> {
@@ -46,26 +42,25 @@ pub struct ShootdownLockGuard<'a> {
 }
 
 impl Drop for ShootdownLockGuard<'_> {
-    fn drop(&mut self) {
-        self.lock.unlock();
-    }
+    fn drop(&mut self) { self.lock.unlock(); }
 }
 
-pub static SHOOTDOWN_INFO: TLBShootdownInfo = TLBShootdownInfo {
-    addr: AtomicUsize::new(0),
-    generation: AtomicUsize::new(0),
-    counter: AtomicUsize::new(0),
-};
+pub static SHOOTDOWN_INFO: TLBShootdownInfo =
+    TLBShootdownInfo { addr: AtomicUsize::new(0), generation: AtomicUsize::new(0), counter: AtomicUsize::new(0) };
 
 pub static SHOOTDOWN_LOCK: ShootdownLock = ShootdownLock::new();
 
 pub fn service_pending_shootdown() {
     let generation = SHOOTDOWN_INFO.generation.load(Ordering::Acquire);
-    if generation == 0 { return; }
+    if generation == 0 {
+        return;
+    }
 
     let core = get_core_data();
     let seen = core.shootdown_generation.load(Ordering::Acquire);
-    if seen == generation { return; }
+    if seen == generation {
+        return;
+    }
 
     let addr = SHOOTDOWN_INFO.addr.load(Ordering::Acquire);
     flush_tlb(addr as u64);

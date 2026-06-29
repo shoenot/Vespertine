@@ -466,13 +466,11 @@ impl Ext2FileSystem {
     }
 
     fn set_indirect_root(inode: &mut DiskInode, depth: usize, value: u32) {
-        unsafe {
-            match depth {
-                1 => inode.data.blocks.single_indirect = value,
-                2 => inode.data.blocks.double_indirect = value,
-                3 => inode.data.blocks.triple_indirect = value,
-                _ => {}
-            }
+        match depth {
+            1 => inode.data.blocks.single_indirect = value,
+            2 => inode.data.blocks.double_indirect = value,
+            3 => inode.data.blocks.triple_indirect = value,
+            _ => {}
         }
     }
 

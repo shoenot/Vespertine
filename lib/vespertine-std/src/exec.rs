@@ -1,11 +1,25 @@
+use alloc::format;
 use core::slice;
 
-use alloc::format;
-
-use vespertine_abi::protocol::{PacketFlags, PacketHeader, PacketType, VESPER_MAGIC};
+use vespertine_abi::protocol::{
+    PacketHeader,
+    PacketType,
+    VESPER_MAGIC,
+};
 use vespertine_abi::tag::CAP_PROCMAN;
 use vespertine_abi::{
-    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcInfo, ProcManOp, ProcOp, ProcState, ProcTermReason, Signal, SpawnCredentials, UserID, WaitOp
+    AccessRights,
+    CapabilityGrant,
+    CapabilityID,
+    HandleID,
+    Invocation,
+    ProcInfo,
+    ProcManOp,
+    ProcOp,
+    Signal,
+    SpawnCredentials,
+    UserID,
+    WaitOp,
 };
 extern crate alloc;
 use alloc::string::String;
@@ -24,7 +38,10 @@ use crate::fs::{
 };
 use crate::socket::Socket;
 use crate::{
-    Error, ErrorKind, Read, env
+    Error,
+    ErrorKind,
+    Read,
+    env,
 };
 
 struct ProcManager {
@@ -35,8 +52,7 @@ impl ProcManager {
     pub fn request() -> Result<Self, Error> {
         let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ).map_err(Error::from)?;
         let broker = Broker::from_handle(broker_handle);
-        let handle = broker.request(CAP_PROCMAN, 
-            AccessRights::LIST | AccessRights::READ | AccessRights::CREATE | AccessRights::EXECUTE)?;
+        let handle = broker.request(CAP_PROCMAN, AccessRights::LIST | AccessRights::READ | AccessRights::CREATE | AccessRights::EXECUTE)?;
         Ok(Self { handle })
     }
 
@@ -56,11 +72,8 @@ impl ProcManager {
     }
 
     pub fn open(&self, pid: usize, rights: AccessRights) -> Result<Process, Error> {
-        let handle = sys_invoke(
-            self.handle,
-            &Invocation::ProcessManager(ProcManOp::Open { pid, rights }),
-        ).map_err(Error::from)?;
-    
+        let handle = sys_invoke(self.handle, &Invocation::ProcessManager(ProcManOp::Open { pid, rights })).map_err(Error::from)?;
+
         Ok(Process::from_handle(HandleID(handle)))
     }
 }
@@ -84,15 +97,12 @@ impl Process {
     pub fn handle(&self) -> HandleID { self.handle }
 
     pub fn terminate(&self) -> Result<(), Error> {
-        sys_invoke(self.handle, &Invocation::Proc(ProcOp::Terminate { reason: 0 }))
-            .map(|_| ())
-            .map_err(Error::from)
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::Terminate { reason: 0 })).map(|_| ()).map_err(Error::from)
     }
 
     pub fn info(&self) -> Result<ProcInfo, Error> {
         let mut info = ProcInfo::zeroed();
-        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetInfo { info_ptr: &mut info as *mut _ as usize }))
-            .map_err(Error::from)?;
+        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetInfo { info_ptr: &mut info as *mut _ as usize })).map_err(Error::from)?;
         Ok(info)
     }
 
@@ -306,12 +316,12 @@ impl Iterator for ReadProcesses {
     type Item = ProcInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished { return None; }
+        if self.finished {
+            return None;
+        }
 
         let mut header = PacketHeader::default();
-        let header_bytes = unsafe {
-            slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>())
-        };
+        let header_bytes = unsafe { slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>()) };
 
         if self.read_end.read_exact(header_bytes).is_err() {
             self.finished = true;
@@ -322,12 +332,12 @@ impl Iterator for ReadProcesses {
             self.finished = true;
             return None;
         }
-        
+
         if header.payload_len == 0 {
             self.finished = true;
             return None;
         }
-        
+
         if header.payload_len as usize != size_of::<ProcInfo>() {
             self.finished = true;
             return None;
@@ -335,9 +345,7 @@ impl Iterator for ReadProcesses {
 
         let mut info = ProcInfo::zeroed();
 
-        let info_bytes = unsafe {
-            slice::from_raw_parts_mut(&mut info as *mut ProcInfo as *mut u8, size_of::<ProcInfo>())
-        };
+        let info_bytes = unsafe { slice::from_raw_parts_mut(&mut info as *mut ProcInfo as *mut u8, size_of::<ProcInfo>()) };
 
         if self.read_end.read_exact(info_bytes).is_err() {
             self.finished = true;
@@ -348,10 +356,6 @@ impl Iterator for ReadProcesses {
     }
 }
 
-pub fn list_processes() -> Result<ReadProcesses, Error> {
-    process_manager()?.list(0)
-}
+pub fn list_processes() -> Result<ReadProcesses, Error> { process_manager()?.list(0) }
 
-pub fn open_process(pid: usize, rights: AccessRights) -> Result<Process, Error> {
-    process_manager()?.open(pid, rights)
-}
+pub fn open_process(pid: usize, rights: AccessRights) -> Result<Process, Error> { process_manager()?.open(pid, rights) }

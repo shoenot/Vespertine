@@ -72,11 +72,7 @@ struct LogReadFuture<'a> {
 impl Log {
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(LogInner {
-                records: VecDeque::new(),
-                readers: WaiterList::new(),
-                readable_waiters: WaiterList::new(),
-            }),
+            inner: Mutex::new(LogInner { records: VecDeque::new(), readers: WaiterList::new(), readable_waiters: WaiterList::new() }),
             dropped: AtomicU64::new(0),
         }
     }
@@ -116,14 +112,7 @@ impl Log {
         };
 
         let mut record = String::new();
-        let _ = write!(
-            record,
-            "{{\"ts_sec\":{},\"ts_nsec\":{},\"pid\":{},\"user\":{},\"process\":",
-            ts_sec,
-            ts_nsec,
-            pid,
-            user,
-        );
+        let _ = write!(record, "{{\"ts_sec\":{},\"ts_nsec\":{},\"pid\":{},\"user\":{},\"process\":", ts_sec, ts_nsec, pid, user,);
         push_json_string(&mut record, process);
         let _ = write!(record, ",\"level\":\"info\",\"dropped\":{},\"message\":", dropped);
         push_json_bytes(&mut record, message);
@@ -211,13 +200,7 @@ impl KernelObject for Log {
         }
     }
 
-    fn current_signals(&self) -> Signal {
-        if self.inner.lock().records.is_empty() {
-            Signal(0)
-        } else {
-            Signal::READABLE
-        }
-    }
+    fn current_signals(&self) -> Signal { if self.inner.lock().records.is_empty() { Signal(0) } else { Signal::READABLE } }
 
     fn register_waiter(&self, requested: Signal, waiter: &alloc::sync::Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
         if requested != (requested & Signal::READABLE) {
@@ -246,25 +229,25 @@ fn push_json_escaped(dst: &mut String, value: &[u8]) {
         match *byte {
             b'"' => {
                 let _ = dst.write_str("\\\"");
-            },
+            }
             b'\\' => {
                 let _ = dst.write_str("\\\\");
-            },
+            }
             b'\n' => {
                 let _ = dst.write_str("\\n");
-            },
+            }
             b'\r' => {
                 let _ = dst.write_str("\\r");
-            },
+            }
             b'\t' => {
                 let _ = dst.write_str("\\t");
-            },
+            }
             0x20..=0x7e => {
                 let _ = dst.write_char(*byte as char);
-            },
+            }
             _ => {
                 let _ = write!(dst, "\\u{:04x}", *byte);
-            },
+            }
         }
     }
 }

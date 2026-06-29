@@ -58,8 +58,7 @@ pub struct InstallationMetadata {
 }
 
 pub fn parse_registry_index(text: &str) -> Result<RegistryIndex, ConfigError> {
-    toml::from_str::<RegistryIndex>(text)
-        .map_err(|error| ConfigError::parse(format!("invalid app registry index: {:?}", error)))
+    toml::from_str::<RegistryIndex>(text).map_err(|error| ConfigError::parse(format!("invalid app registry index: {:?}", error)))
 }
 
 pub fn parse_registry_file(text: &str, path: &str) -> Result<RegistryFile, ConfigError> {

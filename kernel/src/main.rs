@@ -59,7 +59,10 @@ use crate::drivers::pci::{
 };
 use crate::drivers::virtio::blk::init_block_device;
 use crate::drivers::virtio::mmio::init_virtio;
-use crate::memory::{GLOBAL_PMM, PAGER};
+use crate::memory::{
+    GLOBAL_PMM,
+    PAGER,
+};
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::tasks::vfs_init::BLOCK_DEVICE;
 

@@ -1,10 +1,6 @@
 extern crate alloc;
 
-use alloc::format;
-use alloc::string::{
-    String,
-    ToString,
-};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use vespertine_abi::app::hesper::*;
@@ -58,7 +54,7 @@ pub struct AppMetadataResponse {
 pub struct ExecuteRequest {
     pub app_name: String,
     pub arguments: Vec<String>,
-    pub mode : AppIoMode,
+    pub mode: AppIoMode,
 
     pub source_offer: PortalOfferId,
     pub sink_offer: PortalOfferId,
@@ -283,9 +279,8 @@ pub fn send_app_metadata_request(socket: &Socket, request_id: u32, app_name: &st
 }
 
 pub fn send_execute_request(
-    socket: &Socket, request_id: u32, app_name: &str, arguments: &[String], mode: AppIoMode,
-    source_offer: PortalOfferId, sink_offer: PortalOfferId,
-    cwd_offer: PortalOfferId, capability_offers: &[CapabilityOffer],
+    socket: &Socket, request_id: u32, app_name: &str, arguments: &[String], mode: AppIoMode, source_offer: PortalOfferId,
+    sink_offer: PortalOfferId, cwd_offer: PortalOfferId, capability_offers: &[CapabilityOffer],
 ) -> Result<(), Error> {
     if arguments.len() > MAX_ARGUMENTS {
         return Err(Error::invalid_argument("too many application arguments".into()));
@@ -324,9 +319,8 @@ pub fn send_execute_request(
 }
 
 pub fn send_app_metadata_response(
-    socket: &Socket, request_id: u32, status: u32, 
-    input: AppIoMode, modes: AppIoModes, default_mode: AppIoMode,
-    app_id: &str, display_name: &str,
+    socket: &Socket, request_id: u32, status: u32, input: AppIoMode, modes: AppIoModes, default_mode: AppIoMode, app_id: &str,
+    display_name: &str,
 ) -> Result<(), Error> {
     let mut payload = Vec::new();
     write_hesper_header(&mut payload, request_id);
@@ -396,14 +390,12 @@ impl Launcher {
     }
 
     pub fn execute(
-        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode,
-        source_offer: PortalOfferId, sink_offer: PortalOfferId, cwd_offer: PortalOfferId,
-        capability_offers: &[CapabilityOffer],
+        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode, source_offer: PortalOfferId, sink_offer: PortalOfferId,
+        cwd_offer: PortalOfferId, capability_offers: &[CapabilityOffer],
     ) -> Result<ExecuteResponse, Error> {
         let request_id = self.next_id();
 
-        send_execute_request(&self.socket, request_id, app_name, arguments, mode, 
-            source_offer, sink_offer, cwd_offer, capability_offers)?;
+        send_execute_request(&self.socket, request_id, app_name, arguments, mode, source_offer, sink_offer, cwd_offer, capability_offers)?;
 
         match recv_hesper_response(&self.socket)? {
             HesperResponse::Execute { request_id: response_id, response } => {
@@ -427,8 +419,7 @@ impl Launcher {
     pub fn revoke(&self, offer_id: PortalOfferId) -> Result<(), Error> { revoke_offer(self.socket.handle(), offer_id) }
 
     pub fn launch(
-        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode,
-        source: HandleID, sink: HandleID, cwd: HandleID,
+        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode, source: HandleID, sink: HandleID, cwd: HandleID,
     ) -> Result<Process, Error> {
         let mut pending_offers = Vec::new();
 
@@ -493,10 +484,6 @@ impl Launcher {
     }
 }
 
-pub fn decode_io_modes(value: u8) -> AppIoModes {
-    AppIoModes(value)
-}
+pub fn decode_io_modes(value: u8) -> AppIoModes { AppIoModes(value) }
 
-pub fn encode_io_modes(value: AppIoModes) -> u8 {
-    value.0
-}
+pub fn encode_io_modes(value: AppIoModes) -> u8 { value.0 }

@@ -7,21 +7,11 @@ use vespertine_abi::{
     ThreadOp,
 };
 
-use crate::arch::get_core_data;
-use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::core::cpu::get_core_data_for;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::core::thread::dispatch::reschedule_thread_core;
-use crate::core::thread::schedule::{
-    GRAVEYARD,
-    ScheduleReason,
-};
-use crate::core::thread::{
-    ThreadControlBlock,
-    ThreadState,
-};
+use crate::core::thread::ThreadControlBlock;
 
 #[derive(Debug)]
 pub struct Thread {

@@ -1,32 +1,30 @@
 extern crate alloc;
 use alloc::collections::BTreeMap;
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
-use config::manifest::select_entrypoint as config_select_entrypoint;
-use config::ConfigError;
-use config::manifest::{AppManifest, EntrypointMetadata, parse_manifest};
-use config::registry::{ApplicationRecord, InstallationMetadata, parse_registry_file, parse_registry_index};
-use vespertine_abi::app::hesper::{
+use vabi::app::hesper::{
     AppIoMode,
     AppIoModes,
 };
-use vespertine_abi::typed::DateTimeValue;
-use vespertine_std::fs::{
-    File,
-    Path,
+use vconfig::ConfigError;
+use vconfig::manifest::{
+    AppManifest,
+    EntrypointMetadata,
+    parse_manifest,
+    select_entrypoint as config_select_entrypoint,
 };
-use vespertine_std::hesper::{
+use vconfig::registry::{
+    ApplicationRecord,
+    InstallationMetadata,
+    parse_registry_file,
+    parse_registry_index,
+};
+use vstd::hesper::{
     decode_io_mode_string,
     decode_io_modes_strings,
 };
-use vespertine_std::typed::{DateTimeValueExt, convert_iso_datetime};
-use vespertine_std::vreg::ResolvedApplication;
-use vespertine_std::{
-    Error,
-    Read,
-};
+use vstd::prelude::*;
+use vstd::typed::convert_iso_datetime;
+use vstd::vreg::ResolvedApplication;
 
 const REGISTRY_PATH: &str = "/System/Registry/Applications";
 
@@ -58,13 +56,10 @@ fn config_error(error: ConfigError) -> Error {
     }
 }
 
-fn read_text(path: &str) -> Result<String, Error> {
-    File::open(&Path::new(path))?.read_to_string()
-}
+fn read_text(path: &str) -> Result<String, Error> { File::open(&Path::new(path))?.read_to_string() }
 
 fn validate_component(value: &str, desc: &str) -> Result<(), Error> {
-    if value.is_empty() || value == "." || value == ".." || value.contains('/') ||
-    value.as_bytes().contains(&0) {
+    if value.is_empty() || value == "." || value == ".." || value.contains('/') || value.as_bytes().contains(&0) {
         return Err(Error::invalid_argument(format!("invalid {}", desc).into()));
     }
 
@@ -115,19 +110,22 @@ fn validate_record(path: &str, app: &ApplicationRecord) -> Result<(), Error> {
         return Err(Error::invalid_argument(format!("registry app {} has empty default entrypoint", app.id).into()));
     }
 
-    if app.bundle.is_empty() || !app.bundle.starts_with("/Programs/") || !
-    app.bundle.ends_with(".app") {
+    if app.bundle.is_empty() || !app.bundle.starts_with("/Programs/") || !app.bundle.ends_with(".app") {
         return Err(Error::invalid_argument(format!("registry app {} has invalid bundle path", app.id).into()));
     }
 
     let manifest = load_manifest(&app.bundle)?;
 
     if manifest.application.id != app.id {
-        return Err(Error::invalid_argument(format!("registry app ID {} does not match bundle manifest ID {}", app.id, manifest.application.id).into()));
+        return Err(Error::invalid_argument(
+            format!("registry app ID {} does not match bundle manifest ID {}", app.id, manifest.application.id).into(),
+        ));
     }
 
     if !manifest.entrypoints.contains_key(&app.default_entrypoint) {
-        return Err(Error::invalid_argument(format!("registry app {} default entrypoint {} does not exist", app.id, app.default_entrypoint).into()));
+        return Err(Error::invalid_argument(
+            format!("registry app {} default entrypoint {} does not exist", app.id, app.default_entrypoint).into(),
+        ));
     }
 
     for (alias, entrypoint) in &app.aliases {
@@ -138,7 +136,9 @@ fn validate_record(path: &str, app: &ApplicationRecord) -> Result<(), Error> {
         }
 
         if !manifest.entrypoints.contains_key(entrypoint) {
-            return Err(Error::invalid_argument(format!("registry alias {} in {} points to missing entrypoint {}", alias, path, entrypoint).into()));
+            return Err(Error::invalid_argument(
+                format!("registry alias {} in {} points to missing entrypoint {}", alias, path, entrypoint).into(),
+            ));
         }
     }
 
@@ -194,7 +194,9 @@ impl AppRegistry {
 
             for app in file.application {
                 if app.id != app_id {
-                    return Err(Error::invalid_argument(format!("registry file {} contains app ID {}, expected {}", path, app.id, app_id).into()));
+                    return Err(Error::invalid_argument(
+                        format!("registry file {} contains app ID {}, expected {}", path, app.id, app_id).into(),
+                    ));
                 }
 
                 validate_record(&path, &app)?;
@@ -207,10 +209,7 @@ impl AppRegistry {
                     aliases.insert(alias.clone(), (app.id.clone(), entrypoint.clone()));
                 }
 
-                apps.insert(app.id.clone(), RegisteredApplication {
-                    record: app,
-                    installation: file.installation.clone(),
-                });
+                apps.insert(app.id.clone(), RegisteredApplication { record: app, installation: file.installation.clone() });
             }
         }
 
@@ -218,11 +217,9 @@ impl AppRegistry {
     }
 
     pub fn resolve_alias(&self, alias: &str) -> Result<LaunchTarget, Error> {
-        let (app_id, entrypoint) = self.aliases.get(alias)
-            .ok_or_else(|| Error::not_found("application alias was not found".into()))?;
+        let (app_id, entrypoint) = self.aliases.get(alias).ok_or_else(|| Error::not_found("application alias was not found".into()))?;
 
-        let app = self.apps.get(app_id)
-            .ok_or_else(|| Error::invalid_argument("application alias points to missing app".into()))?;
+        let app = self.apps.get(app_id).ok_or_else(|| Error::invalid_argument("application alias points to missing app".into()))?;
 
         Ok(LaunchTarget {
             command: alias.into(),
@@ -233,8 +230,7 @@ impl AppRegistry {
     }
 
     pub fn resolve_app(&self, app_id: &str) -> Result<LaunchTarget, Error> {
-        let app = self.apps.get(app_id)
-            .ok_or_else(|| Error::not_found("application was not found".into()))?;
+        let app = self.apps.get(app_id).ok_or_else(|| Error::not_found("application was not found".into()))?;
 
         Ok(LaunchTarget {
             command: app_id.into(),
@@ -274,8 +270,7 @@ impl AppRegistry {
     }
 
     fn resolve_target_metadata(&self, target: LaunchTarget) -> Result<ResolvedApplication, Error> {
-        let app_record = self.apps.get(&target.app_id)
-            .ok_or_else(|| Error::not_found("application not found".into()))?;
+        let app_record = self.apps.get(&target.app_id).ok_or_else(|| Error::not_found("application not found".into()))?;
 
         let manifest = load_manifest(&target.bundle)?;
         if manifest.application.id != target.app_id {
@@ -299,7 +294,7 @@ impl AppRegistry {
             default_mode,
             display_name: manifest.application.name,
             installed_ts,
-            updated_ts, 
+            updated_ts,
         })
     }
 }

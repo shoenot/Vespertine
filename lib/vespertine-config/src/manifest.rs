@@ -42,8 +42,7 @@ pub struct PermissionMetadata {
 }
 
 impl Default for PermissionMetadata {
-    fn default() -> Self { Self { filesystem: default_filesystem_access(), capabilities:
-    Vec::new() } }
+    fn default() -> Self { Self { filesystem: default_filesystem_access(), capabilities: Vec::new() } }
 }
 
 fn default_filesystem_access() -> String { String::from("read-only") }
@@ -51,8 +50,7 @@ fn default_filesystem_access() -> String { String::from("read-only") }
 fn default_io_mode() -> String { String::from("text") }
 
 fn validate_component(value: &str, desc: &str) -> Result<(), ConfigError> {
-    if value.is_empty() || value == "." || value == ".." || value.contains('/') ||
-    value.as_bytes().contains(&0) {
+    if value.is_empty() || value == "." || value == ".." || value.contains('/') || value.as_bytes().contains(&0) {
         return Err(ConfigError::invalid(format!("invalid {}", desc)));
     }
 
@@ -99,8 +97,6 @@ pub fn validate_manifest(manifest: &AppManifest) -> Result<(), ConfigError> {
     Ok(())
 }
 
-pub fn select_entrypoint(manifest: &AppManifest, name: &str) -> Result<EntrypointMetadata,
-ConfigError> {
-    manifest.entrypoints.get(name).cloned()
-        .ok_or_else(|| ConfigError::not_found("application entrypoint was not found".into()))
+pub fn select_entrypoint(manifest: &AppManifest, name: &str) -> Result<EntrypointMetadata, ConfigError> {
+    manifest.entrypoints.get(name).cloned().ok_or_else(|| ConfigError::not_found("application entrypoint was not found".into()))
 }

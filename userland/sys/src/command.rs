@@ -1,15 +1,24 @@
-use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
-use vespertine_abi::{ProcInfo, UserID, typed::{FileSizeValue, UserValue, ValueType}};
-use vespertine_cli::args::Command;
-use vespertine_rt::println;
-use vespertine_std::{Error, auth::AuthClient, list_processes, typed::{RecordStream, TypedValue, user_value}};
+use alloc::collections::btree_map::BTreeMap;
+
+use vabi::typed::{
+    FileSizeValue,
+    UserValue,
+    ValueType,
+};
+use vabi::{
+    ProcInfo,
+    UserID,
+};
+use vcli::args::Command;
+use vstd::auth::AuthClient;
+use vstd::list_processes;
+use vstd::prelude::*;
+use vstd::typed::user_value;
 
 pub const SYS_PROCS_LIST_SCHEMA: u64 = 1;
 
 pub fn procs(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("list")
-        .parse(args).
-        map_err(Error::from)?;
+    let matches = Command::new("list").parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
         println!("usage: sys procs");
@@ -49,10 +58,7 @@ pub fn procs(args: &[String]) -> Result<(), Error> {
             TypedValue::User(user),
             TypedValue::String(entry.short_status().into()),
             TypedValue::Integer(entry.active_threads as i128),
-            TypedValue::FileSize(FileSizeValue {
-                bytes: entry.memory_usage as i128,
-                block_size: 0, blocks: 0, flags: 0, reserved: 0,
-            }),
+            TypedValue::FileSize(FileSizeValue { bytes: entry.memory_usage as i128, block_size: 0, blocks: 0, flags: 0, reserved: 0 }),
             TypedValue::Integer(entry.term_reason as i128),
             TypedValue::Integer(entry.term_code as i128),
             TypedValue::Integer(entry.term_detail as i128),
@@ -74,7 +80,7 @@ fn resolve_users(entries: &[ProcInfo]) -> Result<BTreeMap<u32, UserValue>, Error
     }
 
     let mut auth = AuthClient::connect()?;
-    
+
     for user_id in users.keys().copied().collect::<Vec<_>>() {
         let account = auth.lookup_id(UserID(user_id))?;
         users.insert(user_id, account.user);

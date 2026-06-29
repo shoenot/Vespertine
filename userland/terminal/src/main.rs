@@ -1,37 +1,23 @@
 #![no_std]
 #![no_main]
 
-mod term;
 pub mod font;
-
-use alloc::vec;
-use alloc::vec::Vec;
-
-use vespertine_abi::app::termios::*;
-use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::CAP_APP_TERMCTRL;
-use vespertine_abi::{
-    AccessRights,
-    ProcessInitPackage,
-};
-use vespertine_rt::syscall::{
+mod term;
+use vabi::app::termios::*;
+use vabi::protocol::PacketType;
+use vabi::tag::CAP_APP_TERMCTRL;
+use vrt::syscall::{
     sys_read,
     sys_set_read_policy,
     sys_write_bytes,
 };
-use vespertine_rt::thread as rt_thread;
-use vespertine_std::clock::Time;
-use vespertine_std::fb::Framebuffer;
-use vespertine_std::log::SystemLog;
-use vespertine_std::proc::Waiter;
-use vespertine_std::socket::Socket;
-use vespertine_std::{
-    Error,
-    ErrorKind,
-    Exec,
-    Write,
-    env,
-};
+use vrt::thread as rt_thread;
+use vstd::Exec;
+use vstd::clock::Time;
+use vstd::fb::Framebuffer;
+use vstd::log::SystemLog;
+use vstd::prelude::*;
+use vstd::proc::Waiter;
 
 use crate::term::{
     Cell,
@@ -45,16 +31,8 @@ extern crate alloc;
 pub const FG_COLOR: u32 = 0xe0ddd8;
 pub const BG_COLOR: u32 = 0x11080d;
 
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-    if let Err(e) = run(pkg) {
-        let _ = e; // nothing to print to bc we are the terminal 
-    }
-}
-
-#[unsafe(no_mangle)]
-fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
+#[vapp::main]
+fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     let log = SystemLog::connect();
     let fb = Framebuffer::open()?;
     let info = fb.info();

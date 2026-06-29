@@ -11,7 +11,10 @@ use core::ptr::{
     self,
     drop_in_place,
 };
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.
@@ -104,28 +107,19 @@ pub struct VmAccounting {
 }
 
 impl VmAccounting {
-    pub const fn new() -> Self {
-        Self {
-            mapped_bytes: AtomicUsize::new(0),
-            resident_bytes: AtomicUsize::new(0),
-        }
-    }
+    pub const fn new() -> Self { Self { mapped_bytes: AtomicUsize::new(0), resident_bytes: AtomicUsize::new(0) } }
 
     pub fn mapped_bytes(&self) -> usize { self.mapped_bytes.load(Ordering::Acquire) }
 
     pub fn resident_bytes(&self) -> usize { self.resident_bytes.load(Ordering::Acquire) }
 
-    fn add_mapped(&self, bytes: usize) {
-        self.mapped_bytes.fetch_add(bytes, Ordering::AcqRel);
-    }
+    fn add_mapped(&self, bytes: usize) { self.mapped_bytes.fetch_add(bytes, Ordering::AcqRel); }
 
     fn sub_mapped(&self, bytes: usize) {
         self.mapped_bytes.try_update(Ordering::AcqRel, Ordering::Acquire, |value| Some(value.saturating_sub(bytes))).ok();
     }
 
-    fn add_resident(&self, bytes: usize) {
-        self.resident_bytes.fetch_add(bytes, Ordering::AcqRel);
-    }
+    fn add_resident(&self, bytes: usize) { self.resident_bytes.fetch_add(bytes, Ordering::AcqRel); }
 
     fn sub_resident(&self, bytes: usize) {
         self.resident_bytes.try_update(Ordering::AcqRel, Ordering::Acquire, |value| Some(value.saturating_sub(bytes))).ok();
@@ -149,24 +143,17 @@ pub fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 impl VirtMemManager {
     pub fn new(allocator: &'static PCAllocator) -> Self {
         let mut pager = Pager::new(allocator);
-        let kernel_pml4 = {
-            crate::memory::PAGER.lock().get_l4_addr()
-        };
+        let kernel_pml4 = { crate::memory::PAGER.lock().get_l4_addr() };
         pager.init_process_pager_from_kernel(kernel_pml4).expect("Failed to initialize process pager");
 
-        Self { 
-            head: None, pager: TicketLock::new(pager), allocator, 
-            accounting: Arc::new(VmAccounting::new()), backing_nodes: Vec::new() 
-        }
+        Self { head: None, pager: TicketLock::new(pager), allocator, accounting: Arc::new(VmAccounting::new()), backing_nodes: Vec::new() }
     }
 
     pub fn accounting(&self) -> Arc<VmAccounting> { self.accounting.clone() }
 
     pub fn get_pml4_addr(&self) -> usize { self.pager.lock().get_l4_addr() as usize }
 
-    pub fn refresh_kernel_half(&mut self, kernel_pml4_phys: u64) {
-        self.pager.lock().refresh_kernel_half_from(kernel_pml4_phys);
-    }
+    pub fn refresh_kernel_half(&mut self, kernel_pml4_phys: u64) { self.pager.lock().refresh_kernel_half_from(kernel_pml4_phys); }
 
     // temp for now
     pub fn mmap(&mut self, size: usize, flags: usize) -> Option<usize> {
@@ -534,7 +521,7 @@ impl VirtMemManager {
 
             // fire ipis by batches because doing it for every page is bad for performance
             if batch_count > 0 {
-                self.accounting.sub_resident(batch_count * step_size);  
+                self.accounting.sub_resident(batch_count * step_size);
                 let batch_size_bytes = current_page - batch_start;
                 shootdown(batch_start, batch_size_bytes);
 
@@ -702,7 +689,9 @@ impl VirtMemManager {
 
                 if new_flags & VM_FLAG_NO_ACCESS != 0 || needs_cow_reset {
                     pager.unmap_page(virt, *HHDMOFFSET as u64, block_size);
-                    if was_resident { self.accounting.sub_resident(step_size); }
+                    if was_resident {
+                        self.accounting.sub_resident(step_size);
+                    }
                 } else {
                     pager.change_flags(virt, hwflags, *HHDMOFFSET as u64, block_size);
                 }
@@ -782,17 +771,19 @@ impl VirtMemManager {
 
         let hw_flags = convert_vm_flags(target_vma.flags) as u64;
         let page_size = mask + 1;
-        
+
         let mut pagerlock = self.pager.lock();
         let was_resident = pagerlock.translate(virt, *HHDMOFFSET as u64).is_some();
-        
+
         pagerlock
             .map_page(virt, phys_frame as u64, hw_flags, *HHDMOFFSET as u64, block_size)
             .expect("FATAL: Pager failed to map memory during Page Fault!");
         drop(pagerlock);
-        
-        if !was_resident { self.accounting.add_resident(page_size); }
-        
+
+        if !was_resident {
+            self.accounting.add_resident(page_size);
+        }
+
         flush_tlb(addr as u64);
         Ok(())
     }

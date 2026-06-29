@@ -6,13 +6,21 @@ use alloc::vec::Vec;
 use core::fmt::Display;
 
 use vespertine_abi::typed::{
-    DateTimeValue, DateValue, FileSizeValue, TimeValue, USER_DISPLAY_NAME_MAX, USER_NAME_MAX, UserValue, ValueType
+    DateTimeValue,
+    DateValue,
+    FileSizeValue,
+    TimeValue,
+    USER_DISPLAY_NAME_MAX,
+    USER_NAME_MAX,
+    UserValue,
+    ValueType,
 };
 
-use crate::{Error, typed::{
+use crate::Error;
+use crate::typed::{
     DateTimeStyle,
     datetime_display,
-}};
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileSizeStyle {
@@ -50,25 +58,23 @@ impl Display for FileSizeDisplay {
 }
 
 impl Display for UserDisplay {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&format_user(self.value, self.options))
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { f.write_str(&format_user(self.value, self.options)) }
 }
 
 pub fn user_display(value: UserValue) -> UserDisplay { UserDisplay::new(value) }
 
 pub fn user_value(id: u32) -> UserValue {
-    UserValue { 
-        id, 
-        name_len: 0, 
-        display_name_len: 0, 
-        first_name_len: 0, 
-        last_name_len: 0, 
-        flags: 0, 
-        reserved: 0, 
-        name: [0; USER_NAME_MAX], 
-        display_name: [0; USER_DISPLAY_NAME_MAX], 
-        first_name: [0; USER_DISPLAY_NAME_MAX], 
+    UserValue {
+        id,
+        name_len: 0,
+        display_name_len: 0,
+        first_name_len: 0,
+        last_name_len: 0,
+        flags: 0,
+        reserved: 0,
+        name: [0; USER_NAME_MAX],
+        display_name: [0; USER_DISPLAY_NAME_MAX],
+        first_name: [0; USER_DISPLAY_NAME_MAX],
         last_name: [0; USER_DISPLAY_NAME_MAX],
     }
 }
@@ -100,17 +106,9 @@ pub fn named_user_value(id: u32, name: &str, display_name: &str, first_name: &st
 }
 
 pub fn format_user(value: UserValue, opts: DisplayOptions) -> String {
-    let text = if opts.user_show_username {
-        user_name_text(&value)
-    } else {
-        user_display_text(&value)
-    };
+    let text = if opts.user_show_username { user_name_text(&value) } else { user_display_text(&value) };
 
-    if text.is_empty() {
-        format!("{}", value.id)
-    } else {
-        text
-    }
+    if text.is_empty() { format!("{}", value.id) } else { text }
 }
 
 fn user_name_text(value: &UserValue) -> String {
@@ -119,9 +117,7 @@ fn user_name_text(value: &UserValue) -> String {
         return String::new();
     }
 
-    core::str::from_utf8(&value.name[..len])
-        .map(String::from)
-        .unwrap_or_else(|_| String::new())
+    core::str::from_utf8(&value.name[..len]).map(String::from).unwrap_or_else(|_| String::new())
 }
 
 fn user_display_text(value: &UserValue) -> String {
@@ -130,9 +126,7 @@ fn user_display_text(value: &UserValue) -> String {
         return String::new();
     }
 
-    core::str::from_utf8(&value.display_name[..len])
-        .map(String::from)
-        .unwrap_or_else(|_| String::new())
+    core::str::from_utf8(&value.display_name[..len]).map(String::from).unwrap_or_else(|_| String::new())
 }
 
 pub struct UserDisplay {

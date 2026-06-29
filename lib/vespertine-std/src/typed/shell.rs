@@ -15,7 +15,20 @@ use vespertine_abi::protocol::{
     VESPER_MAGIC,
 };
 use vespertine_abi::typed::{
-    DateTimeValue, DateValue, FileSizeValue, ListHeader, RECORD_FIELD_NAME_MAX, RecordField, RecordPresentationHeader, RecordSchemaHeader, RecordValueHeader, StreamIntentHeader, TimeValue, UserValue, ValueHeader, ValueType
+    DateTimeValue,
+    DateValue,
+    FileSizeValue,
+    ListHeader,
+    RECORD_FIELD_NAME_MAX,
+    RecordField,
+    RecordPresentationHeader,
+    RecordSchemaHeader,
+    RecordValueHeader,
+    StreamIntentHeader,
+    TimeValue,
+    UserValue,
+    ValueHeader,
+    ValueType,
 };
 
 use crate::typed::TypedValue;
@@ -297,13 +310,13 @@ impl<R: Read> TypedReader<R> {
                     return Err(Error::invalid_argument("trailing typed value bytes".into()));
                 }
                 Ok(Some(ShellValue::Value(value)))
-            },
+            }
             x if x == PacketType::StreamEnd as u32 => {
                 if header.payload_len != 0 {
                     return Err(Error::invalid_argument("stream_end packet had payload".into()));
                 }
                 Ok(Some(ShellValue::StreamEnd))
-            },
+            }
             x if x == PacketType::StreamIntent as u32 => Ok(Some(self.read_stream_intent()?)),
             x if x == PacketType::ShellError as u32 => {
                 let message = self.read_string(header.payload_len)?;
@@ -472,4 +485,3 @@ fn read_prefix<T: Copy>(buf: &[u8]) -> Result<T, Error> {
     }
     Ok(unsafe { read_unaligned(buf.as_ptr() as *const T) })
 }
-

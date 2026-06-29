@@ -1,12 +1,12 @@
-use vespertine_abi::app::hesper::{
+use vabi::app::hesper::{
     AppIoMode,
     AppIoModes,
     HESPER_STATUS_INVALID_REQUEST,
     HESPER_STATUS_NOT_FOUND,
     HESPER_STATUS_OK,
 };
-use vespertine_std::hesper::Launcher;
-use vespertine_std::Error;
+use vstd::hesper::Launcher;
+use vstd::prelude::*;
 
 use crate::sys::ShellResult;
 
@@ -38,11 +38,11 @@ pub(super) fn load_program_metadata(name: &str) -> Result<ProgramMetadata, Shell
             }
 
             Ok(ProgramMetadata { input: response.input, modes: response.modes, default_mode: response.default_mode })
-        },
+        }
         HESPER_STATUS_NOT_FOUND => Err(ShellResult::NotFound(name.into())),
         HESPER_STATUS_INVALID_REQUEST => {
             Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application bundle contains an invalid manifest".into())))
-        },
+        }
         _ => Err(ShellResult::FailedToLaunch(name.into(), Error::unknown("Hesper failed to return application metadata".into()))),
     }
 }

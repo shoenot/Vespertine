@@ -5,32 +5,20 @@ extern crate alloc;
 
 mod registry;
 
-use alloc::format;
-use alloc::sync::Arc;
-
-use vespertine_abi::app::vreg::VREG_STATUS_OK;
-use vespertine_abi::tag::CAP_VREG_CONNECT;
-use vespertine_abi::{
-    AccessRights,
-    HandleID,
-    ProcessInitPackage,
-};
-use vespertine_rt::syscall::sys_close;
-use vespertine_rt::{
-    println,
-    thread as rt_thread,
-};
-use vespertine_std::fs::{
-    Path,
+use vabi::app::vreg::VREG_STATUS_OK;
+use vabi::tag::CAP_VREG_CONNECT;
+use vrt::syscall::sys_close;
+use vrt::thread as rt_thread;
+use vstd::fs::{
     link_object,
     resolve,
 };
-use vespertine_std::log::SystemLog;
-use vespertine_std::portal::PortalFactory;
-use vespertine_std::proc::Waiter;
-use vespertine_std::socket::Socket;
-use vespertine_std::sync::RwLock;
-use vespertine_std::vreg::{
+use vstd::log::SystemLog;
+use vstd::portal::PortalFactory;
+use vstd::prelude::*;
+use vstd::proc::Waiter;
+use vstd::sync::RwLock;
+use vstd::vreg::{
     VRegistryRequest,
     recv_vreg_request,
     send_list_end,
@@ -39,25 +27,10 @@ use vespertine_std::vreg::{
     send_resolve_response,
     status_from_error,
 };
-use vespertine_std::{
-    Error,
-    ErrorKind,
-    Read,
-    Write,
-};
 
 use crate::registry::AppRegistry;
 
 type SharedRegistry = Arc<RwLock<AppRegistry>>;
-
-#[unsafe(no_mangle)]
-pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
-    let pkg = unsafe { &*pkg_ptr };
-    if let Err(error) = run() {
-        println!("[ERROR] vreg failed: {:?}", error);
-    }
-    let _ = sys_close(pkg.sink_handle);
-}
 
 fn recv_vreg_accept(socket: &Socket) -> Result<HandleID, Error> {
     let mut bytes = [0u8; 8];
@@ -78,9 +51,9 @@ fn handle_request(socket: &Socket, request: VRegistryRequest, registry: &SharedR
                     let _ = log.write_string(format!("vreg resolve failed for {}: {:?}", name, error));
                     send_resolve_response(socket, request_id, status_from_error(&error), None)?;
                     Err(error)
-                },
+                }
             }
-        },
+        }
         VRegistryRequest::List { request_id } => {
             let entries = {
                 let registry = registry.read();
@@ -92,14 +65,14 @@ fn handle_request(socket: &Socket, request: VRegistryRequest, registry: &SharedR
                     let _ = log.write_string(format!("vreg list failed: {:?}", error));
                     send_list_end(socket, request_id, status_from_error(&error))?;
                     return Err(error);
-                },
+                }
             };
             for entry in entries {
                 send_list_entry(socket, request_id, &entry)?;
             }
 
             send_list_end(socket, request_id, VREG_STATUS_OK)
-        },
+        }
         VRegistryRequest::Reload { request_id } => {
             let loaded = match AppRegistry::load() {
                 Ok(registry) => registry,
@@ -107,12 +80,12 @@ fn handle_request(socket: &Socket, request: VRegistryRequest, registry: &SharedR
                     let _ = log.write_string(format!("vreg reload failed: {:?}", error));
                     send_reload_response(socket, request_id, status_from_error(&error))?;
                     return Err(error);
-                },
+                }
             };
             registry.replace(loaded);
             let _ = log.write_string("vreg registry reloaded".into());
             send_reload_response(socket, request_id, VREG_STATUS_OK)
-        },
+        }
     }
 }
 
@@ -123,11 +96,13 @@ fn spawn_vreg_session(handle: HandleID, registry: SharedRegistry) -> Result<(), 
         loop {
             let request = match recv_vreg_request(&socket) {
                 Ok(request) => request,
-                Err(error) if error.kind == ErrorKind::EndOfStream => { break; },
+                Err(error) if error.kind == ErrorKind::EndOfStream => {
+                    break;
+                }
                 Err(error) => {
                     let _ = log.write_string(format!("vreg session failed: {:?}", error));
                     break;
-                },
+                }
             };
             if let Err(error) = handle_request(&socket, request, &registry, &log) {
                 if error.kind != ErrorKind::NotFound {
@@ -153,7 +128,8 @@ fn publish_service() -> Result<Socket, Error> {
     Ok(Socket::from_handle(accept))
 }
 
-fn run() -> Result<(), Error> {
+#[vapp::main]
+fn main() -> Result<(), Error> {
     let log = SystemLog::connect();
 
     println!("[INFO] vreg starting");
@@ -168,7 +144,7 @@ fn run() -> Result<(), Error> {
             println!("[ERROR] vreg registry load failed: {:?}", error);
             let _ = log.write_string(format!("vreg registry load failed: {:?}", error));
             return Err(error);
-        },
+        }
     };
 
     println!("[INFO] vreg publishing service");
@@ -180,7 +156,7 @@ fn run() -> Result<(), Error> {
             println!("[ERROR] vreg service publish failed: {:?}", error);
             let _ = log.write_string(format!("vreg service publish failed: {:?}", error));
             return Err(error);
-        },
+        }
     };
 
     println!("[INFO] vreg online");
@@ -197,10 +173,10 @@ fn run() -> Result<(), Error> {
                     if let Err(error) = spawn_vreg_session(session, registry.clone()) {
                         let _ = log.write_string(format!("failed to spawn vreg session: {:?}", error));
                     }
-                },
+                }
                 Err(error) => {
                     let _ = log.write_string(format!("invalid vreg accept message: {:?}", error));
-                },
+                }
             }
         }
 

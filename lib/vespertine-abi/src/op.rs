@@ -77,7 +77,7 @@ pub const PROC_NAME_LEN_MAX: usize = 128;
 #[derive(Debug)]
 pub enum ProcManOp {
     Spawn {
-        name_ptr: usize, 
+        name_ptr: usize,
         name_len: usize,
 
         exec_handle: HandleID,
@@ -97,8 +97,14 @@ pub enum ProcManOp {
 
         start_suspended: bool,
     },
-    List { offset: usize, sink: HandleID },
-    Open { pid: usize, rights: AccessRights },
+    List {
+        offset: usize,
+        sink: HandleID,
+    },
+    Open {
+        pid: usize,
+        rights: AccessRights,
+    },
 }
 
 #[repr(C)]

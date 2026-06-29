@@ -14,14 +14,10 @@ unsafe extern "sysv64" {
 fn is_kernel_address(addr: usize) -> bool { addr >= KERNEL_BASE }
 
 #[inline]
-pub fn copy_from_user(dst: *mut u8, src: *const u8, len: usize) -> bool {
-    unsafe { arch_copy_from_user(dst, src, len) }
-}
+pub fn copy_from_user(dst: *mut u8, src: *const u8, len: usize) -> bool { unsafe { arch_copy_from_user(dst, src, len) } }
 
 #[inline]
-pub fn copy_to_user(dst: *mut u8, src: *const u8, len: usize) -> bool {
-    unsafe { arch_copy_to_user(dst, src, len) }
-}
+pub fn copy_to_user(dst: *mut u8, src: *const u8, len: usize) -> bool { unsafe { arch_copy_to_user(dst, src, len) } }
 
 pub fn safe_copy_from(dst: *mut u8, src: *const u8, len: usize) -> bool {
     if is_kernel_address(src as usize) {

@@ -1,5 +1,4 @@
 use core::fmt::Display;
-use core::ptr::copy_nonoverlapping;
 use core::slice;
 
 use vespertine_abi::protocol::{

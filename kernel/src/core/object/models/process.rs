@@ -2,8 +2,8 @@ use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
-use alloc::{format, vec};
 use alloc::vec::Vec;
+use alloc::vec;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{
@@ -53,7 +53,10 @@ use crate::core::object::obj::{
 use crate::core::security::credentials::Credentials;
 use crate::core::sync::RwLock;
 use crate::core::thread::dispatch::{
-    cancel_blocked_thread, reschedule_thread_core, spawn_user_thread, start_thread, wake_thread
+    cancel_blocked_thread,
+    reschedule_thread_core,
+    spawn_user_thread,
+    start_thread,
 };
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::wait::WaitQueue;
@@ -62,7 +65,10 @@ use crate::core::thread::{
     ThreadState,
     get_current_process,
 };
-use crate::memory::vmm::{VirtMemManager, VmAccounting};
+use crate::memory::vmm::{
+    VirtMemManager,
+    VmAccounting,
+};
 use crate::memory::{
     ALLOCATOR,
     kernel_heap_allocated,
@@ -208,28 +214,28 @@ impl ProcessControlBlock {
         let vmm = VirtMemManager::new(&ALLOCATOR);
         let memory = vmm.accounting();
         let pml4_addr = vmm.get_pml4_addr();
-    
+
         Arc::new(Self {
             proc_id: get_new_pid(),
             proc_name: name,
             credentials,
-    
+
             handles: RwLock::new(init_table),
             vmm: RwLock::new(vmm),
             memory,
             pml4_addr,
-    
+
             threads: RwLock::new(Vec::new()),
             active_threads: AtomicUsize::new(0),
             initial_thread: AtomicUsize::new(0),
-    
+
             lifecycle: TicketLock::new(ProcLifecycle::Running),
             completion_waiters: TicketLock::new(WaiterList::new()),
-    
+
             futexes: RwLock::new(BTreeMap::new()),
         })
     }
-    
+
     pub fn new(init_table: HandleTable, name: String, credentials: Credentials) -> Process {
         let proc = Self::new_unregistered(init_table, name, credentials);
         register_process(&proc);
@@ -244,25 +250,21 @@ impl ProcessControlBlock {
             ProcLifecycle::Terminated(t) => (ProcState::Terminated, t.reason, t.code, t.detail),
         };
 
-        let memory_usage = if self.proc_id == 0 {
-            kernel_heap_allocated()
-        } else {
-            self.memory.resident_bytes()
-        };
+        let memory_usage = if self.proc_id == 0 { kernel_heap_allocated() } else { self.memory.resident_bytes() };
 
         let mut info = ProcInfo::zeroed();
-        
+
         info.pid = self.proc_id;
         info.user = self.credentials.user();
         info.set_name(&self.proc_name);
         info.state = state;
         info.active_threads = self.active_threads.load(Ordering::Acquire);
         info.memory_usage = memory_usage;
-        
+
         info.term_reason = term_reason;
         info.term_code = term_code;
         info.term_detail = term_detail;
-        
+
         info
     }
 
@@ -373,19 +375,19 @@ impl KernelObject for ProcessControlBlock {
                 }
                 start_thread(thread as *mut ThreadControlBlock);
                 Ok(0)
-            },
+            }
             Invocation::Proc(ProcOp::Terminate { reason }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.request_terminate(ProcTermination::terminated(reason));
                 Ok(0)
-            },
+            }
             Invocation::Proc(ProcOp::GetInfo { info_ptr }) => {
                 calling_rights.err_if_no(AccessRights::READ)?;
                 self.info(info_ptr as *mut ProcInfo)
-            },
+            }
             Invocation::Proc(ProcOp::Unmap { vaddr, len }) => {
                 self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            },
+            }
             Invocation::Proc(ProcOp::SpawnThread { entry, stack_top, arg, priority }) => {
                 let tp = ThreadPriority::from(priority);
                 let proc = get_current_process().ok_or(InvocationError::ThreadSpawnFail)?;
@@ -393,14 +395,14 @@ impl KernelObject for ProcessControlBlock {
                 let obj = Arc::new(Thread { tcb: thread });
                 let id = self.handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
-            },
+            }
             Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
                 WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
-            },
+            }
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
                 let current_thread = get_core_data().scheduler.get_current_thread();
                 if current_thread.is_null() {
@@ -411,17 +413,17 @@ impl KernelObject for ProcessControlBlock {
                     write_to_msr(fs_base as u64, 0xC000_0100);
                 }
                 Ok(0)
-            },
+            }
             Invocation::Proc(ProcOp::InsertHandle { source_handle, rights }) => {
                 calling_rights.err_if_no(AccessRights::MUTATE)?;
                 let caller = get_current_process().ok_or(InvocationError::InvalidHandle)?;
                 let obj = caller.handles.read().resolve(source_handle, rights)?;
                 let new_handle_id = self.handles.write().insert(obj, rights);
                 Ok(new_handle_id.0)
-            },
+            }
             Invocation::Proc(ProcOp::Mprotect { vaddr, len, prot }) => {
                 self.vmm.write().mprotect(vaddr, len, prot).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

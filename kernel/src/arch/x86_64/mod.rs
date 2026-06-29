@@ -6,7 +6,6 @@ pub mod io;
 pub mod task;
 pub mod timer;
 
-use core::arch::asm;
 
 use apic::ioapic::*;
 use apic::lapic::get_apic_base;

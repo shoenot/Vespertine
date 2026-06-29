@@ -1,10 +1,8 @@
-use alloc::string::String;
+use vabi::app::hesper::AppIoMode;
+use vstd::prelude::*;
 
-use vespertine_abi::app::hesper::AppIoMode;
-use vespertine_std::Error;
-
-use crate::sys::metadata::ProgramMetadata;
 use crate::sys::ShellResult;
+use crate::sys::metadata::ProgramMetadata;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum CommandSink {
@@ -32,10 +30,7 @@ fn choose_terminal_mode(name: &str, args: &[String], metadata: ProgramMetadata) 
         return Ok(metadata.default_mode);
     }
 
-    Err(ShellResult::FailedToLaunch(
-        name.into(),
-        Error::invalid_argument("application default mode is not supported".into()),
-    ))
+    Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application default mode is not supported".into())))
 }
 
 fn choose_pipe_mode(name: &str, metadata: ProgramMetadata) -> Result<AppIoMode, ShellResult> {

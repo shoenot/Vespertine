@@ -1,11 +1,10 @@
-use alloc::string::String;
 use core::fmt::Display;
 
-use vespertine_abi::{
+use vabi::{
     ProcInfo,
     ProcTermReason,
 };
-use vespertine_std::Error;
+use vstd::prelude::*;
 
 #[derive(Debug, Clone)]
 pub enum ShellResult {
@@ -39,10 +38,7 @@ fn format_process_result(info: &ProcInfo, f: &mut core::fmt::Formatter<'_>) -> c
         ProcTermReason::None => write!(
             f,
             "pid {} still running: state={:?}, threads={}, memory={} bytes",
-            info.pid,
-            info.state,
-            info.active_threads,
-            info.memory_usage
+            info.pid, info.state, info.active_threads, info.memory_usage
         ),
         ProcTermReason::Exited => write!(f, "pid {} exited with code {}", info.pid, info.term_code),
         ProcTermReason::Terminated => write!(f, "pid {} terminated with reason {}", info.pid, info.term_code),

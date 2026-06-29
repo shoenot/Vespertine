@@ -290,29 +290,27 @@ impl Pager {
 
     pub fn init(&mut self) -> Option<()> {
         let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
-    
-        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut
-        PageTable) };
+
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();
-    
+
         let old_pml4_table_addr = get_cr3() & 0x000F_FFFF_FFFF_F000;
         copy_kernel_half(new_pml4_table, old_pml4_table_addr);
-    
+
         load_cr3(pml4_table_frame);
-    
+
         self.active_l4_addr = pml4_table_frame;
         Some(())
     }
 
     pub fn init_process_pager_from_kernel(&mut self, kernel_pml4_phys: u64) -> Option<()> {
         let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
-    
-        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut
-        PageTable) };
+
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();
-    
+
         copy_kernel_half(new_pml4_table, kernel_pml4_phys);
-    
+
         self.active_l4_addr = pml4_table_frame;
         Some(())
     }

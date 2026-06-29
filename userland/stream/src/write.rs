@@ -1,25 +1,9 @@
-use alloc::string::String;
-
-use vespertine_abi::AccessRights;
-use vespertine_cli::args::{
+use vcli::args::{
     Command,
     Opt,
 };
-use vespertine_rt::println;
-use vespertine_std::fs::{
-    File,
-    PathBuf,
-};
-use vespertine_std::typed::{
-    ShellValue,
-    TypedReader,
-};
-use vespertine_std::{
-    Error,
-    HandleReader,
-    Write,
-    env,
-};
+use vstd::HandleReader;
+use vstd::prelude::*;
 
 static WRITE_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help")), Opt::value("output-file", Some('o'), Some("output-file"))];
 
@@ -69,7 +53,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
                 ShellValue::StreamEnd => break,
                 ShellValue::RecordSchema { .. } | ShellValue::RecordPresentation { .. } => {}
                 ShellValue::Error(message) => return Err(Error::invalid_argument(message)),
-                ShellValue::StreamIntent { .. } => {},
+                ShellValue::StreamIntent { .. } => {}
             }
         }
     };

@@ -24,6 +24,7 @@ name = "auth"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-config",
  "vespertine-rt",
  "vespertine-std",
@@ -73,7 +74,9 @@ name = "details"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
+ "vespertine-config",
  "vespertine-rt",
  "vespertine-std",
 ]
@@ -85,6 +88,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -95,6 +99,7 @@ name = "dusk"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-rt",
  "vespertine-std",
 ]
@@ -110,6 +115,7 @@ name = "hesper"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-config",
  "vespertine-rt",
  "vespertine-std",
@@ -144,6 +150,7 @@ name = "ns"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -163,6 +170,7 @@ name = "nyx"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -251,6 +259,7 @@ name = "select"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -312,6 +321,7 @@ name = "stream"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -333,6 +343,7 @@ name = "sys"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -343,6 +354,7 @@ name = "table"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-cli",
  "vespertine-rt",
  "vespertine-std",
@@ -353,18 +365,10 @@ name = "terminal"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-rt",
  "vespertine-std",
  "vte",
-]
-
-[[package]]
-name = "testapp"
-version = "0.1.0"
-dependencies = [
- "vespertine-abi",
- "vespertine-rt",
- "vespertine-std",
 ]
 
 [[package]]
@@ -427,6 +431,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vespertine-app"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "vespertine-cli"
 version = "0.1.0"
 dependencies = [
@@ -477,6 +490,7 @@ name = "vlog"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
  "vespertine-common",
  "vespertine-rt",
  "vespertine-std",
@@ -487,6 +501,8 @@ name = "vreg"
 version = "0.1.0"
 dependencies = [
  "vespertine-abi",
+ "vespertine-app",
+ "vespertine-common",
  "vespertine-config",
  "vespertine-rt",
  "vespertine-std",

@@ -36,11 +36,9 @@ pub struct UserRecord {
 }
 
 pub fn parse_account_index(text: &str) -> Result<AccountIndex, ConfigError> {
-    toml::from_str::<AccountIndex>(text)
-        .map_err(|error| ConfigError::parse(format!("invalid account index: {:?}", error)))
+    toml::from_str::<AccountIndex>(text).map_err(|error| ConfigError::parse(format!("invalid account index: {:?}", error)))
 }
 
 pub fn parse_account_file(text: &str, path: &str) -> Result<AccountFile, ConfigError> {
-    toml::from_str::<AccountFile>(text)
-        .map_err(|error| ConfigError::parse(format!("invalid account file {}: {:?}", path, error)))
+    toml::from_str::<AccountFile>(text).map_err(|error| ConfigError::parse(format!("invalid account file {}: {:?}", path, error)))
 }

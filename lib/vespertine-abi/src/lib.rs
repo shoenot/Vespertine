@@ -8,7 +8,6 @@ pub mod tag;
 pub mod typed;
 
 pub use common::define_bitflags;
-
 pub use op::*;
 
 mod invocations;

@@ -1,9 +1,11 @@
-use core::{fmt::Display, slice, sync::atomic::AtomicU8};
+use core::slice;
 extern crate alloc;
-use alloc::string::String;
 
 use crate::{
-    CapabilityGrant, HandleID, PROC_NAME_LEN_MAX, UserID
+    CapabilityGrant,
+    HandleID,
+    PROC_NAME_LEN_MAX,
+    UserID,
 };
 
 pub const AT_VESPERTINE_INITPKG: usize = 0x6fff_0001;
@@ -112,9 +114,7 @@ impl ProcInfo {
         }
     }
 
-    pub fn successful(&self) -> bool {
-        self.term_reason == ProcTermReason::Exited && self.term_code == 0
-    }
+    pub fn successful(&self) -> bool { self.term_reason == ProcTermReason::Exited && self.term_code == 0 }
 
     pub fn status_code(&self) -> u32 {
         match self.term_reason {
@@ -134,7 +134,7 @@ impl ProcInfo {
                 } else {
                     "exited"
                 }
-            },
+            }
             ProcTermReason::Terminated => "terminated",
             ProcTermReason::Faulted => "faulted",
         }

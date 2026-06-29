@@ -58,11 +58,9 @@ pub struct GrantFile {
 }
 
 pub fn parse_archetype_file(text: &str) -> Result<ArchetypeFile, ConfigError> {
-    toml::from_str::<ArchetypeFile>(text)
-        .map_err(|error| ConfigError::parse(format!("invalid launcher archetype policy: {:?}", error)))
+    toml::from_str::<ArchetypeFile>(text).map_err(|error| ConfigError::parse(format!("invalid launcher archetype policy: {:?}", error)))
 }
 
 pub fn parse_grant_file(text: &str, path: &str) -> Result<GrantFile, ConfigError> {
-    toml::from_str::<GrantFile>(text)
-        .map_err(|error| ConfigError::parse(format!("invalid grant file {}: {:?}", path, error)))
+    toml::from_str::<GrantFile>(text).map_err(|error| ConfigError::parse(format!("invalid grant file {}: {:?}", path, error)))
 }
