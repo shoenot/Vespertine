@@ -32,11 +32,11 @@ use vespertine_abi::{
     WaitOp,
 };
 
-use crate::core::executor::async_sleep::{
+use crate::executor::async_sleep::{
     AsyncSleep,
     sleep_async,
 };
-use crate::core::executor::waiter::{
+use crate::executor::waiter::{
     AsyncWaiter,
     WaiterList,
     wake_all,
@@ -48,7 +48,7 @@ use crate::core::object::obj::{
     ObjectWaitFuture,
     matching_signals,
 };
-use crate::core::sync::Mutex;
+use crate::sync::Mutex;
 
 #[path = "socket_tests.rs"]
 mod tests;

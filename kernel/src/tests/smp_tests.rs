@@ -4,7 +4,7 @@ use core::sync::atomic::{
 };
 
 use hal::ipi::send_reschedule_ipi;
-use crate::core::sync::{
+use crate::sync::{
     Mutex,
     Semaphore,
 };

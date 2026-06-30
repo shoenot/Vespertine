@@ -14,12 +14,12 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::core::executor::async_mutex::AsyncMutex;
+use crate::executor::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::FilePermissions;
-use crate::core::sync::RwLock;
+use crate::sync::RwLock;
 use crate::process::current_process;
 use crate::memory::vmo::{
     FileVmo,

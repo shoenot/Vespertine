@@ -9,7 +9,7 @@ use core::sync::atomic::{
 };
 use core::task::Waker;
 
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 
 #[derive(Debug)]
 pub struct AsyncWaiter {

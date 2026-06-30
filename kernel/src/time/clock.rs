@@ -7,7 +7,7 @@ use hal::interrupts::{
 use vespertine_common::datetime::datetime_to_epoch;
 
 use crate::cpu::current_core_mut;
-use crate::core::sync::KernelOnceCell;
+use crate::sync::KernelOnceCell;
 use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::dispatch::wake_thread;
 use crate::sched::priority::ThreadPriority;

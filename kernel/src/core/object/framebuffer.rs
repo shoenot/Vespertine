@@ -15,7 +15,7 @@ use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::drivers::video::FramebufferInfo;
 
 #[derive(Debug)]

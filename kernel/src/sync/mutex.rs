@@ -16,7 +16,7 @@ use hal::interrupts::{
 };
 
 use crate::cpu::current_core_mut;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::dispatch::wake_thread;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{

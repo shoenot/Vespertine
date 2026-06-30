@@ -21,7 +21,7 @@ use super::{
     SocketWaitFuture,
     SocketWriteFuture,
 };
-use crate::core::executor::waiter::AsyncWaiter;
+use crate::executor::waiter::AsyncWaiter;
 use crate::cpu::current_core_mut;
 use crate::time::callout::{
     CalloutPayload,

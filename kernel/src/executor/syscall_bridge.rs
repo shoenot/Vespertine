@@ -24,7 +24,7 @@ use vespertine_abi::{
 use crate::cpu::current_core_mut;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_invoke;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::dispatch::cancel_block_if_awoken;
 use crate::sched::scheduler::ScheduleReason;

@@ -22,7 +22,7 @@ use super::paging::*;
 use super::pmm::*;
 use crate::memory::shootdown::shootdown;
 use crate::core::object::invoke::InvocationError;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::memory::vmo::PagedBackingStore;
 use crate::memory::{
     GLOBAL_PMM,

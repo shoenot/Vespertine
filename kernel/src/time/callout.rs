@@ -12,7 +12,7 @@ use hal::interrupts::{
 
 use crate::KERNEL_PROCESS;
 use crate::cpu::{KernelCoreData, current_core_id, current_core_mut};
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::ThreadState;
 use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::dispatch::{cancel_block_if_awoken, create_tcb};

@@ -10,7 +10,7 @@ use core::task::{
     Poll,
 };
 
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::drivers::virtio::blk::BlockTransferFuture;
 use crate::memory::{
     ALLOCATOR,

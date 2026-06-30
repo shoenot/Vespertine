@@ -14,7 +14,7 @@ use crate::process::{
     Process,
     ProcessControlBlock,
 };
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::scheduler::get_new_tid;
 use crate::sched::wait::WaitQueue;

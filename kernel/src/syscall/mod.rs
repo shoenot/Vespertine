@@ -16,7 +16,7 @@ use hal::usercopy::{
 };
 use vespertine_abi::Invocation;
 
-use crate::core::executor::syscall_bridge::handle_sys_invoke;
+use crate::executor::syscall_bridge::handle_sys_invoke;
 use crate::cpu::current_core_mut;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::InvocationError;

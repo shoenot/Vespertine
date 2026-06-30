@@ -28,7 +28,7 @@ use vespertine_abi::{
 };
 
 use super::file::Ext2File;
-use crate::core::executor::async_mutex::AsyncMutex;
+use crate::executor::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::fs::directory::{
     FILENAME_LEN_MAX,
@@ -44,7 +44,7 @@ use crate::core::security::permissions::{
     FilePermissions,
     allowed_rights,
 };
-use crate::core::sync::RwLock;
+use crate::sync::RwLock;
 use crate::process::current_process;
 use crate::time::get_realtime;
 use crate::memory::vmo::FileVmo;
@@ -167,7 +167,7 @@ impl KernelObject for Ext2Directory {
                 let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
                 let sink_obj = proc.handles.read().resolve(sink, AccessRights::WRITE)?;
 
-                crate::core::executor::Executor::new().spawn(async move {
+                crate::executor::Executor::new().spawn(async move {
                     let mut iter = entries.iter().peekable();
                     while let Some((name_str, file_type)) = iter.next() {
                         let mut entry = AbiDirEntry {

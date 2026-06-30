@@ -1,7 +1,7 @@
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 
-use crate::core::sync::{
+use crate::sync::{
     KernelOnceCell,
     TicketLock,
 };

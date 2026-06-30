@@ -15,7 +15,7 @@ use vespertine_abi::{
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::process::current_process;
 use crate::memory::vmo::{
     PagedBackingStore,

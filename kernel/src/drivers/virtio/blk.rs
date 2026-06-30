@@ -28,9 +28,9 @@ use hal::interrupts::{
 
 use crate::cpu::{current_core, current_core_id};
 use crate::cpu::current_core_mut;
-use crate::core::executor::EXECUTOR_THREAD_PTR;
-use crate::core::executor::waiter::AsyncWaiter;
-use crate::core::sync::TicketLock;
+use crate::executor::EXECUTOR_THREAD_PTR;
+use crate::executor::waiter::AsyncWaiter;
+use crate::sync::TicketLock;
 use crate::sched::dispatch::{
     cancel_block_if_awoken,
     wake_thread,

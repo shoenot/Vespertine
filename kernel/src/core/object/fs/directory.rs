@@ -44,7 +44,7 @@ use crate::core::object::obj::{
     KernelDirectory,
     KernelObject,
 };
-use crate::core::sync::RwLock;
+use crate::sync::RwLock;
 use crate::process::current_process;
 use crate::memory::NORMAL_PAGE_SIZE;
 
@@ -208,7 +208,7 @@ impl Directory {
             tree.iter().map(|(name, obj)| (name.name.to_string(), obj.type_name())).collect()
         }; // drop read lock
 
-        crate::core::executor::Executor::new().spawn(async move {
+        crate::executor::Executor::new().spawn(async move {
             let mut iter = entries.iter().peekable();
             while let Some((name_str, type_name)) = iter.next() {
                 let mut entry = AbiDirEntry {

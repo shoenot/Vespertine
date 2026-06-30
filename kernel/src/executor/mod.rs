@@ -31,7 +31,7 @@ use hal::interrupts::{
 };
 
 use crate::cpu::{current_core_id, current_core_mut};
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::dispatch::{
     cancel_block_if_awoken,
     wake_thread,

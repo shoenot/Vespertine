@@ -14,13 +14,13 @@ use vespertine_abi::{
     Signal,
 };
 
-use crate::core::executor::waiter::AsyncWaiter;
+use crate::executor::waiter::AsyncWaiter;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::process::Process;
 use crate::core::object::ipc::socket::SocketEndpoint;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::Mutex;
+use crate::sync::Mutex;
 use crate::process::current_process;
 
 const MAX_SESSION_OFFERS: usize = 64;

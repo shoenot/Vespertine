@@ -18,7 +18,7 @@ use hal::ipi::send_reschedule_ipi;
 use crate::cpu::{
     NO_STEAL_REQUEST, NUM_CORES, current_core_mut, get_core_data_for, hal_boot_alloc
 };
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::idle::*;
 use crate::sched::priority::ThreadPriority;
 use crate::sched::{

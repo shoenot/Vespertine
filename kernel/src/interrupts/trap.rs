@@ -19,7 +19,7 @@ use vespertine_abi::{
 
 use crate::cpu::current_core_mut;
 use crate::process::ProcTermination;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::sched::dispatch::wake_thread;
 use crate::process::current_process;
 use crate::sched::scheduler::ScheduleReason;

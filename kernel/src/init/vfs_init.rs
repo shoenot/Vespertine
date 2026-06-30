@@ -26,7 +26,7 @@ use crate::core::object::vfs::{
     link_kernel_object,
     mount_kernel_object,
 };
-use crate::core::sync::KernelOnceCell;
+use crate::sync::KernelOnceCell;
 use crate::drivers::video::init_framebuffer;
 use crate::klogln;
 use crate::storage::blockdev::AsyncBlockDevice;

@@ -15,7 +15,7 @@ use hal::cpu::{
 };
 use hal::smp::start_application_cores;
 use crate::boot::smp::ap_entry;
-use crate::core::sync::{
+use crate::sync::{
     KernelOnceCell,
     TicketLock,
 };

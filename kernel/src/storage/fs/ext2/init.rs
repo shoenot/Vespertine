@@ -1,9 +1,9 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::core::executor::Executor;
-use crate::core::executor::async_sleep::sleep_async;
-use crate::core::sync::RwLock;
+use crate::executor::Executor;
+use crate::executor::async_sleep::sleep_async;
+use crate::sync::RwLock;
 use crate::memory::vmo::FileVmo;
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::storage::fs::ext2::Ext2FileSystem;

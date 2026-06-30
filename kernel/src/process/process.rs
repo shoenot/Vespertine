@@ -36,7 +36,7 @@ use vespertine_abi::{
 };
 use vespertine_common::lock::TicketLock;
 
-use crate::core::executor::waiter::{
+use crate::executor::waiter::{
     AsyncWaiter,
     WaiterList,
     wake_all,
@@ -52,7 +52,7 @@ use crate::core::object::obj::{
     matching_signals,
 };
 use crate::core::security::credentials::Credentials;
-use crate::core::sync::RwLock;
+use crate::sync::RwLock;
 use crate::sched::dispatch::{
     cancel_blocked_thread,
     reschedule_thread_core,

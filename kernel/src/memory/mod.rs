@@ -33,7 +33,7 @@ use vespertine_common::slab::SlabAllocator;
 use vmm::*;
 
 use crate::cpu::current_core_mut;
-use crate::core::sync::{
+use crate::sync::{
     KernelOnceCell,
     TicketLock,
 };

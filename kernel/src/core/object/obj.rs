@@ -17,7 +17,7 @@ use vespertine_abi::{
     UserID,
 };
 
-use crate::core::executor::waiter::AsyncWaiter;
+use crate::executor::waiter::AsyncWaiter;
 use crate::core::object::invoke::InvocationError;
 use crate::core::security::permissions::FilePermissions;
 

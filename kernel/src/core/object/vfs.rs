@@ -22,7 +22,7 @@ use crate::core::object::namespace::DirLocation;
 use crate::process::Process;
 use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::FilePermissions;
-use crate::core::sync::KernelOnceCell;
+use crate::sync::KernelOnceCell;
 use crate::process::current_process;
 use crate::klogln;
 

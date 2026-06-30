@@ -1,4 +1,4 @@
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::memory::DIRECT_MAP_OFFSET;
 use crate::memory::pmm::HUGE_PAGE_SIZE;
 

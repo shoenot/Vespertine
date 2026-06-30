@@ -31,7 +31,7 @@ use vespertine_abi::{
     SpawnCredentials,
 };
 
-use crate::core::executor::Executor;
+use crate::executor::Executor;
 use crate::core::object::handle::HandleTable;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;

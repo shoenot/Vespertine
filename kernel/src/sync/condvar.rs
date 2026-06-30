@@ -7,7 +7,7 @@ use hal::interrupts::{
 };
 
 use crate::cpu::current_core_mut;
-use crate::core::sync::{
+use crate::sync::{
     MutexGuard,
     TicketLock,
 };

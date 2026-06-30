@@ -27,7 +27,7 @@ use super::serial::{
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
-use crate::core::sync::{
+use crate::sync::{
     KernelOnceCell,
     TicketLock,
 };

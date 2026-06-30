@@ -28,7 +28,7 @@ use vespertine_abi::{
     WaitOp,
 };
 
-use crate::core::executor::waiter::{
+use crate::executor::waiter::{
     AsyncWaiter,
     WaiterList,
     wake_all,
@@ -39,7 +39,7 @@ use crate::core::object::obj::{
     KernelObject,
     ObjectWaitFuture,
 };
-use crate::core::sync::Mutex;
+use crate::sync::Mutex;
 use crate::process::current_process;
 use crate::time::get_realtime;
 use crate::klogln;

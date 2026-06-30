@@ -7,7 +7,7 @@ use core::sync::atomic::{
 };
 
 use crate::cpu::current_core_mut;
-use crate::core::sync::{
+use crate::sync::{
     Semaphore,
     TicketLock,
 };

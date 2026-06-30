@@ -3,7 +3,7 @@ use hal::boot::{self, BootFramebuffer};
 
 use crate::core::object::framebuffer::FramebufferDevice;
 use crate::core::object::vmo::VmoObject;
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 use crate::drivers::logger;
 use crate::memory::vmo::Vmo;
 

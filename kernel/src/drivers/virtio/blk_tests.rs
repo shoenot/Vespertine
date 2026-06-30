@@ -145,7 +145,7 @@ fn test_virtqueue(queue_size: u16, free_descs: u16) -> Virtqueue {
         free_head: if free_descs == 0 { 0xFFFF } else { 0 },
         last_seen_used: 0,
         queue_notify_off: 0,
-        requests: crate::core::sync::TicketLock::new(requests),
+        requests: crate::sync::TicketLock::new(requests),
     }
 }
 

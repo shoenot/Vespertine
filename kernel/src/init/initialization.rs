@@ -18,7 +18,7 @@ use vespertine_abi::{
     SpawnCredentials,
 };
 
-use crate::core::executor::{
+use crate::executor::{
     Executor,
     executor_thread,
 };

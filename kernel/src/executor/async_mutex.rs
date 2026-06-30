@@ -14,7 +14,7 @@ use core::task::{
     Waker,
 };
 
-use crate::core::sync::TicketLock;
+use crate::sync::TicketLock;
 
 #[derive(Debug)]
 pub struct AsyncMutex<T> {
