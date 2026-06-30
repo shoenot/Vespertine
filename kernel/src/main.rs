@@ -14,14 +14,12 @@ mod tests;
 mod util;
 
 use alloc::sync::Arc;
-use hal::fpu::init_fpu;
 use hal::platform::PlatformInit;
 
 use ::core::sync::atomic::Ordering;
 use crate::core::cpu::{KernelCoreData, current_core_mut, hal_boot_alloc, init_bootstrap_core};
 use crate::core::time::callout::init_timer_daemon;
 use boot::smp::BSP_CR3;
-pub use boot::*;
 use drivers::logger::LOGGER;
 use hal::interrupts::enable_interrupts;
 use hal::mmu::get_cr3;
@@ -58,7 +56,7 @@ use crate::drivers::pci::{
 use crate::drivers::virtio::blk::init_block_device;
 use crate::drivers::virtio::mmio::init_virtio;
 use crate::memory::{
-    GLOBAL_PMM, HHDMOFFSET, PAGER, hal_map_mmio
+    GLOBAL_PMM, DIRECT_MAP_OFFSET, PAGER, hal_map_mmio
 };
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::tasks::vfs_init::BLOCK_DEVICE;
@@ -92,28 +90,16 @@ pub extern "C" fn kmain() -> ! {
     BOOTSTRAP_ALLOC.lock().init(bootstrap_page);
 
     interrupts::init();
-
-    let rsdp_addr = RSDP_REQUEST.response()
-        .expect("could not get rsdp address from limine")
-        .address as usize;
-
-    let platform_hooks = PlatformInit {
-        rsdp_addr,
-        direct_map_offset: *HHDMOFFSET,
-        map_mmio: hal_map_mmio,
-    };
-
+    let platform_hooks = PlatformInit { map_mmio: hal_map_mmio };
     hal::platform::init_early(platform_hooks);
-
     init_bootstrap_core();
-
     hal::platform::init();
 
     klogln!("[INFO] GS Base initialized. Starting FPU...");
-    init_fpu(true, hal_boot_alloc);
+    hal::cpu::init_bsp_state(hal_boot_alloc);
 
     klogln!("[INFO] FPU initialized. Starting IOAPIC...");
-    hal::interrupts::init_ioapic();
+    hal::interrupts::init_platform_interrupts();
 
     init_kernel_process();
 

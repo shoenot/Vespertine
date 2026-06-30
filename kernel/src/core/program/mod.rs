@@ -45,7 +45,7 @@ use crate::memory::vmo::{
     Vmo,
 };
 use crate::memory::{
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
     NORMAL_PAGE_SIZE,
 };
 
@@ -183,8 +183,8 @@ async fn map_elf_segments(
 
                     let anon_pfn = anon_vmo.request_page(target_offset).map_err(|_| LoaderError::FileReadError)?;
 
-                    let src_virt = file_pfn + *HHDMOFFSET;
-                    let dest_virt = anon_pfn + *HHDMOFFSET;
+                    let src_virt = file_pfn + *DIRECT_MAP_OFFSET;
+                    let dest_virt = anon_pfn + *DIRECT_MAP_OFFSET;
 
                     unsafe {
                         copy_nonoverlapping(src_virt as *const u8, dest_virt as *mut u8, NORMAL_PAGE_SIZE);
@@ -200,7 +200,7 @@ async fn map_elf_segments(
 
                     let zero_start_offset = total_copied_bytes % NORMAL_PAGE_SIZE;
                     let zero_len = NORMAL_PAGE_SIZE - zero_start_offset;
-                    let dest_virt = last_page_pfn + *HHDMOFFSET;
+                    let dest_virt = last_page_pfn + *DIRECT_MAP_OFFSET;
 
                     unsafe {
                         write_bytes((dest_virt + zero_start_offset) as *mut u8, 0, zero_len);

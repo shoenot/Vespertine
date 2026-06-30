@@ -5,7 +5,7 @@ use core::alloc::{Layout, LayoutError};
 use core::ptr::copy_nonoverlapping;
 use core::sync::atomic::Ordering;
 
-use crate::cpu::BootAllocFn;
+use crate::x86_64::cpu::BootAllocFn;
 use crate::x86_64::fpu::{
     CLEAN_LEGACY_FPU_CXT,
     CLEAN_FPU_CXT,

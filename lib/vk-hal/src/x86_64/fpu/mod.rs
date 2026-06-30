@@ -17,7 +17,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::cpu::BootAllocFn;
+use crate::x86_64::cpu::BootAllocFn;
 use crate::x86_64::cpu::cpuid::{
     check_xsave_support,
     get_xsave_details,

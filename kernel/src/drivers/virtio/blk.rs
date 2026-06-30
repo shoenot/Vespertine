@@ -48,7 +48,7 @@ use crate::interrupts::alloc::MsiHandle;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
 };
 use crate::storage::blockdev::{
     AsyncBlockDevice,
@@ -235,7 +235,7 @@ pub fn vq_setup(drv: &VirtioBlockDriver, q_idx: u16) -> Option<Virtqueue> {
         let av_phys = ALLOCATOR.alloc_order(av_order)?;
         let used_phys = ALLOCATOR.alloc_order(used_order)?;
 
-        let hhdm = *HHDMOFFSET;
+        let hhdm = *DIRECT_MAP_OFFSET;
         let desc_virt = (desc_phys + hhdm) as *mut VqDescriptor;
         let av_virt_base = av_phys + hhdm;
         let used_virt_base = used_phys + hhdm;
@@ -570,7 +570,7 @@ impl VirtioBlockDevice {
             if page_phys == 0 {
                 return Err(());
             };
-            let page_virt = page_phys + *HHDMOFFSET;
+            let page_virt = page_phys + *DIRECT_MAP_OFFSET;
             let dma_len = sectors_count as usize * 512;
             let dma_buffer = if is_write { DmaBuffer::from_phys(buf_phys as usize, dma_len)? } else { DmaBuffer::new(dma_len)? };
 
@@ -746,7 +746,7 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     };
 
                     if let Some(request) = request {
-                        let status_ptr = (request.page_phys + 512 + *HHDMOFFSET) as *const u8;
+                        let status_ptr = (request.page_phys + 512 + *DIRECT_MAP_OFFSET) as *const u8;
                         let status = read_volatile(status_ptr);
 
                         let mut vq = (*vq_state).vq.lock();

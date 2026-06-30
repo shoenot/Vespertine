@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use hal::boot::{self, BootFramebuffer};
 use core::fmt::{
     self,
     Write,
@@ -11,7 +12,6 @@ use core::{
 
 use async_trait::async_trait;
 use hal::usercopy::safe_copy_from;
-use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
@@ -24,7 +24,6 @@ use super::serial::{
     init_serial,
     log_to_serial,
 };
-use crate::boot::FRAMEBUFFER_REQUEST;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
@@ -71,30 +70,25 @@ impl Logger {
         log_to_serial("\x1B[2J\x1B[H");
         self.serial_writer.write(SerialWriter {});
 
-        if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
-            if let Some(fb) = fb_response.framebuffers().first() {
-                // fill the entire fb with the bg color at early boot
-                let total_pixels = (fb.pitch / 4) as usize * fb.height as usize;
-                let ptr = fb.address() as *mut u32;
-                unsafe {
-                    for i in 0..total_pixels {
-                        ptr.add(i).write_volatile(COLOR_BG);
-                    }
+        if let Some(fb) = hal::boot::framebuffer() {
+            let total_pixels = (fb.pitch / 4) * fb.height;
+            let ptr = fb.virtual_address as *mut u32;
+            unsafe {
+                for i in 0..total_pixels {
+                    ptr.add(i).write_volatile(COLOR_BG);
                 }
-
-                self.max_rows = ((fb.height - 32) / 16) as u32;
-                self.max_cols = ((fb.width - 32) / 8) as u32;
-                self.current_row = 0;
-                self.current_col = 0;
             }
+            self.max_rows = ((fb.height - 32) / 16) as u32;
+            self.max_cols = ((fb.width - 32) / 8) as u32;
+            self.current_row = 0;
+            self.current_col = 0;
         }
     }
 
     pub fn write_serial_only(&mut self, s: &str) -> fmt::Result { unsafe { self.serial_writer.assume_init_mut().write_str(s) } }
 
     pub fn write_screen(&mut self, s: &str) {
-        let Some(fb_response) = FRAMEBUFFER_REQUEST.response() else { return };
-        let Some(fb) = fb_response.framebuffers().first() else { return };
+        let Some(fb) = boot::framebuffer() else { return };
         let font = FONT.get_or_init(|| load_font());
 
         for c in s.chars() {
@@ -118,7 +112,7 @@ impl Logger {
         }
     }
 
-    fn inc_line(&mut self, fb: &Framebuffer) {
+    fn inc_line(&mut self, fb: BootFramebuffer) {
         if self.current_row < self.max_rows - 1 {
             self.current_row += 1;
         } else {
@@ -126,9 +120,9 @@ impl Logger {
         }
     }
 
-    fn scroll(&mut self, fb: &Framebuffer) {
+    fn scroll(&mut self, fb: BootFramebuffer) {
         let pitch = fb.pitch as usize;
-        let address = fb.address() as *mut u8;
+        let address = fb.virtual_address as *mut u8;
         let start_y = 16;
         let scroll_amount = 16 * pitch;
         let copy_size = (self.max_rows as usize - 1) * 16 * pitch;
@@ -165,9 +159,9 @@ impl Write for Logger {
 
 pub fn disable_screen_logging() { LOGGER.lock().screen_enabled = false; }
 
-fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) {
+fn putpixel(x: u32, y: u32, color: u32, fb: BootFramebuffer) {
     let pixels_per_row = fb.pitch / 4;
-    let ptr = fb.address().cast::<u32>();
+    let ptr = fb.virtual_address as *mut u32;
 
     if x < fb.width as u32 && y < fb.height as u32 {
         unsafe {
@@ -176,7 +170,7 @@ fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) {
     }
 }
 
-fn putchar(c: char, col: u32, row: u32, font: &Psf, fb: &Framebuffer, fg: u32, bg: u32) {
+fn putchar(c: char, col: u32, row: u32, font: &Psf, fb: BootFramebuffer, fg: u32, bg: u32) {
     let x_base = (col * 8) + 16; // 16px left margin
     let y_base = (row * 16) + 16; // 16px top margin
     let Some(pixels) = font.get_glyph_pixels(c as usize) else { return };

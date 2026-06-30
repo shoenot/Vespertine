@@ -31,7 +31,7 @@ use super::{
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
 };
 use crate::storage::blockdev::DmaBuffer;
 
@@ -82,7 +82,7 @@ fn alloc_page() -> usize {
 
 fn set_status(page_phys: usize, status: u8) {
     unsafe {
-        *((page_phys + 512 + *HHDMOFFSET) as *mut u8) = status;
+        *((page_phys + 512 + *DIRECT_MAP_OFFSET) as *mut u8) = status;
     }
 }
 
@@ -105,12 +105,12 @@ fn test_virtqueue(queue_size: u16, free_descs: u16) -> Virtqueue {
     let used_phys = ALLOCATOR.alloc_order(0).expect("used alloc failed");
 
     unsafe {
-        write_bytes((desc_phys + *HHDMOFFSET) as *mut u8, 0, 4096);
-        write_bytes((av_phys + *HHDMOFFSET) as *mut u8, 0, 4096);
-        write_bytes((used_phys + *HHDMOFFSET) as *mut u8, 0, 4096);
+        write_bytes((desc_phys + *DIRECT_MAP_OFFSET) as *mut u8, 0, 4096);
+        write_bytes((av_phys + *DIRECT_MAP_OFFSET) as *mut u8, 0, 4096);
+        write_bytes((used_phys + *DIRECT_MAP_OFFSET) as *mut u8, 0, 4096);
     }
 
-    let desc = (desc_phys + *HHDMOFFSET) as *mut VqDescriptor;
+    let desc = (desc_phys + *DIRECT_MAP_OFFSET) as *mut VqDescriptor;
     for i in 0..queue_size {
         let next = if i + 1 < free_descs { i + 1 } else { 0xFFFF };
         unsafe {
@@ -124,16 +124,16 @@ fn test_virtqueue(queue_size: u16, free_descs: u16) -> Virtqueue {
     Virtqueue {
         desc,
         available: VqAvailableRing {
-            flags: (av_phys + *HHDMOFFSET) as *mut u16,
-            idx: (av_phys + *HHDMOFFSET + 2) as *mut u16,
-            ring: (av_phys + *HHDMOFFSET + 4) as *mut u16,
-            _used_event: (av_phys + *HHDMOFFSET + 6) as *mut u16,
+            flags: (av_phys + *DIRECT_MAP_OFFSET) as *mut u16,
+            idx: (av_phys + *DIRECT_MAP_OFFSET + 2) as *mut u16,
+            ring: (av_phys + *DIRECT_MAP_OFFSET + 4) as *mut u16,
+            _used_event: (av_phys + *DIRECT_MAP_OFFSET + 6) as *mut u16,
         },
         used: VqUsedRing {
-            flags: (used_phys + *HHDMOFFSET) as *mut u16,
-            idx: (used_phys + *HHDMOFFSET + 2) as *mut u16,
-            ring: (used_phys + *HHDMOFFSET + 4) as *mut VqUsedElem,
-            _avail_event: (used_phys + *HHDMOFFSET + 8) as *mut u16,
+            flags: (used_phys + *DIRECT_MAP_OFFSET) as *mut u16,
+            idx: (used_phys + *DIRECT_MAP_OFFSET + 2) as *mut u16,
+            ring: (used_phys + *DIRECT_MAP_OFFSET + 4) as *mut VqUsedElem,
+            _avail_event: (used_phys + *DIRECT_MAP_OFFSET + 8) as *mut u16,
         },
         desc_phys,
         av_phys,
@@ -277,7 +277,7 @@ fn test_read_completion_copies_dma_back_to_destination() {
     let dma = DmaBuffer::new(512).expect("dma buffer alloc failed");
     let src = [0x5Au8; 512];
     unsafe {
-        core::ptr::copy_nonoverlapping(src.as_ptr(), (dma.phys() + *HHDMOFFSET) as *mut u8, src.len());
+        core::ptr::copy_nonoverlapping(src.as_ptr(), (dma.phys() + *DIRECT_MAP_OFFSET) as *mut u8, src.len());
     }
 
     let request = BlockRequest::new(0, 1, 2, page_phys, dma);
@@ -288,7 +288,7 @@ fn test_read_completion_copies_dma_back_to_destination() {
 
     assert_eq!(poll_future(&mut future, &mut Context::from_waker(&waker)), Poll::Ready(Ok(())));
     unsafe {
-        let dst = core::slice::from_raw_parts((page_phys + *HHDMOFFSET) as *const u8, src.len());
+        let dst = core::slice::from_raw_parts((page_phys + *DIRECT_MAP_OFFSET) as *const u8, src.len());
         assert_eq!(dst, src);
     }
     ALLOCATOR.free(page_phys, BlockSize::Normal);

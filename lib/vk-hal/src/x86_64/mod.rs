@@ -12,4 +12,5 @@ pub mod task;
 pub mod fpu;
 pub mod platform;
 pub mod timer;
+pub mod boot;
 mod lock;

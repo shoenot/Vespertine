@@ -3,18 +3,24 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::cpu::kernel_core_from_cpu_local;
-use limine::mp::MpInfo;
-
-use crate::core::cpu::{KernelCoreData, current_core_id, current_core_mut, hal_boot_alloc};
-use crate::core::time::callout::init_timer_daemon;
+use hal::cpu::{
+    CpuLocalPtr,
+    kernel_core_from_cpu_local,
+};
 use hal::mmu::load_cr3;
+
+use crate::core::cpu::{
+    KernelCoreData,
+    current_core_id,
+    current_core_mut,
+    hal_boot_alloc,
+};
+use crate::core::time::callout::init_timer_daemon;
 use crate::terminate_thread;
 
 pub static BSP_CR3: AtomicU64 = AtomicU64::new(0);
 
-pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
-    let cpu_local = mp_info.extra_argument() as *mut ();
+pub extern "C" fn ap_entry(cpu_local: CpuLocalPtr) -> ! {
     load_cr3(BSP_CR3.load(Ordering::Acquire));
     hal::interrupts::load_local();
     hal::cpu::activate_core(cpu_local);
@@ -25,9 +31,9 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
 
     init_timer_daemon(kernel_core_data);
 
-
-    hal::fpu::init_fpu(false, hal_boot_alloc);
+    hal::cpu::init_ap_state(hal_boot_alloc);
     hal::timer::init_local();
+
     hal::interrupts::enable_interrupts();
     terminate_thread!();
 }

@@ -51,7 +51,7 @@ use crate::memory::vmo::FileVmo;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
 };
 use crate::storage::fs::VfsNode;
 use crate::storage::fs::ext2::Ext2FileSystem;
@@ -122,7 +122,7 @@ impl KernelObject for Ext2Directory {
                 if page_phys == 0 {
                     return Err(InvocationError::OutOfMemory);
                 }
-                let page_virt = page_phys + *HHDMOFFSET;
+                let page_virt = page_phys + *DIRECT_MAP_OFFSET;
 
                 for direct_idx in 0..12 {
                     let block_id = unsafe { self.inode_data.read().data.blocks.direct[direct_idx] };
@@ -352,7 +352,7 @@ impl KernelDirectory for Ext2Directory {
                 let mut sub_blocks = alloc::vec::Vec::new();
                 let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
                 if page_phys != 0 {
-                    let page_virt = page_phys + *HHDMOFFSET;
+                    let page_virt = page_phys + *DIRECT_MAP_OFFSET;
                     if self.fs.read_block(double_indirect, page_phys as u64).await.is_ok() {
                         let pointers_per_block = (self.fs.block_size / 4) as usize;
                         unsafe {
@@ -380,7 +380,7 @@ impl KernelDirectory for Ext2Directory {
 
                 let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
                 if page_phys != 0 {
-                    let page_virt = page_phys + *HHDMOFFSET;
+                    let page_virt = page_phys + *DIRECT_MAP_OFFSET;
                     if self.fs.read_block(triple_indirect, page_phys as u64).await.is_ok() {
                         let pointers_per_block = (self.fs.block_size / 4) as usize;
                         unsafe {
@@ -399,7 +399,7 @@ impl KernelDirectory for Ext2Directory {
                 for &d_block in &d_blocks {
                     let page_phys_sub = ALLOCATOR.alloc(BlockSize::Normal);
                     if page_phys_sub != 0 {
-                        let page_virt_sub = page_phys_sub + *HHDMOFFSET;
+                        let page_virt_sub = page_phys_sub + *DIRECT_MAP_OFFSET;
                         if self.fs.read_block(d_block, page_phys_sub as u64).await.is_ok() {
                             let pointers_per_block = (self.fs.block_size / 4) as usize;
                             unsafe {
@@ -514,7 +514,7 @@ impl KernelDirectory for Ext2Directory {
         if page_phys == 0 {
             return Err(InvocationError::OutOfMemory);
         }
-        let page_virt = page_phys + *HHDMOFFSET;
+        let page_virt = page_phys + *DIRECT_MAP_OFFSET;
         let block_size = self.fs.block_size as usize;
 
         // initialize "." and ".." headers in the directory's data block
@@ -635,7 +635,7 @@ impl Ext2Directory {
         if page_phys == 0 {
             return Err(());
         }
-        let page_virt = page_phys + *HHDMOFFSET;
+        let page_virt = page_phys + *DIRECT_MAP_OFFSET;
 
         let total_blocks = self.inode_data.read().size as usize / block_size;
         for block_idx in 0..total_blocks {
@@ -810,7 +810,7 @@ impl Ext2Directory {
                             return Err(());
                         }
                         unsafe {
-                            ptr::write_bytes((page_phys_sub + *HHDMOFFSET) as *mut u8, 0, block_size);
+                            ptr::write_bytes((page_phys_sub + *DIRECT_MAP_OFFSET) as *mut u8, 0, block_size);
                         }
                         let sub_s = single_indirect as u64 * self.fs.sectors_per_block as u64;
                         self.fs.partition.write_sectors(sub_s, self.fs.sectors_per_block, page_phys_sub as u64)?.await?;
@@ -872,7 +872,7 @@ impl Ext2Directory {
                             return Err(());
                         }
                         unsafe {
-                            ptr::write_bytes((page_phys_sub + *HHDMOFFSET) as *mut u8, 0, block_size);
+                            ptr::write_bytes((page_phys_sub + *DIRECT_MAP_OFFSET) as *mut u8, 0, block_size);
                         }
                         let sub_s = double_indirect as u64 * self.fs.sectors_per_block as u64;
                         self.fs.partition.write_sectors(sub_s, self.fs.sectors_per_block, page_phys_sub as u64)?.await?;
@@ -904,7 +904,7 @@ impl Ext2Directory {
                             return Err(());
                         }
                         unsafe {
-                            ptr::write_bytes((page_phys_sub + *HHDMOFFSET) as *mut u8, 0, block_size);
+                            ptr::write_bytes((page_phys_sub + *DIRECT_MAP_OFFSET) as *mut u8, 0, block_size);
                         }
                         let sub2_s = single_indirect as u64 * self.fs.sectors_per_block as u64;
                         self.fs.partition.write_sectors(sub2_s, self.fs.sectors_per_block, page_phys_sub as u64)?.await?;
@@ -951,7 +951,7 @@ impl Ext2Directory {
         if page_phys == 0 {
             return Err(());
         }
-        let page_virt = page_phys + *HHDMOFFSET;
+        let page_virt = page_phys + *DIRECT_MAP_OFFSET;
 
         let total_blocks = self.inode_data.read().size as usize / block_size;
         for block_idx in 0..total_blocks {

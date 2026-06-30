@@ -12,7 +12,7 @@ use vespertine_abi::{
 use vespertine_common::slab::NORMAL_PAGE_SIZE;
 
 use crate::core::object::invoke::InvocationError;
-use crate::memory::HHDMOFFSET;
+use crate::memory::DIRECT_MAP_OFFSET;
 use crate::memory::vmo::{
     PagedBackingStore,
     Vmo,
@@ -60,7 +60,7 @@ impl ProcessEnvironment {
         let strings_offset = (capabilities_offset + capabilities_array_size + 15) & !0xF;
 
         // hhdm ptrs
-        let hhdm_addr = phys_frame + *HHDMOFFSET;
+        let hhdm_addr = phys_frame + *DIRECT_MAP_OFFSET;
 
         let strings_hhdm_ptr = (hhdm_addr + strings_offset) as *mut u8;
         let capabilities_hhdm_ptr = (hhdm_addr + capabilities_offset) as *mut CapabilityGrant;

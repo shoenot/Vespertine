@@ -5,7 +5,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-pub use crate::memory::HHDMOFFSET;
+pub use crate::memory::DIRECT_MAP_OFFSET;
 use crate::memory::init_pmm::*;
 
 static ORDER_MAX: usize = 11;
@@ -54,7 +54,7 @@ impl Allocator {
 
         let meta_frame_idx = init_allocator.alloc(pfndb_size_bytes).unwrap();
         let meta_phys = meta_frame_idx * NORMAL_PAGE_SIZE;
-        let meta_virt = meta_phys + *HHDMOFFSET;
+        let meta_virt = meta_phys + *DIRECT_MAP_OFFSET;
 
         let pfndb_slice = unsafe { from_raw_parts_mut(meta_virt as *mut PageFrame, total_pages) };
 
@@ -124,12 +124,12 @@ impl Allocator {
                     if order > ORDER_MAX { return None } else { continue }
                 }
 
-                let list_ptr = (list_addr + *HHDMOFFSET) as *mut FreeBlock;
+                let list_ptr = (list_addr + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
                 let block = unsafe { &mut *list_ptr };
 
                 if block.next != 0 {
                     let next_block = unsafe {
-                        let blk = (block.next + *HHDMOFFSET) as *mut FreeBlock;
+                        let blk = (block.next + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
                         &mut *blk
                     };
                     next_block.prev = 0;
@@ -160,12 +160,12 @@ impl Allocator {
             order -= 1;
 
             let buddy_addr = addr + (NORMAL_PAGE_SIZE << order);
-            let buddy_ptr = (buddy_addr + *HHDMOFFSET) as *mut FreeBlock;
+            let buddy_ptr = (buddy_addr + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
 
             let order_head_addr = self.freelist[order];
             if order_head_addr != 0 {
                 let order_head_ptr = unsafe {
-                    let blk = (self.freelist[order] + *HHDMOFFSET) as *mut FreeBlock;
+                    let blk = (self.freelist[order] + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
                     &mut *blk
                 };
                 order_head_ptr.prev = buddy_addr;
@@ -221,13 +221,13 @@ impl Allocator {
         self.pfndb[final_pfn].flags.store(PF_FREE | PF_BUDDY_HEAD, Ordering::Relaxed);
         self.pfndb[final_pfn].buddy_order.store(order as u16, Ordering::Relaxed);
 
-        let new_block_ptr = (block_addr + *HHDMOFFSET) as *mut FreeBlock;
+        let new_block_ptr = (block_addr + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
         unsafe {
             let old_head = self.freelist[order];
             *new_block_ptr = FreeBlock { prev: 0, next: self.freelist[order] };
 
             if old_head != 0 {
-                let old_head_ptr = (old_head + *HHDMOFFSET) as *mut FreeBlock;
+                let old_head_ptr = (old_head + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
                 (*old_head_ptr).prev = block_addr;
             }
         }
@@ -235,20 +235,20 @@ impl Allocator {
     }
 
     fn merge_block(&mut self, block_addr: usize, buddy_addr: usize, order: usize) -> usize {
-        let buddy_ptr = (buddy_addr + *HHDMOFFSET) as *mut FreeBlock;
+        let buddy_ptr = (buddy_addr + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
         unsafe {
             let prev = (*buddy_ptr).prev;
             let next = (*buddy_ptr).next;
 
             if prev != 0 {
-                let prev_ptr = (prev + *HHDMOFFSET) as *mut FreeBlock;
+                let prev_ptr = (prev + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
                 (*prev_ptr).next = next;
             } else {
                 self.freelist[order] = next;
             }
 
             if next != 0 {
-                let next_ptr = (next + *HHDMOFFSET) as *mut FreeBlock;
+                let next_ptr = (next + *DIRECT_MAP_OFFSET) as *mut FreeBlock;
                 (*next_ptr).prev = prev;
             }
 

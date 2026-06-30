@@ -510,11 +510,11 @@ impl VirtMemManager {
                 while current_page < end_page && batch_count < BATCH_SIZE {
                     let virt = VirtAddress(current_page as u64);
 
-                    if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
+                    if let Some(phys_addr) = pagerlock.translate(virt, *DIRECT_MAP_OFFSET as u64) {
                         phys_batch[batch_count] = phys_addr as usize;
                         offset_batch[batch_count] = current_page - target_vma.start; // Save VMA offset
                         batch_count += 1;
-                        pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+                        pagerlock.unmap_page(virt, *DIRECT_MAP_OFFSET as u64, block_size);
                     }
                     current_page += step_size;
                 }
@@ -686,15 +686,15 @@ impl VirtMemManager {
             let hwflags = convert_vm_flags(new_flags) as u64;
             {
                 let mut pager = self.pager.lock();
-                let was_resident = pager.translate(virt, *HHDMOFFSET as u64).is_some();
+                let was_resident = pager.translate(virt, *DIRECT_MAP_OFFSET as u64).is_some();
 
                 if new_flags & VM_FLAG_NO_ACCESS != 0 || needs_cow_reset {
-                    pager.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+                    pager.unmap_page(virt, *DIRECT_MAP_OFFSET as u64, block_size);
                     if was_resident {
                         self.accounting.sub_resident(step_size);
                     }
                 } else {
-                    pager.change_flags(virt, hwflags, *HHDMOFFSET as u64, block_size);
+                    pager.change_flags(virt, hwflags, *DIRECT_MAP_OFFSET as u64, block_size);
                 }
             }
             flush_tlb(current_page as u64);
@@ -752,7 +752,7 @@ impl VirtMemManager {
             if vma_allows_write && obj.get_node().is_some() {
                 let private_page = self.allocator.alloc(block_size) as usize;
                 unsafe {
-                    core::ptr::copy_nonoverlapping((page + *HHDMOFFSET) as *const u8, (private_page + *HHDMOFFSET) as *mut u8, mask + 1);
+                    core::ptr::copy_nonoverlapping((page + *DIRECT_MAP_OFFSET) as *const u8, (private_page + *DIRECT_MAP_OFFSET) as *mut u8, mask + 1);
                 }
                 private_page
             } else {
@@ -764,7 +764,7 @@ impl VirtMemManager {
             if new_frame != 0 {
                 unsafe {
                     // mask + 1 correctly handles both NORMAL_PAGE_SIZE and HUGE_PAGE_SIZE
-                    core::ptr::write_bytes((new_frame + *HHDMOFFSET) as *mut u8, 0, mask + 1);
+                    core::ptr::write_bytes((new_frame + *DIRECT_MAP_OFFSET) as *mut u8, 0, mask + 1);
                 }
             }
             new_frame
@@ -774,10 +774,10 @@ impl VirtMemManager {
         let page_size = mask + 1;
 
         let mut pagerlock = self.pager.lock();
-        let was_resident = pagerlock.translate(virt, *HHDMOFFSET as u64).is_some();
+        let was_resident = pagerlock.translate(virt, *DIRECT_MAP_OFFSET as u64).is_some();
 
         pagerlock
-            .map_page(virt, phys_frame as u64, hw_flags, *HHDMOFFSET as u64, block_size)
+            .map_page(virt, phys_frame as u64, hw_flags, *DIRECT_MAP_OFFSET as u64, block_size)
             .expect("FATAL: Pager failed to map memory during Page Fault!");
         drop(pagerlock);
 
@@ -800,19 +800,19 @@ impl VirtMemManager {
             let pagerlock = self.pager.lock();
             let pml4_phys = pagerlock.get_l4_addr();
 
-            let pml4 = &mut *((pml4_phys + *HHDMOFFSET as u64) as *mut PageTable);
+            let pml4 = &mut *((pml4_phys + *DIRECT_MAP_OFFSET as u64) as *mut PageTable);
             for idx in 0..256 {
                 let entry = &mut pml4.entries[idx];
                 if entry.is_present() {
                     let l3_phys = entry.get_addr();
 
-                    let l3 = &mut *((l3_phys + *HHDMOFFSET as u64) as *mut PageTable);
+                    let l3 = &mut *((l3_phys + *DIRECT_MAP_OFFSET as u64) as *mut PageTable);
                     for l3_idx in 0..512 {
                         let l3_entry = &mut l3.entries[l3_idx];
                         if l3_entry.is_present() {
                             let l2_phys = l3_entry.get_addr();
 
-                            let l2 = &mut *((l2_phys + *HHDMOFFSET as u64) as *mut PageTable);
+                            let l2 = &mut *((l2_phys + *DIRECT_MAP_OFFSET as u64) as *mut PageTable);
                             for l2_idx in 0..512 {
                                 let l2_entry = &mut l2.entries[l2_idx];
                                 if l2_entry.is_present() && !l2_entry.is_huge() {
@@ -859,7 +859,7 @@ impl VirtMemManager {
 
                 while current_page < end_page {
                     let virt = VirtAddress(current_page as u64);
-                    if pager.translate(virt, *HHDMOFFSET as u64).is_some() {
+                    if pager.translate(virt, *DIRECT_MAP_OFFSET as u64).is_some() {
                         total += step_size;
                     }
                     current_page += step_size;

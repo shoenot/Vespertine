@@ -15,6 +15,7 @@ use core::sync::atomic::{
 };
 
 pub use bootalloc::*;
+use hal::boot::direct_map_offset;
 use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
@@ -38,11 +39,10 @@ use crate::core::sync::{
 };
 use crate::core::thread::get_current_process;
 use crate::{
-    HHDM_REQUEST,
     klogln,
 };
 
-pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
+pub static DIRECT_MAP_OFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
 // wrapper that disables interrupts and reenables them (needed bc the slab code was moved to common
 pub struct KernelAllocatorWrapper(SlabAllocator<KernelPageProvider>);
@@ -140,7 +140,7 @@ impl PCAllocator {
 
 pub fn init() {
     klogln!("[INFO] Initiating memory management system...");
-    HHDMOFFSET.get_or_init(|| HHDM_REQUEST.response().expect("[FATAL] Failed to get HHDM offset from Limine").offset as usize);
+    DIRECT_MAP_OFFSET.get_or_init(|| direct_map_offset());
     // Inititate PMM
     {
         let mut global_pmm = GLOBAL_PMM.lock();
@@ -166,5 +166,5 @@ pub fn calculate_order(bytes: usize) -> usize {
 pub fn hal_map_mmio(phys: u64, _size: usize) -> Option<usize> {
     let page = phys & !0xFFF;
     PAGER.lock().map_mmio_addr(page)?;
-    Some(phys as usize + *HHDMOFFSET)
+    Some(phys as usize + *DIRECT_MAP_OFFSET)
 }

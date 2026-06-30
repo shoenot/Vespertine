@@ -28,7 +28,7 @@ use crate::memory::vmo::{
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
 };
 use crate::storage::fs::ext2::Ext2FileSystem;
 use crate::storage::fs::ext2::permissions::file_permissions;
@@ -138,7 +138,7 @@ impl Ext2File {
 
             let phys_addr = self.file_vmo.request_page(page_offset).map_err(|_| InvocationError::InvalidPointer)?;
 
-            let page_virt = phys_addr + *HHDMOFFSET;
+            let page_virt = phys_addr + *DIRECT_MAP_OFFSET;
             let chunk_size = core::cmp::min(4096 - block_internal_offset, read_len - bytes_copied);
 
             unsafe {
@@ -179,7 +179,7 @@ impl Ext2File {
             let block_internal_offset = current_offset % 4096;
 
             let phys_addr = self.file_vmo.request_page(page_offset).map_err(|_| InvocationError::InvalidPointer)?;
-            let page_virt = phys_addr + *HHDMOFFSET;
+            let page_virt = phys_addr + *DIRECT_MAP_OFFSET;
             let chunk_size = core::cmp::min(4096 - block_internal_offset, req_len - bytes_copied);
 
             unsafe {
@@ -243,7 +243,7 @@ impl Ext2File {
                     }
 
                     unsafe {
-                        core::ptr::write_bytes((page + *HHDMOFFSET + block_offset) as *mut u8, 0, block_size - block_offset);
+                        core::ptr::write_bytes((page + *DIRECT_MAP_OFFSET + block_offset) as *mut u8, 0, block_size - block_offset);
                     }
 
                     if self.fs.cache.write_block(block_id as usize, page as u64).await.is_err() {
@@ -324,7 +324,7 @@ impl VfsNode for Ext2File {
                 let dest_blocks_phys = dest_phys + (i * block_size);
                 if block_ids[i] == 0 {
                     unsafe {
-                        let dest_virt = dest_blocks_phys + *HHDMOFFSET;
+                        let dest_virt = dest_blocks_phys + *DIRECT_MAP_OFFSET;
                         core::ptr::write_bytes(dest_virt as *mut u8, 0, block_size);
                     }
                 } else {

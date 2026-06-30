@@ -9,7 +9,7 @@ use crate::drivers::pci::{
     pci_get_dev,
 };
 use crate::memory::{
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
     PAGER,
 };
 
@@ -97,10 +97,10 @@ pub fn init_virtio() -> Option<VirtioBlockDriver> {
         }
 
         if mapped_bars[bar_idx] == 0 {
-            mapped_bars[bar_idx] = bar_addr + *HHDMOFFSET as u64;
+            mapped_bars[bar_idx] = bar_addr + *DIRECT_MAP_OFFSET as u64;
         }
 
-        let block_virt = cap_start + *HHDMOFFSET as u64;
+        let block_virt = cap_start + *DIRECT_MAP_OFFSET as u64;
 
         match cap.cfg_type {
             1 => common_cfg = block_virt as *mut VirtioCommonCfg,

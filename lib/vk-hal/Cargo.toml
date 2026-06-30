@@ -9,3 +9,4 @@ bench = false
 
 [dependencies]
 common = { package = "vespertine-common", path = "../vespertine-common/" }
+limine = "0.6.3"

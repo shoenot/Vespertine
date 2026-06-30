@@ -6,7 +6,7 @@ use crate::klogln;
 use crate::memory::{
     ALLOCATOR,
     BlockSize,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
     calculate_order,
 };
 use crate::storage::blockdev::AsyncBlockDevice;
@@ -93,7 +93,7 @@ impl GptTable {
         if header_page_phys == 0 {
             return Err(());
         }
-        let header_page_virt = header_page_phys + *HHDMOFFSET as u64;
+        let header_page_virt = header_page_phys + *DIRECT_MAP_OFFSET as u64;
 
         // fetch lba 1 (primary gpt header block)
         klogln!("[GPT] reading GPT header lba=1 into phys=0x{:x}", header_page_phys);
@@ -129,7 +129,7 @@ impl GptTable {
                 return Err(());
             }
         } as u64;
-        let table_buf_virt = table_buf_phys + *HHDMOFFSET as u64;
+        let table_buf_virt = table_buf_phys + *DIRECT_MAP_OFFSET as u64;
 
         let table_future = raw_device.read_sectors(entry_lba, table_sectors as u32, table_buf_phys)?;
         table_future.await?;

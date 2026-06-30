@@ -14,8 +14,9 @@ pub use gdt::{
     init_syscall_msrs,
 };
 
-use crate::arch::apic::lapic::LocalApicDriver;
-use crate::cpu::gdt::GdtPointer;
+use crate::x86_64::fpu::init_fpu;
+use crate::x86_64::apic::lapic::LocalApicDriver;
+use crate::x86_64::cpu::gdt::GdtPointer;
 use crate::x86_64::apic::lapic::{
     LocalApic,
     init_local_apic,
@@ -107,6 +108,14 @@ pub fn activate_core(cpu_local: CpuLocalPtr) {
 
         init_syscall_msrs();
     }
+}
+
+pub fn init_bsp_state(alloc: BootAllocFn) {
+    init_fpu(true, alloc);
+}
+
+pub fn init_ap_state(alloc: BootAllocFn) {
+    init_fpu(false, alloc);
 }
 
 pub fn kernel_core_from_cpu_local(cpu_local: CpuLocalPtr) -> KernelCorePtr {

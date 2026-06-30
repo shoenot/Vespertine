@@ -25,7 +25,7 @@ use crate::memory::{
     ALLOCATOR,
     BlockSize,
     GLOBAL_PMM,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
 };
 use crate::storage::fs::VfsNode;
 
@@ -72,7 +72,7 @@ impl PagedBackingStore for Vmo {
         let pfn = ALLOCATOR.alloc(BlockSize::Normal);
         if pfn != 0 {
             unsafe {
-                core::ptr::write_bytes((pfn + *HHDMOFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
+                core::ptr::write_bytes((pfn + *DIRECT_MAP_OFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
             }
         }
         pages.insert(offset, pfn);
@@ -137,15 +137,15 @@ impl PagedBackingStore for Vmo {
 
             let child_pfn = ALLOCATOR.alloc(BlockSize::Normal);
             unsafe {
-                write_bytes((child_pfn + *HHDMOFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
+                write_bytes((child_pfn + *DIRECT_MAP_OFFSET) as *mut u8, 0, NORMAL_PAGE_SIZE);
             }
 
             // copy from parent to child if parent was alr allocated. can skip if no
             if parent_offset < current_size {
                 if let Some(&parent_pfn) = pages.get(&parent_offset) {
                     if parent_pfn != 0 {
-                        let parent_virt = parent_pfn + *HHDMOFFSET;
-                        let child_virt = child_pfn + *HHDMOFFSET;
+                        let parent_virt = parent_pfn + *DIRECT_MAP_OFFSET;
+                        let child_virt = child_pfn + *DIRECT_MAP_OFFSET;
                         unsafe {
                             copy_nonoverlapping(parent_virt as *mut u8, child_virt as *mut u8, NORMAL_PAGE_SIZE);
                         }
@@ -379,7 +379,7 @@ impl PagedBackingStore for FileVmo {
 
         if bytes_read < NORMAL_PAGE_SIZE {
             unsafe {
-                let dest_virt = page_phys + bytes_read + *HHDMOFFSET;
+                let dest_virt = page_phys + bytes_read + *DIRECT_MAP_OFFSET;
                 write_bytes(dest_virt as *mut u8, 0, NORMAL_PAGE_SIZE - bytes_read);
             }
         }

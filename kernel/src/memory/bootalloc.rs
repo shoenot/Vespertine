@@ -1,5 +1,5 @@
 use crate::core::sync::TicketLock;
-use crate::memory::HHDMOFFSET;
+use crate::memory::DIRECT_MAP_OFFSET;
 use crate::memory::pmm::HUGE_PAGE_SIZE;
 
 pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());
@@ -13,7 +13,7 @@ impl BumpAllocator {
     pub const fn new() -> Self { BumpAllocator { virt_base: 0, next: 0 } }
 
     pub fn init(&mut self, huge_page_phys: usize) {
-        self.virt_base = huge_page_phys + *HHDMOFFSET;
+        self.virt_base = huge_page_phys + *DIRECT_MAP_OFFSET;
         self.next = self.virt_base;
     }
 

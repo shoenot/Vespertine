@@ -59,7 +59,7 @@ fn get_or_create_next(entry: &mut PageTableEntry, phys_offset: u64, allocator: &
 }
 
 pub fn copy_kernel_half(dst: &mut PageTable, src_pml4_phys: u64) {
-    let src = unsafe { &*((src_pml4_phys + *HHDMOFFSET as u64) as *const PageTable) };
+    let src = unsafe { &*((src_pml4_phys + *DIRECT_MAP_OFFSET as u64) as *const PageTable) };
     for idx in 256..512 {
         dst.entries[idx] = src.entries[idx];
     }
@@ -268,7 +268,7 @@ impl Pager {
     pub fn init(&mut self) -> Option<()> {
         let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
 
-        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *DIRECT_MAP_OFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();
 
         let old_pml4_table_addr = get_cr3() & 0x000F_FFFF_FFFF_F000;
@@ -283,7 +283,7 @@ impl Pager {
     pub fn init_process_pager_from_kernel(&mut self, kernel_pml4_phys: u64) -> Option<()> {
         let pml4_table_frame = { GLOBAL_PMM.lock().alloc(BlockSize::Normal)? as u64 };
 
-        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
+        let new_pml4_table = unsafe { &mut *((pml4_table_frame + *DIRECT_MAP_OFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();
 
         copy_kernel_half(new_pml4_table, kernel_pml4_phys);
@@ -296,7 +296,7 @@ impl Pager {
     pub fn get_l4_addr(&self) -> u64 { self.active_l4_addr }
 
     pub fn refresh_kernel_half_from(&mut self, kernel_pml4_phys: u64) {
-        let table = unsafe { &mut *((self.active_l4_addr + *HHDMOFFSET as u64) as *mut PageTable) };
+        let table = unsafe { &mut *((self.active_l4_addr + *DIRECT_MAP_OFFSET as u64) as *mut PageTable) };
         copy_kernel_half(table, kernel_pml4_phys);
     }
 
@@ -348,9 +348,9 @@ impl Pager {
     }
 
     pub fn map_mmio_addr(&mut self, phys: u64) -> Option<()> {
-        let virt = VirtAddress(phys + *HHDMOFFSET as u64);
+        let virt = VirtAddress(phys + *DIRECT_MAP_OFFSET as u64);
         let flags = get_flags(true, true, false, true, true, false, false, false, true, true);
-        self.map_page(virt, phys, flags, *HHDMOFFSET as u64, BlockSize::Normal)?;
+        self.map_page(virt, phys, flags, *DIRECT_MAP_OFFSET as u64, BlockSize::Normal)?;
         flush_tlb(virt.0);
         Some(())
     }

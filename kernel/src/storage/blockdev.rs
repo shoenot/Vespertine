@@ -14,7 +14,7 @@ use crate::core::sync::TicketLock;
 use crate::drivers::virtio::blk::BlockTransferFuture;
 use crate::memory::{
     ALLOCATOR,
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
     calculate_order,
 };
 
@@ -36,7 +36,7 @@ impl DmaBuffer {
     pub fn from_phys(src_phys: usize, len: usize) -> Result<Arc<Self>, ()> {
         let buffer = Self::new(len)?;
         unsafe {
-            copy_nonoverlapping((src_phys + *HHDMOFFSET) as *const u8, (buffer.phys + *HHDMOFFSET) as *mut u8, len);
+            copy_nonoverlapping((src_phys + *DIRECT_MAP_OFFSET) as *const u8, (buffer.phys + *DIRECT_MAP_OFFSET) as *mut u8, len);
         }
         Ok(buffer)
     }
@@ -44,21 +44,21 @@ impl DmaBuffer {
     pub fn from_slice(src: &[u8]) -> Result<Arc<Self>, ()> {
         let buffer = Self::new(src.len())?;
         unsafe {
-            copy_nonoverlapping(src.as_ptr(), (buffer.phys + *HHDMOFFSET) as *mut u8, src.len());
+            copy_nonoverlapping(src.as_ptr(), (buffer.phys + *DIRECT_MAP_OFFSET) as *mut u8, src.len());
         }
         Ok(buffer)
     }
 
     pub fn copy_to_phys(&self, dst_phys: usize) {
         unsafe {
-            copy_nonoverlapping((self.phys + *HHDMOFFSET) as *const u8, (dst_phys + *HHDMOFFSET) as *mut u8, self.len);
+            copy_nonoverlapping((self.phys + *DIRECT_MAP_OFFSET) as *const u8, (dst_phys + *DIRECT_MAP_OFFSET) as *mut u8, self.len);
         }
     }
 
     pub fn copy_to_slice(&self, dst: &mut [u8]) {
         assert!(dst.len() >= self.len, "dma destination slice too small");
         unsafe {
-            copy_nonoverlapping((self.phys + *HHDMOFFSET) as *const u8, dst.as_mut_ptr(), self.len);
+            copy_nonoverlapping((self.phys + *DIRECT_MAP_OFFSET) as *const u8, dst.as_mut_ptr(), self.len);
         }
     }
 
@@ -156,7 +156,7 @@ impl BlockCache {
                         // cache hit
                         inner.entries[i].referenced = true;
                         unsafe {
-                            let dest_virt = dest_phys + *HHDMOFFSET as u64;
+                            let dest_virt = dest_phys + *DIRECT_MAP_OFFSET as u64;
                             copy_nonoverlapping(inner.entries[i].data.as_ptr(), dest_virt as *mut u8, self.block_size);
                         }
                         return Ok(());
@@ -264,7 +264,7 @@ impl BlockCache {
             entry.version += 1; // mark slot as changed
 
             unsafe {
-                let dest_virt = dest_phys + *HHDMOFFSET as u64;
+                let dest_virt = dest_phys + *DIRECT_MAP_OFFSET as u64;
                 copy_nonoverlapping(entry.data.as_ptr(), dest_virt as *mut u8, self.block_size);
             }
         }
@@ -286,7 +286,7 @@ impl BlockCache {
                         inner.entries[i].version += 1;
 
                         unsafe {
-                            let src_virt = src_phys + *HHDMOFFSET as u64;
+                            let src_virt = src_phys + *DIRECT_MAP_OFFSET as u64;
                             copy_nonoverlapping(src_virt as *const u8, inner.entries[i].data.as_mut_ptr(), self.block_size);
                         }
                         return Ok(());
@@ -379,7 +379,7 @@ impl BlockCache {
             entry.version += 1;
 
             unsafe {
-                let src_virt = src_phys + *HHDMOFFSET as u64;
+                let src_virt = src_phys + *DIRECT_MAP_OFFSET as u64;
                 copy_nonoverlapping(src_virt as *const u8, entry.data.as_mut_ptr(), self.block_size);
             }
         }

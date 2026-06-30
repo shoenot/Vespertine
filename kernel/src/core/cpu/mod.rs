@@ -1,6 +1,5 @@
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::vec::Vec;
-use hal::cpu::{activate_core, current_kernel_core, init_bootstrap_cpu_local};
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
@@ -9,10 +8,12 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use limine::mp::MpGotoFunction;
-
-use hal::cpu::init_cpu_local_with_hardware_id;
-use crate::boot::MP_REQUEST;
+use hal::cpu::{
+    activate_core,
+    current_kernel_core,
+    init_bootstrap_cpu_local,
+};
+use hal::smp::start_application_cores;
 use crate::boot::smp::ap_entry;
 use crate::core::sync::{
     KernelOnceCell,
@@ -82,32 +83,27 @@ pub fn allocate_kernel_core_data(logical_id: usize) -> *mut KernelCoreData {
     }
 }
 
+fn allocate_kernel_core_for_hal(logical_id: usize) -> hal::cpu::KernelCorePtr {
+    allocate_kernel_core_data(logical_id) as hal::cpu::KernelCorePtr
+}
+
+fn register_kernel_core_from_hal(logical_id: usize, kernel_core: hal::cpu::KernelCorePtr) {
+    register_core_data(logical_id, kernel_core as *mut KernelCoreData);
+}
+
 pub fn init_smp() {
-    let mp_resp = MP_REQUEST.response().expect("[FATAL] No SMP Response from limine");
-    let bsp_id = mp_resp.bsp_lapic_id;
     register_core_data(0, current_kernel_core() as *mut KernelCoreData);
 
-    let mut logical_id = 1;
-    for core in mp_resp.cpus() {
-        if core.lapic_id == bsp_id {
-            continue;
-        }
-
-        let kernel_data = allocate_kernel_core_data(logical_id);
-        let ap_data_ptr = init_cpu_local_with_hardware_id(core.lapic_id as usize, logical_id, kernel_data as *mut (), hal_boot_alloc);
-        register_core_data(logical_id, kernel_data);
-
-        let ap_data_addr = ap_data_ptr as u64;
-        let ap_entry_ptr = ap_entry as MpGotoFunction;
-
-        core.bootstrap(ap_entry_ptr, ap_data_addr);
-
-        logical_id += 1;
-    }
+    let core_count = start_application_cores(
+        allocate_kernel_core_for_hal,
+        register_kernel_core_from_hal,
+        ap_entry,
+        hal_boot_alloc,
+    );
 
     klogln!("[SUCCESS] All CPUs started and operational.");
 
-    NUM_CORES.get_or_init(|| logical_id);
+    NUM_CORES.get_or_init(|| core_count);
 }
 
 pub fn get_core_data_for(logical_id: usize) -> &'static KernelCoreData {

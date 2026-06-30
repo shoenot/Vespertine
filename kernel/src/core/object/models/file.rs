@@ -22,7 +22,7 @@ use crate::memory::vmo::{
     Vmo,
 };
 use crate::memory::{
-    HHDMOFFSET,
+    DIRECT_MAP_OFFSET,
     NORMAL_PAGE_SIZE,
 };
 
@@ -89,7 +89,7 @@ impl KernelObject for FileObj {
                 for i in 0..num_pages {
                     let page_offset = i * NORMAL_PAGE_SIZE;
                     let pfn = vmo.request_page(page_offset).map_err(|_| InvocationError::OutOfMemory)?;
-                    let dest_virt = pfn + *HHDMOFFSET;
+                    let dest_virt = pfn + *DIRECT_MAP_OFFSET;
                     let chunk = min(NORMAL_PAGE_SIZE, self.size - page_offset);
                     unsafe {
                         core::ptr::copy_nonoverlapping(self.addr.add(page_offset), dest_virt as *mut u8, chunk);

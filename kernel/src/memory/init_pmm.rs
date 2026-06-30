@@ -1,13 +1,10 @@
-use core::ops::Deref;
+use hal::boot::{BootMemoryKind, for_each_memory_region};
 
-use limine::memmap::*;
-
-use crate::MEMMAP_REQUEST;
 use crate::drivers::serial::{
     log_to_serial,
     log_u64_to_serial,
 };
-use crate::memory::HHDMOFFSET;
+use crate::memory::DIRECT_MAP_OFFSET;
 
 static PAGE_SIZE: usize = 4096;
 
@@ -23,22 +20,19 @@ pub struct BitmapPMM {
 
 impl BitmapPMM {
     pub fn init() -> Self {
-        let mem_map = if let Some(memmap_response) = MEMMAP_REQUEST.response() {
-            memmap_response.deref().entries()
-        } else {
-            panic!("COULD NOT GET MEMMAP FROM LIMINE")
-        };
-
         let mut highest_addr: usize = 0;
-        for entry in mem_map {
-            if entry.type_ == MEMMAP_USABLE || entry.type_ == MEMMAP_BOOTLOADER_RECLAIMABLE || entry.type_ == MEMMAP_EXECUTABLE_AND_MODULES
-            {
+        
+        for_each_memory_region(|entry| {
+            if matches!(
+                entry.kind,
+                BootMemoryKind::Usable | BootMemoryKind::BootloaderReclaimable | BootMemoryKind::ExecutableAndModules
+            ) {
                 let top = entry.base + entry.length;
                 if top as usize > highest_addr {
                     highest_addr = top as usize;
                 }
             }
-        }
+        });
 
         let highest_addr = (highest_addr + 4095) & !4095;
 
@@ -46,15 +40,15 @@ impl BitmapPMM {
         let bitmap_size_bytes = total_frames.div_ceil(8);
 
         let mut bitmap_phys_addr: usize = 0;
-        for entry in mem_map {
-            if entry.type_ == MEMMAP_USABLE && entry.length as usize >= bitmap_size_bytes {
+        for_each_memory_region(|entry| {
+            if entry.kind == BootMemoryKind::Usable && entry.length as usize >= bitmap_size_bytes {
                 bitmap_phys_addr = entry.base as usize;
             }
-        }
+        });
 
         assert!(bitmap_phys_addr != 0, "COULD NOT FIND PHYS MEMORY FOR BITMAP");
 
-        let bitmap_virt_addr = bitmap_phys_addr + *HHDMOFFSET;
+        let bitmap_virt_addr = bitmap_phys_addr + *DIRECT_MAP_OFFSET;
 
         let bitmap_slice = unsafe { core::slice::from_raw_parts_mut(bitmap_virt_addr as *mut u8, bitmap_size_bytes) };
 
@@ -62,25 +56,20 @@ impl BitmapPMM {
 
         let mut pmm = BitmapPMM { bitmap: bitmap_slice, total_frames, max_addr: highest_addr };
 
-        for entry in mem_map {
-            if entry.type_ == MEMMAP_USABLE {
+        hal::boot::for_each_memory_region(|entry| {
+            if entry.kind == BootMemoryKind::Usable {
                 let start_frame = (entry.base as usize / PAGE_SIZE) as usize;
                 let end_frame = ((entry.base + entry.length) as usize / PAGE_SIZE) as usize;
                 for frame in start_frame..end_frame {
-                    let phys_frame = PhysFrame { start_addr: frame as usize * PAGE_SIZE };
-
-                    if phys_frame.start_addr < 0x100000 {
-                        continue;
-                    }
-
-                    // if the frame is the location of the bitmap, we don't free it
+                    let phys_frame = PhysFrame { start_addr: frame * PAGE_SIZE };
+                    if phys_frame.start_addr < 0x100000 { continue; }
                     if phys_frame.start_addr >= bitmap_phys_addr && phys_frame.start_addr < bitmap_phys_addr + bitmap_size_bytes {
                         continue;
                     }
                     pmm.set_free(frame);
                 }
             }
-        }
+        });
         log_u64_to_serial(bitmap_virt_addr as u64);
         log_to_serial("\n");
         pmm

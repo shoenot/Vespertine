@@ -126,7 +126,6 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "limine",
  "simple-psf",
  "vespertine-abi",
  "vespertine-common",
@@ -482,6 +481,7 @@ dependencies = [
 name = "vk-hal"
 version = "0.1.0"
 dependencies = [
+ "limine",
  "vespertine-common",
 ]
 

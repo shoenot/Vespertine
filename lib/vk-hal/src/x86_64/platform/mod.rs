@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use common::once::KernelOnceCell as OnceCell;
 
 use crate::x86_64::apic::lapic::init_apic_direct_map; 
+use crate::x86_64::boot::{acpi_rsdp_addr, direct_map_offset};
 use acpi::load_platform_info;
 
 pub static PLATFORM_INFO: OnceCell<PlatformInfo> = OnceCell::new();
@@ -33,19 +34,17 @@ pub struct PlatformInfo {
 }
 
 pub struct PlatformInit {
-    pub rsdp_addr: usize,
-    pub direct_map_offset: usize,
     pub map_mmio: fn(phys: u64, size: usize) -> Option<usize>,
 }
 
 pub fn init_early(init: PlatformInit) {
     PLATFORM_HOOKS.get_or_init(|| init);
-    init_apic_direct_map(platform_hooks().direct_map_offset);
+    init_apic_direct_map(direct_map_offset());
 }
 
 pub fn init() {
     PLATFORM_INFO.get_or_init(|| {
-        load_platform_info(platform_hooks().rsdp_addr, platform_hooks().direct_map_offset)
+        load_platform_info(acpi_rsdp_addr(), direct_map_offset())
     });
 }
 
