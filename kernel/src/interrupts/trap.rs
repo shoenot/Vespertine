@@ -1,12 +1,15 @@
 use alloc::vec::Vec;
-use hal::io;
-use core::arch::asm;
 use core::sync::atomic::Ordering;
 
+use hal::io;
+use crate::memory::shootdown::service_pending_shootdown;
+use crate::interrupts::extable::fixup_exception;
 use hal::cpu::halt_loop;
 use hal::interrupts::{
+    TrapFrame,
     disable_interrupts,
     enable_interrupts,
+    page_fault_address,
 };
 use vespertine_abi::{
     PROC_FAULT_GENERAL_PROTECTION,
@@ -14,10 +17,6 @@ use vespertine_abi::{
     PROC_FAULT_PAGE,
 };
 
-use hal::timer::arm_local_timer_oneshot;
-use crate::arch::x86_64::interrupts::extable::fixup_exception;
-use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
-use crate::arch::x86_64::interrupts::shootdown::service_pending_shootdown;
 use crate::core::cpu::current_core_mut;
 use crate::core::object::models::process::ProcTermination;
 use crate::core::sync::TicketLock;
@@ -29,11 +28,54 @@ use crate::drivers::keyboard;
 use crate::klogln;
 use crate::memory::handle_page_fault;
 
-pub(in crate::arch::x86_64) static IRQ_HANDLERS: TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
+pub static IRQ_HANDLERS: TicketLock<Vec<Option<(extern "C" fn(arg: usize), usize)>>> = TicketLock::new(Vec::new());
 
-fn frame_from_user(frame: &InterruptStackFrame) -> bool { frame.code_segment & 0x3 == 0x3 }
+pub extern "C" fn register_irq_entry(vector: u8, handler: extern "C" fn(arg: usize), arg: usize) {
+    let mut table = IRQ_HANDLERS.lock();
 
-fn terminate_user_fault(frame: &InterruptStackFrame, code: u32, detail: usize) -> ! {
+    if vector as usize >= table.len() {
+        table.resize(vector as usize + 1, None);
+    }
+
+    table[vector as usize] = Some((handler, arg));
+}
+
+pub extern "C" fn dispatch(frame: &mut TrapFrame) {
+    match frame.vector() {
+        6 => invalid_opcode_handler(frame),
+        8 => panic!("DOUBLE FAULT: {:#?}", frame),
+        13 => gpf_handler(frame),
+        14 => page_fault_handler(frame),
+        15 => unexpected_interrupt_handler(frame),
+        33 => keyboard_irq_handler(),
+        hal::interrupts::TIMER_VECTOR => timer_interrupt_handler(),
+        hal::interrupts::RESCHEDULE_IPI_VECTOR => ipi_handler(),
+        hal::interrupts::TLB_SHOOTDOWN_IPI_VECTOR => shootdown_handler(),
+        _ => dispatch_dynamic_irq(frame),
+    }
+}
+
+fn dispatch_dynamic_irq(frame: &mut TrapFrame) {
+    if !frame.is_irq() {
+        klogln!("UNHANDLED EXCEPTION: {}", frame.vector());
+        return;
+    }
+
+    let handlers = IRQ_HANDLERS.lock();
+    let idx = frame.vector() as usize;
+
+    if idx < handlers.len() {
+        if let Some((handler, arg)) = handlers[idx] {
+            handler(arg);
+        } else {
+            klogln!("UNHANDLED INTERRUPT: {}", frame.vector());
+        }
+    } else {
+        klogln!("UNHANDLED INTERRUPT: {}", frame.vector());
+    }
+}
+
+fn terminate_user_fault(frame: &TrapFrame, code: u32, detail: usize) -> ! {
     if let Some(proc) = get_current_process() {
         proc.request_terminate(ProcTermination::faulted(code, detail));
     } else {
@@ -42,11 +84,8 @@ fn terminate_user_fault(frame: &InterruptStackFrame, code: u32, detail: usize) -
     current_core_mut().scheduler.terminate_current_thread(code)
 }
 
-pub fn page_fault_handler(frame: &mut InterruptStackFrame) {
-    let cr2: u64;
-    unsafe {
-        asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
-    }
+pub fn page_fault_handler(frame: &mut TrapFrame) {
+    let cr2 = page_fault_address();
 
     let int_state = (frame.cpu_flags & (1 << 9)) != 0;
     if int_state {
@@ -67,7 +106,7 @@ pub fn page_fault_handler(frame: &mut InterruptStackFrame) {
                 return;
             }
 
-            if frame_from_user(frame) {
+            if frame.user_mode() {
                 klogln!(
                     "terminating process after user page fault: 
                     rip: {:#018X}, addr: {:#018X}, error: {:#018X}, fault: {:?}",
@@ -101,8 +140,8 @@ pub fn page_fault_handler(frame: &mut InterruptStackFrame) {
     }
 }
 
-pub fn gpf_handler(frame: &mut InterruptStackFrame) {
-    if frame_from_user(frame) {
+pub fn gpf_handler(frame: &mut TrapFrame) {
+    if frame.user_mode() {
         klogln!(
             "terminating process after user general protection fault: rip: {:#018X} error: {:#018X}",
             frame.instruction_pointer,
@@ -115,8 +154,8 @@ pub fn gpf_handler(frame: &mut InterruptStackFrame) {
     halt_loop();
 }
 
-pub fn invalid_opcode_handler(frame: &mut InterruptStackFrame) {
-    if frame_from_user(frame) {
+pub fn invalid_opcode_handler(frame: &mut TrapFrame) {
+    if frame.user_mode() {
         klogln!("terminating process after user invalid opcode: rip: {:#018X}", frame.instruction_pointer);
 
         terminate_user_fault(frame, PROC_FAULT_INVALID_OPCODE, frame.instruction_pointer as usize);
@@ -125,7 +164,7 @@ pub fn invalid_opcode_handler(frame: &mut InterruptStackFrame) {
     panic!("INVALID OPCODE (#UD): {:#?}", frame);
 }
 
-pub fn unexpected_interrupt_handler(frame: &mut InterruptStackFrame) {
+pub fn unexpected_interrupt_handler(frame: &mut TrapFrame) {
     klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
 }
 
@@ -133,7 +172,7 @@ pub fn timer_interrupt_handler() {
     let core_data = current_core_mut();
 
     if core_data.scheduler.idle_thread.is_null() {
-        arm_local_timer_oneshot(100_000);
+        hal::timer::arm_relative_ticks(100_000);
         return;
     }
     let td_tcb_ptr = core_data.timer_daemon_tcb;

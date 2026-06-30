@@ -12,12 +12,10 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::arch::x86_64::IO_APIC;
 use hal::io::{
     inb,
     outb,
 };
-use crate::core::acpi;
 use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
 use crate::core::sync::Semaphore;
 use crate::util::bitwise::{
@@ -61,34 +59,8 @@ fn pop_scancode() -> u8 {
     }
 }
 
-fn check_madt_overrides() {
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
-    let madt = acpi::madt::parse_madt(&sdt);
-    let iso = madt.overrides;
-    for entry in iso {
-        if entry.source == 1 {
-            KEYBOARD_GSI.store(entry.gsi as usize, Ordering::Relaxed);
-            if entry.flags & 0b11 == 3 {
-                ACTIVE_HIGH.store(false, Ordering::Relaxed);
-            }
-            if entry.flags & 0b1100 == 11 {
-                EDGE.store(false, Ordering::Relaxed);
-            }
-        }
-    }
-}
-
 pub fn init_keyboard_irq() {
-    check_madt_overrides();
-    IO_APIC.lock().set_entry(
-        KEYBOARD_GSI.load(Ordering::Relaxed) as u32,
-        IDT_VECTOR,
-        0,
-        false,
-        ACTIVE_HIGH.load(Ordering::Relaxed),
-        EDGE.load(Ordering::Relaxed),
-    );
+    hal::interrupts::route_isa_irq(1, IDT_VECTOR, 0);
     unsafe {
         outb(0x64, 0x20);
         let mut config = inb(0x60);

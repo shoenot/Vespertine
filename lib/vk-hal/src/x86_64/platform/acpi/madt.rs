@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
+extern crate alloc;
 use alloc::vec::Vec;
 use core::ptr::read_unaligned;
 
-use crate::core::acpi::sdt::{
+use super::sdt::{
     ACPISDTHeader,
     SDTArray,
 };

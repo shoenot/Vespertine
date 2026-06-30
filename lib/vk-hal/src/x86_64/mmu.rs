@@ -29,3 +29,14 @@ pub fn flush_tlb(virt: u64) {
     }
 }
 
+#[inline(always)]
+pub fn flush_tlb_range(start: usize, size: usize) {
+    let end = start.saturating_add(size);
+    let mut current = start & !0xFFF;
+
+    while current < end {
+        flush_tlb(current as u64);
+        current = current.saturating_add(4096);
+    }
+}
+

@@ -3,30 +3,26 @@ use core::ptr::{
     write_volatile,
 };
 
-use crate::core::acpi;
-use crate::memory::HHDMOFFSET;
+use common::lock::TicketLock;
+use crate::x86_64::apic::lapic::hardware_id_for_core;
+use crate::x86_64::platform;
 
 const IOREGSEL_OFFSET: usize = 0x00;
 const IOWIN_OFFSET: usize = 0x10;
 const IOREDTBL_BASE: u8 = 0x10;
+
+static IO_APIC: TicketLock<IOApic> = TicketLock::new(IOApic { base_addr: 0, gsi_base: 0 });
 
 pub struct IOApic {
     pub(crate) base_addr: usize,
     pub(crate) gsi_base: usize,
 }
 
-pub fn get_ioapic_addrs() -> (usize, usize) {
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
-    let madt = acpi::madt::parse_madt(&sdt);
-    let io_apic = &madt.io_apics[0];
-    (io_apic.addr as usize, io_apic.gsi_base as usize)
-}
-
 impl IOApic {
-    pub(crate) fn init(&mut self, addr: usize, gsi_base: usize) {
-        self.base_addr = addr as usize + *HHDMOFFSET;
-        self.gsi_base = gsi_base as usize;
+    pub(crate) fn init(&mut self, phys_addr: usize, gsi_base: usize) {
+        let virt_addr = platform::map_mmio(phys_addr as u64, 4096).expect("failed to map IOAPIC MMIO");
+        self.base_addr = virt_addr;
+        self.gsi_base = gsi_base;
     }
 
     unsafe fn write_reg(&self, reg: u8, value: u32) {
@@ -47,21 +43,13 @@ impl IOApic {
         }
     }
 
-    // route hw interrupt to a local apic mapped to a specific interrupt vector
     pub(crate) fn mask_all(&self) {
-        // Read the Version Register at offset 0x01
         let version_reg = unsafe { self.read_reg(0x01) };
-
-        // Extract the "Max Redirection Entry" field (bits 16-23)
         let max_entry = ((version_reg >> 16) & 0xFF) as u8;
-
-        // Loop from 0 up to and including max_entry
         for i in 0..=max_entry {
             let low_idx = IOREDTBL_BASE + (i * 2);
             let high_idx = IOREDTBL_BASE + (i * 2) + 1;
-
             unsafe {
-                // Write with the Mask Bit (16) set to 1
                 self.write_reg(low_idx, 1 << 16);
                 self.write_reg(high_idx, 0);
             }
@@ -100,18 +88,33 @@ impl IOApic {
             self.write_reg(high_idx, high_val);
         }
     }
+}
 
-    // Diagnostic helper: dump first `count` redirection entries to logs
-    pub(crate) fn dump_redirection(&self, count: usize) {
-        let version_reg = unsafe { self.read_reg(0x01) };
-        let max_entry = ((version_reg >> 16) & 0xFF) as usize;
-        let cnt = core::cmp::min(count, max_entry + 1);
-        for i in 0..cnt {
-            let low_idx = IOREDTBL_BASE + (i as u8 * 2);
-            let high_idx = IOREDTBL_BASE + (i as u8 * 2) + 1;
-            let low = unsafe { self.read_reg(low_idx) };
-            let high = unsafe { self.read_reg(high_idx) };
-            crate::klogln!("[IOAPIC] entry {} low=0x{:x} high=0x{:x}", i, low, high);
+pub fn init_ioapic() {
+    let ioapic = platform::ioapics().first().expect("No IOAPIC found");
+    let mut controller = IO_APIC.lock();
+    controller.init(ioapic.address, ioapic.gsi_base as usize);
+    controller.mask_all();
+}
+
+pub fn route_isa_irq(source: u8, vector: u8, target_core: usize) {
+    let mut gsi = source as u32;
+    let mut active_high = true;
+    let mut edge_triggered = true;
+
+    if let Some(entry) = platform::interrupt_override_for_source(source) {
+        gsi = entry.gsi;
+
+        if entry.flags & 0b11 == 0b11 {
+            active_high = false;
+        }
+
+        if entry.flags & 0b1100 == 0b1100 {
+            edge_triggered = false;
         }
     }
+
+    let target_hardware_id = hardware_id_for_core(target_core) as u32;
+
+    IO_APIC.lock().set_entry(gsi, vector, target_hardware_id, false, active_high, edge_triggered);
 }

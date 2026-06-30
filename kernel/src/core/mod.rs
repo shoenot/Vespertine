@@ -1,4 +1,3 @@
-pub mod acpi;
 pub mod asynchronous;
 pub mod cpu;
 pub mod object;

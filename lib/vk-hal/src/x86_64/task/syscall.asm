@@ -102,7 +102,13 @@ copy_to_user:
 
 .fail_boundary_to:
     mov rax, 0
-    ret 
+    ret
+
+.recover_target:
+    clac
+    mov rax, 0
+    ret
+
 
 section .extable
     align 8 
@@ -111,4 +117,4 @@ section .extable
     dq copy_from_user.recover_target          ; if fail, jump here
     ; entry 2: copy_from_user
     dq copy_to_user.copy_to_fail_point         ; check fail here
-    dq copy_from_user.recover_target          ; if fail, jump here
+    dq copy_to_user.recover_target          ; if fail, jump here

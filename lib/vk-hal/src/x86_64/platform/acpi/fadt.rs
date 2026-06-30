@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
-use crate::core::acpi;
-use crate::core::acpi::sdt::ACPISDTHeader;
+use super::sdt::{
+    ACPISDTHeader,
+    SDTArray,
+};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -76,9 +78,7 @@ pub struct GenericAddrStruct {
     address: u64,
 }
 
-pub fn get_pm_timer_addr() -> (usize, bool) {
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
+pub fn get_pm_timer_addr(sdt: &SDTArray) -> (usize, bool) {
     let fadt_addr = match sdt.find_table(b"FACP") {
         Some(addr) => addr,
         None => panic!("Couldn't find ACPI FADT table"),
@@ -97,9 +97,7 @@ pub fn get_pm_timer_addr() -> (usize, bool) {
     (fadt_v1.pm_timer_blk as usize, false)
 }
 
-pub fn get_century_register() -> u8 {
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
+pub fn get_century_register(sdt: &SDTArray) -> u8 {
     let fadt_addr = match sdt.find_table(b"FACP") {
         Some(addr) => addr,
         None => panic!("Couldn't find ACPI FADT table"),

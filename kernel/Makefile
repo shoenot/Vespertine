@@ -15,7 +15,7 @@ $(OBJ_DIR)/gdt.o: ../lib/vk-hal/src/x86_64/cpu/gdt.asm
 	mkdir -p $(OBJ_DIR)
 	$(AS) -f elf64 $< -o $@
 
-$(OBJ_DIR)/idt.o: src/arch/x86_64/interrupts/idt.asm $(OBJ_DIR)/gdt.o
+$(OBJ_DIR)/idt.o: ../lib/vk-hal/src/x86_64/interrupts/idt.asm $(OBJ_DIR)/gdt.o
 	mkdir -p $(OBJ_DIR)
 	$(AS) -f elf64 $< -o $@
 
@@ -27,7 +27,7 @@ $(OBJ_DIR)/fpu.o: ../lib/vk-hal/src/x86_64/fpu/fpu.asm $(OBJ_DIR)/switch.o
 	mkdir -p $(OBJ_DIR)
 	$(AS) -f elf64 $< -o $@
 
-$(OBJ_DIR)/syscall.o: src/arch/x86_64/task/syscall.asm $(OBJ_DIR)/fpu.o
+$(OBJ_DIR)/syscall.o: ../lib/vk-hal/src/x86_64/task/syscall.asm $(OBJ_DIR)/fpu.o
 	mkdir -p $(OBJ_DIR)
 	$(AS) -f elf64 $< -o $@
 

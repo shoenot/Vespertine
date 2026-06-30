@@ -10,6 +10,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use crate::interrupts::{RESCHEDULE_IPI_VECTOR, TLB_SHOOTDOWN_IPI_VECTOR};
 use crate::x86_64::apic::pic8259;
 use crate::x86_64::msr::{
     read_from_msr,
@@ -30,9 +31,6 @@ const INIT_COUNT_OFFSET: usize = 0x380;
 const CURRENT_COUNT_OFFSET: usize = 0x390;
 
 const IA32_APIC_BASE: usize = 0x1B;
-
-const RESCHEDULE_IPI_VECTOR: u32 = 40;
-const TLB_SHOOTDOWN_IPI_VECTOR: u32 = 41;
 
 const MAX_HAL_CORES: usize = 256;
 
@@ -349,11 +347,11 @@ pub fn send_ipi_to_core(logical_id: usize, vector: u32) {
 }
 
 pub fn send_reschedule_ipi(logical_id: usize) {
-    send_ipi_to_core(logical_id, RESCHEDULE_IPI_VECTOR);
+    send_ipi_to_core(logical_id, RESCHEDULE_IPI_VECTOR as u32);
 }
 
 pub fn send_tlb_shootdown_ipi(logical_id: usize) {
-    send_ipi_to_core(logical_id, TLB_SHOOTDOWN_IPI_VECTOR);
+    send_ipi_to_core(logical_id, TLB_SHOOTDOWN_IPI_VECTOR as u32);
 }
 
 pub fn arm_local_timer_oneshot(ticks: u32) {
@@ -366,4 +364,8 @@ pub fn stop_local_timer() {
 
 pub fn setup_local_timer(vector: u8, init_count: u32, mode: TimerMode) {
     current_local_apic().timer_setup(vector, init_count, mode);
+}
+
+pub fn hardware_id_for_core(logical_id: usize) -> usize {
+    cpu_local_for(logical_id).hardware_id
 }

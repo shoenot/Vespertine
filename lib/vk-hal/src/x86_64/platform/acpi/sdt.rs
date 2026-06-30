@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
+extern crate alloc;
 use alloc::vec::Vec;
 
 use super::rsdp::AcpiRoot;
-use crate::memory::HHDMOFFSET;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -25,7 +25,7 @@ pub struct SDTArray {
 }
 
 impl SDTArray {
-    pub fn get(acpi_root: AcpiRoot) -> Self {
+    pub fn get(acpi_root: AcpiRoot, direct_map_offset: usize) -> Self {
         match acpi_root {
             AcpiRoot::RSDT(addr) => {
                 let header_ptr = addr as *const ACPISDTHeader;
@@ -37,7 +37,7 @@ impl SDTArray {
                     for i in 0..len {
                         let ptr = (addr + size_of::<ACPISDTHeader>() + i * size_of::<u32>()) as *const u32;
                         let sdt_addr = core::ptr::read_unaligned(ptr);
-                        sdt_addresses.push(sdt_addr as usize + *HHDMOFFSET);
+                        sdt_addresses.push(sdt_addr as usize + direct_map_offset);
                     }
                     SDTArray { header, sdt_addresses }
                 }
@@ -52,7 +52,7 @@ impl SDTArray {
                     for i in 0..len {
                         let ptr = (addr + size_of::<ACPISDTHeader>() + i * size_of::<u64>()) as *const u64;
                         let sdt_addr = core::ptr::read_unaligned(ptr);
-                        sdt_addresses.push(sdt_addr as usize + *HHDMOFFSET);
+                        sdt_addresses.push(sdt_addr as usize + direct_map_offset);
                     }
                     SDTArray { header, sdt_addresses }
                 }

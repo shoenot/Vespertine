@@ -1,8 +1,5 @@
 use core::slice::from_raw_parts;
 
-use crate::boot::RSDP_REQUEST;
-use crate::memory::HHDMOFFSET;
-
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct RSDP_Descriptor {
@@ -35,14 +32,12 @@ pub enum AcpiRoot {
 }
 
 impl Rsdp {
-    pub fn get() -> Rsdp {
-        let resp_addr = RSDP_REQUEST.response().expect("COULD NOT GET RSDP ADDRESS FROM LIMINE").address;
-
-        let rsdp_ptr = resp_addr as *const RSDP_Descriptor;
+    pub fn get(rsdp_addr: usize) -> Rsdp {
+        let rsdp_ptr = rsdp_addr as *const RSDP_Descriptor;
 
         unsafe {
             if (*rsdp_ptr).revision >= 2 {
-                let rsdp_v2_ptr = resp_addr as *const RSDP_v2_Descriptor;
+                let rsdp_v2_ptr = rsdp_addr as *const RSDP_v2_Descriptor;
                 Rsdp::V2(*rsdp_v2_ptr)
             } else {
                 Rsdp::V1(*rsdp_ptr)
@@ -73,17 +68,17 @@ impl Rsdp {
         }
     }
 
-    pub fn get_table(self) -> AcpiRoot {
+    pub fn get_table(self, direct_map_offset: usize) -> AcpiRoot {
         if self.validate().is_none() {
             panic!("RSDP Checksum invalid");
         }
         match self {
-            Rsdp::V1(desc) => AcpiRoot::RSDT(desc.rsdt_address as usize + *HHDMOFFSET),
+            Rsdp::V1(desc) => AcpiRoot::RSDT(desc.rsdt_address as usize + direct_map_offset),
             Rsdp::V2(desc) => {
                 if desc.xsdt_address == 0 {
-                    AcpiRoot::RSDT(desc.v1.rsdt_address as usize + *HHDMOFFSET)
+                    AcpiRoot::RSDT(desc.v1.rsdt_address as usize + direct_map_offset)
                 } else {
-                    AcpiRoot::XSDT(desc.xsdt_address as usize + *HHDMOFFSET)
+                    AcpiRoot::XSDT(desc.xsdt_address as usize + direct_map_offset)
                 }
             }
         }

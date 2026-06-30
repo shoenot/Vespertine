@@ -6,6 +6,7 @@ pub mod paging;
 mod pmm;
 pub mod vmm;
 pub mod vmo;
+pub mod shootdown;
 
 use core::alloc::GlobalAlloc;
 use core::sync::atomic::{
@@ -160,4 +161,10 @@ pub fn calculate_order(bytes: usize) -> usize {
         order += 1;
     }
     order
+}
+
+pub fn hal_map_mmio(phys: u64, _size: usize) -> Option<usize> {
+    let page = phys & !0xFFF;
+    PAGER.lock().map_mmio_addr(page)?;
+    Some(phys as usize + *HHDMOFFSET)
 }

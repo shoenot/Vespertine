@@ -1,15 +1,11 @@
-use core::arch::asm;
-use core::mem::transmute;
 use core::sync::atomic::Ordering;
 
 use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
-use hal::timer::{arm_local_timer_oneshot, stop_local_timer};
 use vespertine_common::datetime::datetime_to_epoch;
 
-use crate::arch::x86_64::timer::read_rtc;
 use crate::core::cpu::current_core_mut;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::block::ThreadWakeRegistration;
@@ -24,20 +20,13 @@ use crate::core::time::callout::{
     Callout,
     CalloutPayload,
 };
-use crate::core::time::{
-    GET_TIME_FN,
-    IA32_TSC_DEADLINE,
-    LAPIC_FQ,
-    TIME_SRC_FQ,
-    TimeFn,
-    USE_TSC_DEADLINE,
-};
-use crate::util::write_to_msr;
 
 static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
 static BOOT_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
 
-pub fn get_rtc_unix_timestamp() -> i64 { datetime_to_epoch(read_rtc()) }
+pub fn get_rtc_unix_timestamp() -> i64 {
+    datetime_to_epoch(hal::timer::read_rtc())
+}
 
 pub fn init_realtime() {
     BOOT_RTC_TIMESTAMP.get_or_init(|| get_rtc_unix_timestamp());
@@ -47,71 +36,30 @@ pub fn init_realtime() {
 pub fn get_realtime() -> (i64, i64) {
     let current_time = get_time() as i64;
     let elapsed_ticks = current_time - *BOOT_TIMESTAMP;
-    let tsc_fq = *TIME_SRC_FQ as i64;
+    let frequency = hal::timer::counter_frequency() as i64;
 
-    let (seconds_passed, remainder_ticks) = (elapsed_ticks / tsc_fq, elapsed_ticks % tsc_fq);
+    let seconds_passed = elapsed_ticks / frequency;
+    let remainder_ticks = elapsed_ticks % frequency;
     let total_seconds = *BOOT_RTC_TIMESTAMP + seconds_passed;
-    let nanos = (remainder_ticks * 1_000_000_000) / tsc_fq;
+    let nanos = (remainder_ticks * 1_000_000_000) / frequency;
 
     (total_seconds, nanos)
 }
 
 pub fn arm_sleep_ns(ns: usize) {
-    if USE_TSC_DEADLINE.load(Ordering::Relaxed) {
-        let tsc_fq = *TIME_SRC_FQ;
-        let tsc_ticks = (ns * tsc_fq) / 1_000_000_000;
-
-        let mut lo: u32;
-        let mut hi: u32;
-        unsafe {
-            // read tsc
-            asm!("rdtsc",
-                out("eax") lo, out("edx") hi, options(nomem, nostack));
-
-            let current = ((hi as usize) << 32) | (lo as usize);
-            let target = current + tsc_ticks;
-
-            // set deadline
-            write_to_msr(target as u64, IA32_TSC_DEADLINE);
-        }
-    } else {
-        let lapic_fq = *LAPIC_FQ;
-        let lapic_ticks = (ns as usize * lapic_fq) / 1_000_000_000;
-
-        arm_local_timer_oneshot(lapic_ticks as u32);
-    }
+    hal::timer::arm_relative_ns(ns);
 }
 
 pub fn arm_sleep_ticks(ticks: usize) {
-    if USE_TSC_DEADLINE.load(Ordering::Relaxed) {
-        let mut lo: u32;
-        let mut hi: u32;
-        unsafe {
-            // read tsc
-            asm!("rdtsc",
-                out("eax") lo, out("edx") hi, options(nomem, nostack));
-
-            let current = ((hi as usize) << 32) | (lo as usize);
-            let target = current + ticks;
-
-            // set deadline
-            write_to_msr(target as u64, IA32_TSC_DEADLINE);
-        }
-    } else {
-        let global_fq = *TIME_SRC_FQ;
-        let lapic_fq = *LAPIC_FQ;
-
-        let lapic_ticks = ((ticks as u128 * lapic_fq as u128) / global_fq as u128).max(1);
-        arm_local_timer_oneshot(lapic_ticks as u32);
-    }
+    hal::timer::arm_relative_ticks(ticks);
 }
 
-pub fn ns_to_ticks(ns: usize) -> usize { ((ns as u128 * *TIME_SRC_FQ as u128) / 1_000_000_000) as usize }
+pub fn ns_to_ticks(ns: usize) -> usize {
+    hal::timer::ns_to_ticks(ns)
+}
 
 pub fn get_time() -> usize {
-    let ptr = GET_TIME_FN.load(Ordering::Relaxed);
-    let time_func: TimeFn = unsafe { transmute(ptr) };
-    time_func()
+    hal::timer::read_counter()
 }
 
 // compares the current quantum and the next callout and sets timer to the earlier of the two.
@@ -120,8 +68,7 @@ pub fn update_hardware_timer() {
     let current_time = get_time();
 
     let mut next_event = unsafe {
-        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).effective_priority != ThreadPriority::IDLE
-        {
+        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).effective_priority != ThreadPriority::IDLE {
             (*core_data.scheduler.current_thread).quantum_expiry
         } else {
             usize::MAX
@@ -153,10 +100,9 @@ pub fn update_hardware_timer() {
 
     if arm_hardware && next_event != usize::MAX {
         let diff = next_event.saturating_sub(current_time).max(1);
-        let ticks = if diff > u32::MAX as usize { u32::MAX as usize } else { diff };
-        arm_sleep_ticks(ticks);
+        arm_sleep_ticks(diff);
     } else if arm_hardware {
-        stop_local_timer();
+        hal::timer::stop();
     }
 }
 

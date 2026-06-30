@@ -1,5 +1,7 @@
-use crate::core::acpi;
-use crate::core::acpi::sdt::ACPISDTHeader;
+use super::sdt::{
+    ACPISDTHeader,
+    SDTArray,
+};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -13,17 +15,14 @@ pub struct HPET {
     pub page_protection: u8,
 }
 
-pub fn get_hpet_base_addr() -> Option<usize> {
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
+pub fn get_hpet_base_addr(sdt: &SDTArray) -> Option<usize> {
     unsafe {
-        let hpet_base_addr = match sdt.find_table(b"HPET") {
+        match sdt.find_table(b"HPET") {
             Some(addr) => {
                 let hpet_table = &*(addr as *const HPET);
                 Some(hpet_table.address as usize)
-            }
+            },
             None => None,
-        };
-        hpet_base_addr
+        }
     }
 }

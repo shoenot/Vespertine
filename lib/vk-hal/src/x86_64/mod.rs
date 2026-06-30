@@ -10,4 +10,6 @@ pub mod tlb;
 pub mod apic;
 pub mod task;
 pub mod fpu;
+pub mod platform;
+pub mod timer;
 mod lock;

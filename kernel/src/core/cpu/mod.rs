@@ -155,7 +155,6 @@ pub fn current_core_id() -> usize {
 }
 
 pub fn init_bootstrap_core() {
-    hal::x86_64::apic::lapic::init_apic_direct_map(*crate::memory::HHDMOFFSET);
     let kernel_data = allocate_kernel_core_data(0);
     let data_ptr = init_bootstrap_cpu_local(0, kernel_data as *mut (), hal_boot_alloc);
     activate_core(data_ptr);

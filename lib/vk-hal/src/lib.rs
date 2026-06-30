@@ -22,25 +22,6 @@ pub mod ipi {
 }
 
 #[cfg(target_arch = "x86_64")]
-pub mod timer {
-    pub use crate::x86_64::apic::lapic::{
-        TimerMode,
-        arm_local_timer_oneshot,
-        setup_local_timer,
-        stop_local_timer,
-    };
-}
-
-#[cfg(target_arch = "x86_64")]
-pub mod interrupts {
-    pub use crate::x86_64::interrupts::*;
-    pub use crate::x86_64::apic::lapic::{
-        send_eoi,
-        msi_message_fields_for_target,
-    };
-}
-
-#[cfg(target_arch = "x86_64")]
 pub mod context {
     pub use crate::x86_64::task::context::*;
 }
@@ -48,6 +29,40 @@ pub mod context {
 #[cfg(target_arch = "x86_64")]
 pub mod fpu {
     pub use crate::x86_64::fpu::*;
+}
+
+#[cfg(target_arch = "x86_64")]
+pub mod platform {
+    pub use crate::x86_64::platform::{
+        init,
+        init_early,
+        PlatformInit,
+    };
+}
+
+#[cfg(target_arch = "x86_64")]
+pub mod timer {
+    pub use crate::x86_64::timer::{
+        init,
+        init_local,
+        read_counter,
+        counter_frequency,
+        ns_to_ticks,
+        arm_relative_ticks,
+        arm_relative_ns,
+        stop,
+        read_rtc,
+    };
+}
+
+#[cfg(target_arch = "x86_64")]
+pub mod interrupts {
+    pub use crate::x86_64::interrupts::*;
+    pub use crate::x86_64::apic::lapic::msi_message_fields_for_target;
+    pub use crate::x86_64::apic::ioapic::{
+        init_ioapic,
+        route_isa_irq,
+    };
 }
 
 #[cfg(target_arch = "x86_64")]

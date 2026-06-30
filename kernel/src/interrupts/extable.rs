@@ -1,9 +1,11 @@
+use hal::interrupts::TrapFrame;
+
 unsafe extern "C" {
     static __extable_start: u8;
     static __extable_end: u8;
 }
 
-pub fn fixup_exception(frame: &mut super::idt::InterruptStackFrame) -> bool {
+pub fn fixup_exception(frame: &mut TrapFrame) -> bool {
     let fault_rip = frame.instruction_pointer;
 
     let start_ptr = unsafe { &__extable_start as *const u8 as usize };
@@ -18,6 +20,7 @@ pub fn fixup_exception(frame: &mut super::idt::InterruptStackFrame) -> bool {
             frame.instruction_pointer = fixup_addr as u64;
             return true;
         }
+
         ptr += 16;
     }
 

@@ -20,7 +20,7 @@ use core::sync::atomic::{
 // ipis.
 use super::paging::*;
 use super::pmm::*;
-use crate::arch::x86_64::interrupts::shootdown::shootdown;
+use crate::memory::shootdown::shootdown;
 use crate::core::object::invoke::InvocationError;
 use crate::core::sync::TicketLock;
 use crate::memory::vmo::PagedBackingStore;
