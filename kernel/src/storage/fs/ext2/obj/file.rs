@@ -14,13 +14,13 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::core::asynchronous::async_mutex::AsyncMutex;
+use crate::core::executor::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::vmo::VmoObject;
+use crate::core::object::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::RwLock;
-use crate::core::thread::get_current_process;
+use crate::process::current_process;
 use crate::memory::vmo::{
     FileVmo,
     PagedBackingStore,
@@ -92,7 +92,7 @@ impl KernelObject for Ext2File {
             }
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
-                let current_proc = get_current_process().ok_or(InvocationError::UnsupportedOperation)?;
+                let current_proc = current_process().ok_or(InvocationError::UnsupportedOperation)?;
                 let handle_id = current_proc.handles.write().insert(vmo_obj, AccessRights::all());
 
                 Ok(handle_id.0 as usize)

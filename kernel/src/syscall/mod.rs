@@ -16,19 +16,19 @@ use hal::usercopy::{
 };
 use vespertine_abi::Invocation;
 
-use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
-use crate::core::cpu::current_core_mut;
+use crate::core::executor::syscall_bridge::handle_sys_invoke;
+use crate::cpu::current_core_mut;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::vfs::kernel_close;
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::schedule::ScheduleReason;
-use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::{
+use crate::sched::dispatch::wake_thread;
+use crate::sched::scheduler::ScheduleReason;
+use crate::sched::wait::WaitQueue;
+use crate::sched::{
     ThreadBlockState,
     ThreadState,
-    get_current_process,
 };
+use crate::process::current_process;
 use crate::terminate_thread;
 
 pub enum SysError {
@@ -208,7 +208,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 // futex wait (addr, expected)
                 let uaddr = (*frame).rdi;
                 let expected = (*frame).rsi as u32;
-                let proc = get_current_process().unwrap();
+                let proc = current_process().unwrap();
 
                 // check the value
                 let mut val = 0u32;
@@ -246,7 +246,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
             5 => {
                 let uaddr = (*frame).rdi;
                 let count = (*frame).rsi;
-                let proc = get_current_process().unwrap();
+                let proc = current_process().unwrap();
 
                 let mut futexes = proc.futexes.write();
                 if let Some(wq) = futexes.get_mut(&uaddr) {

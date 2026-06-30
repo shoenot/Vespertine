@@ -12,18 +12,18 @@ use hal::interrupts::{
 };
 
 use hal::ipi::send_reschedule_ipi;
-use crate::core::cpu::{
+use crate::cpu::{
     NO_STEAL_REQUEST, NUM_CORES, current_core_id, current_core_mut, get_core_data_for
 };
-use crate::core::thread::ThreadState;
-use crate::core::thread::dispatch::{
+use crate::sched::ThreadState;
+use crate::sched::dispatch::{
     cancel_block_if_awoken,
     create_tcb,
     try_wake_thread,
     wake_thread,
 };
-use crate::core::thread::priority::ThreadPriority;
-use crate::core::thread::schedule::{
+use crate::sched::priority::ThreadPriority;
+use crate::sched::scheduler::{
     ScheduleReason,
     SchedulerState,
     account_running_thread,
@@ -34,7 +34,7 @@ use crate::{
     terminate_thread,
 };
 
-fn current_thread() -> &'static crate::core::thread::ThreadControlBlock { unsafe { &*current_core_mut().scheduler.get_current_thread() } }
+fn current_thread() -> &'static crate::sched::ThreadControlBlock { unsafe { &*current_core_mut().scheduler.get_current_thread() } }
 
 fn test_yield() {
     let restore_interrupts = interrupts_enabled();
@@ -44,13 +44,13 @@ fn test_yield() {
     }
 }
 
-static WAKE_TARGET: AtomicPtr<crate::core::thread::ThreadControlBlock> = AtomicPtr::new(core::ptr::null_mut());
+static WAKE_TARGET: AtomicPtr<crate::sched::ThreadControlBlock> = AtomicPtr::new(core::ptr::null_mut());
 static START_WAKE_RACE: AtomicBool = AtomicBool::new(false);
 static WAKE_WORKERS_DONE: AtomicUsize = AtomicUsize::new(0);
 static WAKE_TARGET_RUNS: AtomicUsize = AtomicUsize::new(0);
 static STEAL_WORKERS_DONE: AtomicUsize = AtomicUsize::new(0);
 static STEAL_REMOTE_RUNS: AtomicUsize = AtomicUsize::new(0);
-static MIGRATED_BLOCKED_THREAD: AtomicPtr<crate::core::thread::ThreadControlBlock> = AtomicPtr::new(core::ptr::null_mut());
+static MIGRATED_BLOCKED_THREAD: AtomicPtr<crate::sched::ThreadControlBlock> = AtomicPtr::new(core::ptr::null_mut());
 static MIGRATED_FIRST_CORE: AtomicUsize = AtomicUsize::new(usize::MAX);
 static MIGRATED_SECOND_CORE: AtomicUsize = AtomicUsize::new(usize::MAX);
 
@@ -92,7 +92,7 @@ extern "C" fn migrated_wake_target(_arg: usize) -> ! {
     terminate_thread!();
 }
 
-fn enqueue_test_thread_on_core(thread: *mut crate::core::thread::ThreadControlBlock, core: usize) {
+fn enqueue_test_thread_on_core(thread: *mut crate::sched::ThreadControlBlock, core: usize) {
     unsafe {
         (*thread).set_assigned_core(core);
     }
@@ -156,7 +156,7 @@ fn test_wake_immediately_after_blocking_makes_thread_ready() {
     assert_eq!(thread.state(), ThreadState::Ready);
     thread.transition(ThreadState::Ready, ThreadState::Running).expect("test thread was not ready");
     unsafe {
-        (*(thread as *const _ as *mut crate::core::thread::ThreadControlBlock)).effective_priority = thread.base_priority;
+        (*(thread as *const _ as *mut crate::sched::ThreadControlBlock)).effective_priority = thread.base_priority;
     }
 }
 
@@ -336,8 +336,8 @@ pub fn run_concurrency_tests() {
     test_wake_immediately_before_blocking_cancels_block();
     crate::klogln!("[TEST] wake after block");
     test_wake_immediately_after_blocking_makes_thread_ready();
-    crate::core::asynchronous::run_diagnostic_tests();
-    crate::core::object::models::socket::run_diagnostic_tests();
+    crate::core::executor::run_diagnostic_tests();
+    crate::core::object::ipc::socket::run_diagnostic_tests();
     crate::drivers::virtio::blk::run_diagnostic_tests();
     crate::klogln!("[TEST] concurrency invariants passed");
 }

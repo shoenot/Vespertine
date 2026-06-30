@@ -7,7 +7,7 @@ use vespertine_abi::{
 
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
-use crate::core::thread::get_current_process;
+use crate::process::current_process;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FilePermissions {
@@ -21,7 +21,7 @@ impl FilePermissions {
 }
 
 pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, InvocationError> {
-    let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+    let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
 
     let ret = match object.permissions() {
         Some(perms) => perms.allowed_for(proc.credentials.user()),
@@ -32,6 +32,6 @@ pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, In
 }
 
 pub fn rights_for_permissions(permissions: FilePermissions) -> Result<AccessRights, InvocationError> {
-    let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+    let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
     Ok(permissions.allowed_for(proc.credentials.user()))
 }

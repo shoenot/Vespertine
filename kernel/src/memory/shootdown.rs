@@ -5,7 +5,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::core::cpu::{
+use crate::cpu::{
     NUM_CORES,
     current_core_id,
     current_core_mut,

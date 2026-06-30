@@ -28,11 +28,11 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::core::object::models::process::Process;
-use crate::core::object::models::vmo::VmoObject;
+use crate::process::Process;
+use crate::core::object::vmo::VmoObject;
 use crate::core::object::obj::KernelObject;
 use crate::core::object::vfs::kernel_walk;
-use crate::core::thread::get_current_process;
+use crate::process::current_process;
 use crate::klogln;
 use crate::memory::vmm::{
     VM_FLAG_EXEC,
@@ -129,7 +129,7 @@ async fn map_elf_segments(
         LoaderError::FileReadError
     })?;
     let vmo_handle = HandleID(vmo_handle_id);
-    let current_proc = get_current_process().ok_or(LoaderError::FileReadError)?;
+    let current_proc = current_process().ok_or(LoaderError::FileReadError)?;
     let vmo_obj_dyn = current_proc.handles.read().resolve(vmo_handle, AccessRights::READ).map_err(|e| {
         klogln!("[ERROR] load_elf: Resolve VmoObject handle failed: {:?}", e);
         LoaderError::FileReadError
@@ -232,7 +232,7 @@ async fn map_elf_segments(
 
 pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadResult, LoaderError> {
     let file_obj =
-        get_current_process().ok_or(LoaderError::FileReadError)?.handles.read().resolve(file_handle, AccessRights::READ).map_err(|e| {
+        current_process().ok_or(LoaderError::FileReadError)?.handles.read().resolve(file_handle, AccessRights::READ).map_err(|e| {
             klogln!("[ERROR] load_elf: Failed to resolve file_handle: {:?}", e);
             LoaderError::FileReadError
         })?;
@@ -273,7 +273,7 @@ pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<ElfLoadRe
         })?;
 
         let interp_obj = {
-            let proc = get_current_process().ok_or(LoaderError::FileReadError)?;
+            let proc = current_process().ok_or(LoaderError::FileReadError)?;
             let obj = proc.handles.read().resolve(interp_handle, AccessRights::READ).map_err(|_| LoaderError::FileReadError)?;
             let _ = proc.handles.write().close(interp_handle);
             obj

@@ -28,9 +28,9 @@ use vespertine_abi::{
 };
 
 use super::file::Ext2File;
-use crate::core::asynchronous::async_mutex::AsyncMutex;
+use crate::core::executor::async_mutex::AsyncMutex;
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::directory::{
+use crate::core::object::fs::directory::{
     FILENAME_LEN_MAX,
     Filename,
     validate_child_name,
@@ -45,7 +45,7 @@ use crate::core::security::permissions::{
     allowed_rights,
 };
 use crate::core::sync::RwLock;
-use crate::core::thread::get_current_process;
+use crate::process::current_process;
 use crate::core::time::get_realtime;
 use crate::memory::vmo::FileVmo;
 use crate::memory::{
@@ -82,7 +82,7 @@ impl KernelObject for Ext2Directory {
                 let filename = Filename::new(name as *const u8, name_len)?;
                 let object = KernelDirectory::lookup_child(self, &filename.name).await?;
 
-                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
                 let handle = proc.handles.write().insert(object, AccessRights::all());
 
                 Ok(handle.0)
@@ -164,10 +164,10 @@ impl KernelObject for Ext2Directory {
                 ALLOCATOR.free(page_phys, BlockSize::Normal);
 
                 // resolve sink socket
-                let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+                let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
                 let sink_obj = proc.handles.read().resolve(sink, AccessRights::WRITE)?;
 
-                crate::core::asynchronous::Executor::new().spawn(async move {
+                crate::core::executor::Executor::new().spawn(async move {
                     let mut iter = entries.iter().peekable();
                     while let Some((name_str, file_type)) = iter.next() {
                         let mut entry = AbiDirEntry {
@@ -225,14 +225,14 @@ impl KernelObject for Ext2Directory {
             }
             Invocation::Directory(DirectoryOp::CreateFile { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
-                let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
+                let owner = current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
                 let object = KernelDirectory::create_child_file(self, &filename.name, owner).await?;
                 register_created_object(object)
             }
 
             Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
-                let owner = get_current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
+                let owner = current_process().ok_or(InvocationError::InvalidHandle)?.credentials.user();
                 let object = KernelDirectory::create_child_dir(self, &filename.name, owner).await?;
                 register_created_object(object)
             }
@@ -617,7 +617,7 @@ impl KernelDirectory for Ext2Directory {
 
 fn register_created_object(object: Arc<dyn KernelObject>) -> Result<usize, InvocationError> {
     let rights = allowed_rights(&object)?;
-    let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+    let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
     Ok(proc.handles.write().insert(object, rights).0)
 }
 

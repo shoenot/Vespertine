@@ -15,11 +15,11 @@ use hal::interrupts::{
     interrupts_enabled,
 };
 
-use crate::core::cpu::current_core_mut;
+use crate::cpu::current_core_mut;
 use crate::core::sync::TicketLock;
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::{
+use crate::sched::dispatch::wake_thread;
+use crate::sched::wait::WaitQueue;
+use crate::sched::{
     ThreadBlockState,
     ThreadState,
 };
@@ -79,7 +79,7 @@ impl<T> RwLock<T> {
                     rq.push(thread);
                     drop(rq);
 
-                    current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                    current_core_mut().scheduler.schedule(crate::sched::scheduler::ScheduleReason::Blocked);
                     if int_state {
                         enable_interrupts()
                     };
@@ -118,7 +118,7 @@ impl<T> RwLock<T> {
                     wq.push(thread);
                     drop(wq);
 
-                    current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                    current_core_mut().scheduler.schedule(crate::sched::scheduler::ScheduleReason::Blocked);
                     if int_state {
                         enable_interrupts()
                     };

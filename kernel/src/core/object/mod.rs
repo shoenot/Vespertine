@@ -1,6 +1,16 @@
 pub mod handle;
 pub mod help;
 pub mod invoke;
-pub mod models;
 pub mod obj;
 pub mod vfs;
+pub mod fs;
+pub mod ipc;
+pub mod broker;
+pub mod framebuffer;
+pub mod log;
+pub mod mempool;
+pub mod memman;
+pub mod clock;
+pub mod vmo;
+pub mod namespace;
+pub mod mount;

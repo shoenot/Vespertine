@@ -6,15 +6,15 @@ use hal::interrupts::{
     interrupts_enabled,
 };
 
-use crate::core::cpu::current_core_mut;
+use crate::cpu::current_core_mut;
 use crate::core::sync::{
     MutexGuard,
     TicketLock,
 };
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::schedule::ScheduleReason;
-use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::{
+use crate::sched::dispatch::wake_thread;
+use crate::sched::scheduler::ScheduleReason;
+use crate::sched::wait::WaitQueue;
+use crate::sched::{
     ThreadBlockState,
     ThreadState,
 };

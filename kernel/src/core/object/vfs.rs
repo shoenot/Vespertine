@@ -17,25 +17,25 @@ use vespertine_abi::{
 };
 
 use crate::core::object::invoke::InvocationError;
-use crate::core::object::models::mount::mount;
-use crate::core::object::models::namespace::DirLocation;
-use crate::core::object::models::process::Process;
+use crate::core::object::mount::mount;
+use crate::core::object::namespace::DirLocation;
+use crate::process::Process;
 use crate::core::object::obj::KernelObject;
 use crate::core::security::permissions::FilePermissions;
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::get_current_process;
+use crate::process::current_process;
 use crate::klogln;
 
 pub static ROOT_DIRECTORY: KernelOnceCell<Arc<dyn KernelObject>> = KernelOnceCell::new();
 
 pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights) -> HandleID {
-    get_current_process().expect("No active process").handles.write().insert(obj, init_rights)
+    current_process().expect("No active process").handles.write().insert(obj, init_rights)
 }
 
 pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let demanded_rights = invocation.required_rights();
     let (obj, rights) = {
-        let table = get_current_process().expect("No active processes").handles.read();
+        let table = current_process().expect("No active processes").handles.read();
         let entry = table.resolve_entry(handle, demanded_rights)?;
         (entry.object.clone(), entry.rights)
     }; // drop the lock 
@@ -43,15 +43,15 @@ pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<u
 }
 
 pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
-    get_current_process().expect("No active process").handles.write().close(handle)
+    current_process().expect("No active process").handles.write().close(handle)
 }
 
 pub fn kernel_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result<HandleID, InvocationError> {
-    get_current_process().expect("No active process").handles.write().duplicate(handle, requested_rights)
+    current_process().expect("No active process").handles.write().duplicate(handle, requested_rights)
 }
 
 pub fn debug_dump_handles() {
-    let table = get_current_process().expect("No active process").handles.read();
+    let table = current_process().expect("No active process").handles.read();
     klogln!("{:#?}", *table);
 }
 

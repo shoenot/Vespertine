@@ -17,12 +17,12 @@ use vespertine_abi::{
     PROC_FAULT_PAGE,
 };
 
-use crate::core::cpu::current_core_mut;
-use crate::core::object::models::process::ProcTermination;
+use crate::cpu::current_core_mut;
+use crate::process::ProcTermination;
 use crate::core::sync::TicketLock;
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::get_current_process;
-use crate::core::thread::schedule::ScheduleReason;
+use crate::sched::dispatch::wake_thread;
+use crate::process::current_process;
+use crate::sched::scheduler::ScheduleReason;
 use crate::core::time::get_time;
 use crate::drivers::keyboard;
 use crate::klogln;
@@ -76,7 +76,7 @@ fn dispatch_dynamic_irq(frame: &mut TrapFrame) {
 }
 
 fn terminate_user_fault(frame: &TrapFrame, code: u32, detail: usize) -> ! {
-    if let Some(proc) = get_current_process() {
+    if let Some(proc) = current_process() {
         proc.request_terminate(ProcTermination::faulted(code, detail));
     } else {
         panic!("user fault without current process: {:#?}", frame);

@@ -10,7 +10,7 @@ use core::{
     str,
 };
 
-use crate::core::asynchronous::async_mutex::AsyncMutex;
+use crate::core::executor::async_mutex::AsyncMutex;
 use crate::core::sync::{
     Mutex,
     TicketLock,

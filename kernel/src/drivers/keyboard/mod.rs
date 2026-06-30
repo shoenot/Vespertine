@@ -16,7 +16,7 @@ use hal::io::{
     inb,
     outb,
 };
-use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
+use crate::core::executor::syscall_bridge::handle_sys_invoke;
 use crate::core::sync::Semaphore;
 use crate::util::bitwise::{
     set_bit,

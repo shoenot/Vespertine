@@ -9,7 +9,7 @@ use hal::cpu::{
 };
 use hal::mmu::load_cr3;
 
-use crate::core::cpu::{
+use crate::cpu::{
     KernelCoreData,
     current_core_id,
     current_core_mut,

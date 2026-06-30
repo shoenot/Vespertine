@@ -11,12 +11,12 @@ use hal::interrupts::{
 };
 
 use crate::KERNEL_PROCESS;
-use crate::core::cpu::{KernelCoreData, current_core_id, current_core_mut};
+use crate::cpu::{KernelCoreData, current_core_id, current_core_mut};
 use crate::core::sync::TicketLock;
-use crate::core::thread::ThreadState;
-use crate::core::thread::block::ThreadWakeRegistration;
-use crate::core::thread::dispatch::{cancel_block_if_awoken, create_tcb};
-use crate::core::thread::priority::ThreadPriority;
+use crate::sched::ThreadState;
+use crate::sched::block::ThreadWakeRegistration;
+use crate::sched::dispatch::{cancel_block_if_awoken, create_tcb};
+use crate::sched::priority::ThreadPriority;
 use crate::core::time::get_time;
 
 pub struct TimerRegistration {
@@ -134,7 +134,7 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
             continue;
         }
 
-        current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+        current_core_mut().scheduler.schedule(crate::sched::scheduler::ScheduleReason::Blocked);
         enable_interrupts();
     }
 }

@@ -26,16 +26,16 @@ use hal::interrupts::{
     interrupts_enabled,
 };
 
-use crate::core::cpu::{current_core, current_core_id};
-use crate::core::cpu::current_core_mut;
-use crate::core::asynchronous::EXECUTOR_THREAD_PTR;
-use crate::core::asynchronous::waiter::AsyncWaiter;
+use crate::cpu::{current_core, current_core_id};
+use crate::cpu::current_core_mut;
+use crate::core::executor::EXECUTOR_THREAD_PTR;
+use crate::core::executor::waiter::AsyncWaiter;
 use crate::core::sync::TicketLock;
-use crate::core::thread::dispatch::{
+use crate::sched::dispatch::{
     cancel_block_if_awoken,
     wake_thread,
 };
-use crate::core::thread::{
+use crate::sched::{
     ThreadControlBlock,
     ThreadState,
 };
@@ -326,7 +326,7 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
             return None;
         }
 
-        let num_to_setup = core::cmp::min(num_queues as usize, *crate::core::cpu::NUM_CORES.get().unwrap());
+        let num_to_setup = core::cmp::min(num_queues as usize, *crate::cpu::NUM_CORES.get().unwrap());
         let mut queues = Vec::new();
         for i in 0..num_to_setup {
             let vq = vq_setup(&drv, i as u16)?;
@@ -476,8 +476,8 @@ impl VirtioBlockDevice {
         use core::ptr::write_volatile;
 
         use crate::KERNEL_PROCESS;
-        use crate::core::thread::dispatch::spawn_kernel_thread;
-        use crate::core::thread::priority::ThreadPriority;
+        use crate::sched::dispatch::spawn_kernel_thread;
+        use crate::sched::priority::ThreadPriority;
         use crate::drivers::pci::pci_has_msix;
         use crate::interrupts::alloc::{
             msi_allocate,
@@ -779,7 +779,7 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("virtio worker was not running");
 
                     if !cancel_block_if_awoken(&*current_thread, &(*vq_state).awoken) {
-                        current_core_mut().scheduler.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                        current_core_mut().scheduler.schedule(crate::sched::scheduler::ScheduleReason::Blocked);
                     }
                 }
 

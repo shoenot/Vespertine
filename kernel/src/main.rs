@@ -3,13 +3,16 @@
 extern crate alloc;
 mod boot;
 mod core;
+mod cpu;
 mod drivers;
 mod interrupts;
+mod process;
 mod memory;
 mod panic;
 mod storage;
+mod sched;
 mod syscall;
-mod tasks;
+mod init;
 mod tests;
 mod util;
 
@@ -17,7 +20,7 @@ use alloc::sync::Arc;
 use hal::platform::PlatformInit;
 
 use ::core::sync::atomic::Ordering;
-use crate::core::cpu::{KernelCoreData, current_core_mut, hal_boot_alloc, init_bootstrap_core};
+use crate::cpu::{KernelCoreData, current_core_mut, hal_boot_alloc, init_bootstrap_core};
 use crate::core::time::callout::init_timer_daemon;
 use boot::smp::BSP_CR3;
 use drivers::logger::LOGGER;
@@ -30,22 +33,22 @@ use memory::{
 use vespertine_abi::HandleID;
 pub use vespertine_common::define_bitflags;
 
-use crate::core::cpu::init_smp;
+use crate::cpu::init_smp;
 use crate::core::object::handle::{
     AccessRights,
     HandleTable,
 };
-use crate::core::object::models::directory::Directory;
-use crate::core::object::models::namespace::DirLocation;
-use crate::core::object::models::process::{
+use crate::core::object::fs::directory::Directory;
+use crate::core::object::namespace::DirLocation;
+use crate::process::{
     Process,
     ProcessControlBlock,
 };
 use crate::core::object::vfs::ROOT_DIRECTORY;
 use crate::core::security::credentials::Credentials;
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::dispatch::spawn_kernel_thread;
-use crate::core::thread::priority::ThreadPriority;
+use crate::sched::dispatch::spawn_kernel_thread;
+use crate::sched::priority::ThreadPriority;
 use crate::core::time;
 use crate::core::time::datetime::epoch_to_datetime;
 use crate::drivers::keyboard::init_keyboard_irq;
@@ -56,10 +59,10 @@ use crate::drivers::pci::{
 use crate::drivers::virtio::blk::init_block_device;
 use crate::drivers::virtio::mmio::init_virtio;
 use crate::memory::{
-    GLOBAL_PMM, DIRECT_MAP_OFFSET, PAGER, hal_map_mmio
+    GLOBAL_PMM, PAGER, hal_map_mmio
 };
 use crate::storage::blockdev::AsyncBlockDevice;
-use crate::tasks::vfs_init::BLOCK_DEVICE;
+use crate::init::vfs_init::BLOCK_DEVICE;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
@@ -142,7 +145,7 @@ pub extern "C" fn kmain() -> ! {
     init_keyboard_irq();
     enable_interrupts();
 
-    spawn_kernel_thread(tasks::initializer as *const () as usize, 0, ThreadPriority::MAXIMUM, KERNEL_PROCESS.clone());
+    spawn_kernel_thread(init::initializer as *const () as usize, 0, ThreadPriority::MAXIMUM, KERNEL_PROCESS.clone());
 
     terminate_thread!();
 }

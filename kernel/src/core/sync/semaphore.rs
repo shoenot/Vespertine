@@ -10,11 +10,11 @@ use hal::interrupts::{
     interrupts_enabled,
 };
 
-use crate::core::cpu::current_core_mut;
+use crate::cpu::current_core_mut;
 use crate::core::sync::TicketLock;
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::{
+use crate::sched::dispatch::wake_thread;
+use crate::sched::wait::WaitQueue;
+use crate::sched::{
     ThreadBlockState,
     ThreadState,
 };
@@ -82,7 +82,7 @@ impl Semaphore {
                 drop(wq);
 
                 // yield CPU
-                sched.schedule(crate::core::thread::schedule::ScheduleReason::Blocked);
+                sched.schedule(crate::sched::scheduler::ScheduleReason::Blocked);
 
                 // continue here when unlocked
                 if int_state {

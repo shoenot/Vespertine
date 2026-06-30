@@ -9,7 +9,7 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::core::object::models::socket::init_ipc_pipeline;
+use crate::core::object::ipc::socket::init_ipc_pipeline;
 use crate::core::object::vfs::{
     kernel_invoke,
     kernel_walk,

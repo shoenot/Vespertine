@@ -15,7 +15,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::core::asynchronous::syscall_bridge::block_on;
+use crate::core::executor::syscall_bridge::block_on;
 use crate::core::sync::TicketLock;
 use crate::memory::pmm::{
     NORMAL_PAGE_SIZE,

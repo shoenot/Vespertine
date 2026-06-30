@@ -8,13 +8,13 @@ use crate::core::sync::{
     Mutex,
     Semaphore,
 };
-use crate::core::thread::schedule::ScheduleReason;
+use crate::sched::scheduler::ScheduleReason;
 use crate::time::sleep;
 use crate::{
     klogln,
     terminate_thread,
 };
-use crate::core::cpu::{current_core_id, current_core_mut};
+use crate::cpu::{current_core_id, current_core_mut};
 
 #[allow(dead_code)]
 pub fn ap_test_thread(thread_id: usize) -> ! {

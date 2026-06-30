@@ -32,12 +32,12 @@ pub use pmm::{
 use vespertine_common::slab::SlabAllocator;
 use vmm::*;
 
-use crate::core::cpu::current_core_mut;
+use crate::cpu::current_core_mut;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::core::thread::get_current_process;
+use crate::process::current_process;
 use crate::{
     klogln,
 };
@@ -91,7 +91,7 @@ pub static ALLOCATOR: PCAllocator = PCAllocator {};
 pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
 
 pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> {
-    if let Some(proc) = get_current_process() {
+    if let Some(proc) = current_process() {
         proc.vmm.read().handle_page_fault(addr, error_code)
     } else {
         Err(FaultError::InvalidAddress)

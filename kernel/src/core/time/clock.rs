@@ -6,13 +6,13 @@ use hal::interrupts::{
 };
 use vespertine_common::datetime::datetime_to_epoch;
 
-use crate::core::cpu::current_core_mut;
+use crate::cpu::current_core_mut;
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::block::ThreadWakeRegistration;
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::priority::ThreadPriority;
-use crate::core::thread::schedule::ScheduleReason;
-use crate::core::thread::{
+use crate::sched::block::ThreadWakeRegistration;
+use crate::sched::dispatch::wake_thread;
+use crate::sched::priority::ThreadPriority;
+use crate::sched::scheduler::ScheduleReason;
+use crate::sched::{
     ThreadBlockState,
     ThreadState,
 };
