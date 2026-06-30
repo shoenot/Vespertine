@@ -165,8 +165,23 @@ pub fn halt() {
     }
 }
 
+#[inline(always)]
+pub fn idle() {
+    unsafe {
+        asm!("sti; hlt", options(nomem, nostack));
+    }
+}
+
+#[inline(always)]
+pub fn set_user_thread_pointer(ptr: usize) {
+    unsafe {
+        write_to_msr(ptr as u64, 0xC000_0100);
+    }
+}
+
 pub fn halt_loop() -> ! {
     loop {
         halt();
     }
 }
+

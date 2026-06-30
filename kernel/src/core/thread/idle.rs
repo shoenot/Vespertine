@@ -1,7 +1,4 @@
-use core::arch::asm;
-
 use hal::context::init_bootstrap_thread_stack;
-use hal::interrupts::enable_interrupts;
 
 use crate::core::cpu::hal_boot_alloc;
 use crate::core::thread::ThreadControlBlock;
@@ -13,11 +10,8 @@ use crate::{
 
 
 fn idle_loop() -> ! {
-    unsafe {
-        enable_interrupts();
-        loop {
-            asm!("sti; hlt", options(nomem, nostack));
-        }
+    loop {
+        hal::cpu::idle();
     }
 }
 

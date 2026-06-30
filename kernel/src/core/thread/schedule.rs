@@ -11,7 +11,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::cpu::{halt_loop, set_kernel_stack};
+use hal::cpu::{halt_loop, set_kernel_stack, set_user_thread_pointer};
 use hal::interrupts::disable_interrupts;
 use hal::ipi::send_reschedule_ipi;
 
@@ -34,7 +34,6 @@ use hal::context::{
     allocate_bootstrap_extended_context, switch_from_bootstrap, switch_threads
 };
 use hal::mmu::load_cr3;
-use crate::util::write_to_msr;
 use crate::{
     BOOTSTRAP_ALLOC,
     KERNEL_PROCESS,
@@ -256,7 +255,7 @@ impl SchedulerState {
             }
 
             let base_target = (*next_thread).fs_base;
-            write_to_msr(base_target as u64, 0xC000_0100);
+            set_user_thread_pointer(base_target);
         }
 
         if !prev_thread.is_null() {

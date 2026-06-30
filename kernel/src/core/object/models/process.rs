@@ -4,6 +4,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::vec;
+use hal::cpu::set_user_thread_pointer;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{
@@ -73,7 +74,6 @@ use crate::memory::{
     ALLOCATOR,
     kernel_heap_allocated,
 };
-use crate::util::write_to_msr;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 static PROCESS_REGISTRY: RwLock<BTreeMap<usize, Process>> = RwLock::new(BTreeMap::new());
@@ -410,7 +410,7 @@ impl KernelObject for ProcessControlBlock {
                 }
                 unsafe {
                     (*current_thread).fs_base = fs_base;
-                    write_to_msr(fs_base as u64, 0xC000_0100);
+                    set_user_thread_pointer(fs_base);
                 }
                 Ok(0)
             }
