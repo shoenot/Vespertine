@@ -59,13 +59,13 @@ impl ProcessEnvironment {
         let capabilities_offset = (pkg_offset + initpkg_size + 15) & !0xF;
         let strings_offset = (capabilities_offset + capabilities_array_size + 15) & !0xF;
 
-        // hhdm ptrs
-        let hhdm_addr = phys_frame + *DIRECT_MAP_OFFSET;
+        // direct map ptrs
+        let direct_map_addr = phys_frame + *DIRECT_MAP_OFFSET;
 
-        let strings_hhdm_ptr = (hhdm_addr + strings_offset) as *mut u8;
-        let capabilities_hhdm_ptr = (hhdm_addr + capabilities_offset) as *mut CapabilityGrant;
-        let pkg_hhdm_ptr = (hhdm_addr + pkg_offset) as *mut ProcessInitPackage;
-        let sysv_hhdm_ptr = (hhdm_addr + sysv_offset) as *mut u8;
+        let strings_direct_ptr = (direct_map_addr + strings_offset) as *mut u8;
+        let capabilities_direct_ptr = (direct_map_addr + capabilities_offset) as *mut CapabilityGrant;
+        let pkg_direct_ptr = (direct_map_addr + pkg_offset) as *mut ProcessInitPackage;
+        let sysv_direct_ptr = (direct_map_addr + sysv_offset) as *mut u8;
 
         // virt addrs
         let base_vaddr = stack_vaddr + top_page_offset;
@@ -77,14 +77,14 @@ impl ProcessEnvironment {
         unsafe {
             // copy raw strings buffer
             if strings_size > 0 {
-                copy_nonoverlapping(args_buffer.as_ptr(), strings_hhdm_ptr, strings_size);
+                copy_nonoverlapping(args_buffer.as_ptr(), strings_direct_ptr, strings_size);
             }
 
             // build capability grants
-            copy_nonoverlapping(capabilities.as_ptr(), capabilities_hhdm_ptr, capabilities.len());
+            copy_nonoverlapping(capabilities.as_ptr(), capabilities_direct_ptr, capabilities.len());
 
             // build argv pointers manually on the stack side
-            let mut sysv_ptr = sysv_hhdm_ptr as *mut usize;
+            let mut sysv_ptr = sysv_direct_ptr as *mut usize;
 
             ptr::write(sysv_ptr, argc);
             sysv_ptr = sysv_ptr.add(1);
@@ -122,7 +122,7 @@ impl ProcessEnvironment {
             initpkg.capabilities_ptr = capabilities_vaddr as *const CapabilityGrant;
             initpkg.argc = argc;
             initpkg.argv = (sysv_vaddr + size_of::<usize>()) as *const *const u8;
-            ptr::write(pkg_hhdm_ptr, initpkg);
+            ptr::write(pkg_direct_ptr, initpkg);
         }
 
         // The safe_stack_top is where the process starts (sysv_vaddr).

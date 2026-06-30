@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use hal::boot::direct_map_offset;
 use core::pin::Pin;
 use core::ptr::{
     addr_of,
@@ -235,10 +236,10 @@ pub fn vq_setup(drv: &VirtioBlockDriver, q_idx: u16) -> Option<Virtqueue> {
         let av_phys = ALLOCATOR.alloc_order(av_order)?;
         let used_phys = ALLOCATOR.alloc_order(used_order)?;
 
-        let hhdm = *DIRECT_MAP_OFFSET;
-        let desc_virt = (desc_phys + hhdm) as *mut VqDescriptor;
-        let av_virt_base = av_phys + hhdm;
-        let used_virt_base = used_phys + hhdm;
+        let direct_map_offset = *DIRECT_MAP_OFFSET;
+        let desc_virt = (desc_phys + direct_map_offset) as *mut VqDescriptor;
+        let av_virt_base = av_phys + direct_map_offset;
+        let used_virt_base = used_phys + direct_map_offset;
 
         write_bytes(desc_virt as *mut u8, 0, (1 << desc_order) * 4096);
         write_bytes(av_virt_base as *mut u8, 0, (1 << av_order) * 4096);

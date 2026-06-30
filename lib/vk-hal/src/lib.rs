@@ -109,7 +109,7 @@ pub mod interrupts {
         page_fault_address,
         TIMER_VECTOR,
     };
-    pub use crate::x86_64::apic::lapic::msi_message_fields_for_target;
+    pub use crate::x86_64::apic::lapic::compose_msi_message;
     pub use crate::x86_64::apic::ioapic::{
         init_ioapic as init_platform_interrupts,
         route_isa_irq,

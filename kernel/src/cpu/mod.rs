@@ -1,3 +1,5 @@
+pub mod ap_entry;
+
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::vec::Vec;
 use core::ptr::null_mut;
@@ -14,7 +16,7 @@ use hal::cpu::{
     init_bootstrap_cpu_local,
 };
 use hal::smp::start_application_cores;
-use crate::boot::smp::ap_entry;
+use crate::cpu::ap_entry::ap_entry;
 use crate::sync::{
     KernelOnceCell,
     TicketLock,

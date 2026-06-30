@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 extern crate alloc;
-mod boot;
 mod cpu;
 mod drivers;
 mod executor;
@@ -26,8 +25,9 @@ use hal::platform::PlatformInit;
 
 use ::core::sync::atomic::Ordering;
 use crate::cpu::{KernelCoreData, current_core_mut, hal_boot_alloc, init_bootstrap_core};
+use crate::process::KERNEL_PROCESS;
 use crate::time::callout::init_timer_daemon;
-use boot::smp::BSP_CR3;
+use cpu::ap_entry::BSP_CR3;
 use drivers::logger::LOGGER;
 use hal::interrupts::enable_interrupts;
 use hal::mmu::get_cr3;
@@ -35,23 +35,9 @@ use memory::{
     BOOTSTRAP_ALLOC,
     BlockSize,
 };
-use vespertine_abi::HandleID;
 pub use vespertine_common::define_bitflags;
 
 use crate::cpu::init_smp;
-use crate::object::handle::{
-    AccessRights,
-    HandleTable,
-};
-use crate::object::fs::directory::Directory;
-use crate::object::namespace::DirLocation;
-use crate::process::{
-    Process,
-    ProcessControlBlock,
-};
-use crate::object::vfs::ROOT_DIRECTORY;
-use crate::security::credentials::Credentials;
-use crate::sync::KernelOnceCell;
 use crate::sched::dispatch::spawn_kernel_thread;
 use crate::sched::priority::ThreadPriority;
 use crate::time::datetime::epoch_to_datetime;
@@ -67,26 +53,6 @@ use crate::memory::{
 };
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::init::vfs_init::BLOCK_DEVICE;
-
-pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
-
-pub fn init_kernel_process() {
-    KERNEL_PROCESS.get_or_init(|| {
-        let mut proc = ProcessControlBlock::new(HandleTable::new(), "Vespertine".into(), Credentials::system());
-        if let Some(p) = Arc::get_mut(&mut proc) {
-            p.pml4_addr = get_cr3() as usize & 0x000F_FFFF_FFFF_F000;
-        }
-        let root = ROOT_DIRECTORY
-            .get_or_init(|| {
-                let root_mem = Arc::new(Directory::new());
-                DirLocation::root(root_mem)
-            })
-            .clone();
-        proc.handles.write().insert_at(HandleID(0), root, AccessRights::all());
-        proc.handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::all());
-        proc
-    });
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -108,7 +74,7 @@ pub extern "C" fn kmain() -> ! {
     klogln!("[INFO] FPU initialized. Starting IOAPIC...");
     hal::interrupts::init_platform_interrupts();
 
-    init_kernel_process();
+    process::init_kernel_process();
 
     current_core_mut().scheduler.init_threads(0);
 

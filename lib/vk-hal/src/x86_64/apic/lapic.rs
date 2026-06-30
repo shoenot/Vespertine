@@ -259,7 +259,7 @@ pub fn send_eoi() {
     current_local_apic().eoi();
 }
 
-pub fn msi_message_fields_for_target(core_logical_id: usize, vector: u8) -> (u32, u32, u32) {
+pub fn compose_msi_message(core_logical_id: usize, vector: u8) -> (u32, u32, u32) {
     let core = cpu_local_for(core_logical_id);
     match &core.local_apic {
         LocalApic::XApic(_) => msi_message_fields_for_xapic_id(core.hardware_id as u32, vector),

@@ -74,7 +74,7 @@ pub fn test_vmalloc(print: bool) {
         }
 
         if (p_large as usize) < 0x4000_0000 {
-            vklog!(print, "[FAIL] vmalloc returned HHDM address instead of VMM address\n");
+            vklog!(print, "[FAIL] vmalloc returned direct-map address instead of VMM address\n");
             panic!("MEMORY TEST FAILED");
         }
         vklog!(print, "Allocation OK... ");
