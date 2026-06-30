@@ -38,9 +38,9 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::core::object::help::RightsWrapper;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::{
+use crate::object::help::RightsWrapper;
+use crate::object::invoke::InvocationError;
+use crate::object::obj::{
     KernelDirectory,
     KernelObject,
 };

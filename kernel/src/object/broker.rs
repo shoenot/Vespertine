@@ -10,9 +10,9 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::core::object::help::RightsWrapper;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::KernelObject;
+use crate::object::help::RightsWrapper;
+use crate::object::invoke::InvocationError;
+use crate::object::obj::KernelObject;
 use crate::process::current_process;
 
 #[derive(Debug)]

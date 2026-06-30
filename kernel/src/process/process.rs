@@ -42,16 +42,16 @@ use crate::executor::waiter::{
     wake_all,
 };
 use crate::cpu::current_core_mut;
-use crate::core::object::handle::HandleTable;
-use crate::core::object::help::RightsWrapper;
-use crate::core::object::invoke::InvocationError;
+use crate::object::handle::HandleTable;
+use crate::object::help::RightsWrapper;
+use crate::object::invoke::InvocationError;
 use crate::process::thread_object::ThreadObject;
-use crate::core::object::obj::{
+use crate::object::obj::{
     KernelObject,
     ObjectWaitFuture,
     matching_signals,
 };
-use crate::core::security::credentials::Credentials;
+use crate::security::credentials::Credentials;
 use crate::sync::RwLock;
 use crate::sched::dispatch::{
     cancel_blocked_thread,

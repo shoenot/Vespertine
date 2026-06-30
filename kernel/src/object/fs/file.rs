@@ -12,9 +12,9 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::vmo::VmoObject;
-use crate::core::object::obj::KernelObject;
+use crate::object::invoke::InvocationError;
+use crate::object::vmo::VmoObject;
+use crate::object::obj::KernelObject;
 use crate::sync::TicketLock;
 use crate::process::current_process;
 use crate::memory::vmo::{

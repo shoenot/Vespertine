@@ -1,8 +1,8 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::KernelObject;
+use crate::object::invoke::InvocationError;
+use crate::object::obj::KernelObject;
 use crate::sync::RwLock;
 
 #[derive(Debug)]

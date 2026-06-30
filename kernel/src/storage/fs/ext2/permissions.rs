@@ -3,7 +3,7 @@ use vespertine_abi::{
     UserID,
 };
 
-use crate::core::security::permissions::FilePermissions;
+use crate::security::permissions::FilePermissions;
 
 fn owner_bits(mode: u16) -> u16 { (mode >> 6) & 0b111 }
 

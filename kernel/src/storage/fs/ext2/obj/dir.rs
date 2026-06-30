@@ -29,18 +29,18 @@ use vespertine_abi::{
 
 use super::file::Ext2File;
 use crate::executor::async_mutex::AsyncMutex;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::fs::directory::{
+use crate::object::invoke::InvocationError;
+use crate::object::fs::directory::{
     FILENAME_LEN_MAX,
     Filename,
     validate_child_name,
 };
-use crate::core::object::obj::{
+use crate::object::obj::{
     KernelDirectory,
     KernelObject,
 };
-use crate::core::object::vfs::FileDescription;
-use crate::core::security::permissions::{
+use crate::object::vfs::FileDescription;
+use crate::security::permissions::{
     FilePermissions,
     allowed_rights,
 };

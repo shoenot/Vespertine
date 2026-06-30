@@ -15,11 +15,11 @@ use vespertine_abi::{
 };
 
 use crate::executor::waiter::AsyncWaiter;
-use crate::core::object::help::RightsWrapper;
-use crate::core::object::invoke::InvocationError;
+use crate::object::help::RightsWrapper;
+use crate::object::invoke::InvocationError;
 use crate::process::Process;
-use crate::core::object::ipc::socket::SocketEndpoint;
-use crate::core::object::obj::KernelObject;
+use crate::object::ipc::socket::SocketEndpoint;
+use crate::object::obj::KernelObject;
 use crate::sync::Mutex;
 use crate::process::current_process;
 

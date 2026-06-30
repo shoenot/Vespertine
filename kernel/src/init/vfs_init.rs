@@ -8,20 +8,20 @@ use vespertine_abi::tag::{
     CAP_SOCKFAC,
 };
 
-use crate::core::object::broker::Broker;
-use crate::core::object::clock::Clock;
-use crate::core::object::fs::directory::*;
-use crate::core::object::log::Log;
-use crate::core::object::memman::MemoryManager;
-use crate::core::object::mount::mount;
-use crate::core::object::namespace::{
+use crate::object::broker::Broker;
+use crate::object::clock::Clock;
+use crate::object::fs::directory::*;
+use crate::object::log::Log;
+use crate::object::memman::MemoryManager;
+use crate::object::mount::mount;
+use crate::object::namespace::{
     kernel_namespace_authority,
     resolve_kernel_object,
 };
-use crate::core::object::ipc::portal::PortalFactory;
+use crate::object::ipc::portal::PortalFactory;
 use crate::process::procman::ProcessManager;
-use crate::core::object::ipc::socket::SocketFactory;
-use crate::core::object::vfs::{
+use crate::object::ipc::socket::SocketFactory;
+use crate::object::vfs::{
     kernel_root_location,
     link_kernel_object,
     mount_kernel_object,

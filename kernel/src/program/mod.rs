@@ -29,9 +29,9 @@ use vespertine_abi::{
 };
 
 use crate::process::Process;
-use crate::core::object::vmo::VmoObject;
-use crate::core::object::obj::KernelObject;
-use crate::core::object::vfs::kernel_walk;
+use crate::object::vmo::VmoObject;
+use crate::object::obj::KernelObject;
+use crate::object::vfs::kernel_walk;
 use crate::process::current_process;
 use crate::klogln;
 use crate::memory::vmm::{

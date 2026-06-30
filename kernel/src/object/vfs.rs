@@ -16,12 +16,12 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::mount::mount;
-use crate::core::object::namespace::DirLocation;
+use crate::object::invoke::InvocationError;
+use crate::object::mount::mount;
+use crate::object::namespace::DirLocation;
 use crate::process::Process;
-use crate::core::object::obj::KernelObject;
-use crate::core::security::permissions::FilePermissions;
+use crate::object::obj::KernelObject;
+use crate::security::permissions::FilePermissions;
 use crate::sync::KernelOnceCell;
 use crate::process::current_process;
 use crate::klogln;

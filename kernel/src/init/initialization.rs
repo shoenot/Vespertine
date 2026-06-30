@@ -22,8 +22,8 @@ use crate::executor::{
     Executor,
     executor_thread,
 };
-use crate::core::object::ipc::socket::init_ipc_pipeline;
-use crate::core::object::vfs::{
+use crate::object::ipc::socket::init_ipc_pipeline;
+use crate::object::vfs::{
     kernel_close,
     kernel_invoke,
     kernel_register_obj,

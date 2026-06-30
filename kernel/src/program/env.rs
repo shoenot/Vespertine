@@ -11,7 +11,7 @@ use vespertine_abi::{
 };
 use vespertine_common::slab::NORMAL_PAGE_SIZE;
 
-use crate::core::object::invoke::InvocationError;
+use crate::object::invoke::InvocationError;
 use crate::memory::DIRECT_MAP_OFFSET;
 use crate::memory::vmo::{
     PagedBackingStore,

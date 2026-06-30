@@ -22,11 +22,11 @@ use vespertine_common::path::{
     Components,
 };
 
-use crate::core::object::fs::directory::Filename;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::mount::follow_mount;
-use crate::core::object::obj::KernelObject;
-use crate::core::security::permissions::{
+use crate::object::fs::directory::Filename;
+use crate::object::invoke::InvocationError;
+use crate::object::mount::follow_mount;
+use crate::object::obj::KernelObject;
+use crate::security::permissions::{
     FilePermissions,
     allowed_rights,
 };

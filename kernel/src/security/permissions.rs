@@ -5,8 +5,8 @@ use vespertine_abi::{
     UserID,
 };
 
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::KernelObject;
+use crate::object::invoke::InvocationError;
+use crate::object::obj::KernelObject;
 use crate::process::current_process;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

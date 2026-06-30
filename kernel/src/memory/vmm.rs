@@ -21,7 +21,7 @@ use core::sync::atomic::{
 use super::paging::*;
 use super::pmm::*;
 use crate::memory::shootdown::shootdown;
-use crate::core::object::invoke::InvocationError;
+use crate::object::invoke::InvocationError;
 use crate::sync::TicketLock;
 use crate::memory::vmo::PagedBackingStore;
 use crate::memory::{

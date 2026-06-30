@@ -32,20 +32,20 @@ use vespertine_abi::{
 };
 
 use crate::executor::Executor;
-use crate::core::object::handle::HandleTable;
-use crate::core::object::help::RightsWrapper;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::mempool::MemPool;
+use crate::object::handle::HandleTable;
+use crate::object::help::RightsWrapper;
+use crate::object::invoke::InvocationError;
+use crate::object::mempool::MemPool;
 use crate::process::{
     ProcessControlBlock,
     find_process,
     process_snapshot,
     register_process,
 };
-use crate::core::object::obj::KernelObject;
-use crate::core::program::env::ProcessEnvironment;
-use crate::core::program::load_elf;
-use crate::core::security::credentials::Credentials;
+use crate::object::obj::KernelObject;
+use crate::program::env::ProcessEnvironment;
+use crate::program::load_elf;
+use crate::security::credentials::Credentials;
 use crate::sched::dispatch::{
     create_user_thread_suspended,
     spawn_user_thread,

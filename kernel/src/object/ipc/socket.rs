@@ -41,9 +41,9 @@ use crate::executor::waiter::{
     WaiterList,
     wake_all,
 };
-use crate::core::object::help::RightsWrapper;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::{
+use crate::object::help::RightsWrapper;
+use crate::object::invoke::InvocationError;
+use crate::object::obj::{
     KernelObject,
     ObjectWaitFuture,
     matching_signals,

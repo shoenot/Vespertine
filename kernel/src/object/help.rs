@@ -1,6 +1,6 @@
 use vespertine_abi::AccessRights;
 
-use crate::core::object::invoke::InvocationError;
+use crate::object::invoke::InvocationError;
 
 pub trait RightsWrapper {
     fn err_if_no(&self, other: Self) -> Result<(), InvocationError>;

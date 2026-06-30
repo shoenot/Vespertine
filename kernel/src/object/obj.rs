@@ -18,8 +18,8 @@ use vespertine_abi::{
 };
 
 use crate::executor::waiter::AsyncWaiter;
-use crate::core::object::invoke::InvocationError;
-use crate::core::security::permissions::FilePermissions;
+use crate::object::invoke::InvocationError;
+use crate::security::permissions::FilePermissions;
 
 #[async_trait]
 pub trait KernelDirectory: Send + Sync {

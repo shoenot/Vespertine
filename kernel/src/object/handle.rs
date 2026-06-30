@@ -6,8 +6,8 @@ pub use vespertine_abi::{
     HandleID,
 };
 
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::obj::{
+use crate::object::invoke::InvocationError;
+use crate::object::obj::{
     HandleEntry,
     KernelObject,
 };

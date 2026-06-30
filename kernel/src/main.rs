@@ -2,16 +2,18 @@
 #![no_main]
 extern crate alloc;
 mod boot;
-mod core;
 mod cpu;
 mod drivers;
 mod executor;
 mod interrupts;
 mod process;
 mod memory;
+mod object;
 mod panic;
+mod program;
 mod storage;
 mod sched;
+mod security;
 mod syscall;
 mod sync;
 mod init;
@@ -37,18 +39,18 @@ use vespertine_abi::HandleID;
 pub use vespertine_common::define_bitflags;
 
 use crate::cpu::init_smp;
-use crate::core::object::handle::{
+use crate::object::handle::{
     AccessRights,
     HandleTable,
 };
-use crate::core::object::fs::directory::Directory;
-use crate::core::object::namespace::DirLocation;
+use crate::object::fs::directory::Directory;
+use crate::object::namespace::DirLocation;
 use crate::process::{
     Process,
     ProcessControlBlock,
 };
-use crate::core::object::vfs::ROOT_DIRECTORY;
-use crate::core::security::credentials::Credentials;
+use crate::object::vfs::ROOT_DIRECTORY;
+use crate::security::credentials::Credentials;
 use crate::sync::KernelOnceCell;
 use crate::sched::dispatch::spawn_kernel_thread;
 use crate::sched::priority::ThreadPriority;

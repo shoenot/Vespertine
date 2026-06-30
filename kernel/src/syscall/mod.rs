@@ -18,9 +18,9 @@ use vespertine_abi::Invocation;
 
 use crate::executor::syscall_bridge::handle_sys_invoke;
 use crate::cpu::current_core_mut;
-use crate::core::object::handle::HandleID;
-use crate::core::object::invoke::InvocationError;
-use crate::core::object::vfs::kernel_close;
+use crate::object::handle::HandleID;
+use crate::object::invoke::InvocationError;
+use crate::object::vfs::kernel_close;
 use crate::sched::dispatch::wake_thread;
 use crate::sched::scheduler::ScheduleReason;
 use crate::sched::wait::WaitQueue;
