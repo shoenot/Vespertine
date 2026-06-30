@@ -15,7 +15,7 @@ use crate::cpu::{
     current_core_mut,
     hal_boot_alloc,
 };
-use crate::core::time::callout::init_timer_daemon;
+use crate::time::callout::init_timer_daemon;
 use crate::terminate_thread;
 
 pub static BSP_CR3: AtomicU64 = AtomicU64::new(0);

@@ -6,15 +6,15 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::sched::ThreadControlBlock;
+use crate::sched::Thread;
 use crate::sched::dispatch::wake_thread;
 use crate::impl_queue_methods;
 
 #[derive(Debug)]
 pub struct WaitQueue {
     pub queue_length: AtomicUsize,
-    head: *mut ThreadControlBlock,
-    tail: *mut ThreadControlBlock,
+    head: *mut Thread,
+    tail: *mut Thread,
 }
 
 unsafe impl Send for WaitQueue {}
@@ -22,12 +22,12 @@ unsafe impl Send for WaitQueue {}
 impl WaitQueue {
     pub const fn new() -> Self { Self { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() } }
 
-    pub fn remove(&mut self, target: *mut ThreadControlBlock) -> bool {
+    pub fn remove(&mut self, target: *mut Thread) -> bool {
         if target.is_null() {
             return false;
         }
 
-        let mut prev = null_mut() as *mut ThreadControlBlock;
+        let mut prev = null_mut() as *mut Thread;
         let mut cur = self.head;
 
         while !cur.is_null() {
@@ -56,7 +56,7 @@ impl WaitQueue {
         false
     }
 
-    pub fn pop_wakeable(&mut self) -> *mut ThreadControlBlock {
+    pub fn pop_wakeable(&mut self) -> *mut Thread {
         loop {
             let thread = self.pop();
 
@@ -72,18 +72,18 @@ impl WaitQueue {
     }
 }
 
-impl_queue_methods!(WaitQueue, ThreadControlBlock, head, tail);
+impl_queue_methods!(WaitQueue, Thread, head, tail);
 
 pub struct WakeToken {
     pub fired: AtomicBool,
-    pub thread: *mut ThreadControlBlock,
+    pub thread: *mut Thread,
 }
 
 unsafe impl Send for WakeToken {}
 unsafe impl Sync for WakeToken {}
 
 impl WakeToken {
-    pub fn new(thread: *mut ThreadControlBlock) -> Self { Self { fired: AtomicBool::new(false), thread } }
+    pub fn new(thread: *mut Thread) -> Self { Self { fired: AtomicBool::new(false), thread } }
 }
 
 #[derive(Debug)]

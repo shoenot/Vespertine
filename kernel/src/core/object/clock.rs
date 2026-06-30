@@ -10,7 +10,7 @@ use vespertine_abi::{
 
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
-use crate::core::time::{
+use crate::time::{
     get_realtime,
     sleep,
 };

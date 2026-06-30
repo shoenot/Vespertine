@@ -13,6 +13,7 @@ mod storage;
 mod sched;
 mod syscall;
 mod init;
+mod time;
 mod tests;
 mod util;
 
@@ -21,7 +22,7 @@ use hal::platform::PlatformInit;
 
 use ::core::sync::atomic::Ordering;
 use crate::cpu::{KernelCoreData, current_core_mut, hal_boot_alloc, init_bootstrap_core};
-use crate::core::time::callout::init_timer_daemon;
+use crate::time::callout::init_timer_daemon;
 use boot::smp::BSP_CR3;
 use drivers::logger::LOGGER;
 use hal::interrupts::enable_interrupts;
@@ -49,8 +50,7 @@ use crate::core::security::credentials::Credentials;
 use crate::core::sync::KernelOnceCell;
 use crate::sched::dispatch::spawn_kernel_thread;
 use crate::sched::priority::ThreadPriority;
-use crate::core::time;
-use crate::core::time::datetime::epoch_to_datetime;
+use crate::time::datetime::epoch_to_datetime;
 use crate::drivers::keyboard::init_keyboard_irq;
 use crate::drivers::pci::{
     PCI_DEVICES,

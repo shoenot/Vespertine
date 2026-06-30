@@ -53,7 +53,7 @@ unsafe impl Sync for ThreadBlockState {}
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct ThreadControlBlock {
+pub struct Thread {
     pub thread_id: usize,
     pub state: AtomicU8,
 
@@ -79,14 +79,14 @@ pub struct ThreadControlBlock {
     pub block_state: TicketLock<ThreadBlockState>,
 
     pub process: Arc<ProcessControlBlock>,
-    pub next: *mut ThreadControlBlock,
+    pub next: *mut Thread,
 }
 
-impl PartialEq for ThreadControlBlock {
+impl PartialEq for Thread {
     fn eq(&self, other: &Self) -> bool { self.thread_id == other.thread_id }
 }
 
-impl ThreadControlBlock {
+impl Thread {
     pub fn init(
         &mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, fpu_ptr: *mut u8, assigned_core: usize,
         priority: ThreadPriority, proc: Process,
@@ -151,5 +151,5 @@ impl ThreadControlBlock {
     pub fn clear_block_state(&self) { *self.block_state.lock() = ThreadBlockState::None; }
 }
 
-unsafe impl Send for ThreadControlBlock {}
-unsafe impl Sync for ThreadControlBlock {}
+unsafe impl Send for Thread {}
+unsafe impl Sync for Thread {}

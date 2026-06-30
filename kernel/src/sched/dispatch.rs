@@ -15,12 +15,12 @@ use crate::process::Process;
 use crate::sched::priority::ThreadPriority;
 use crate::sched::{
     ThreadBlockState,
-    ThreadControlBlock,
+    Thread,
     ThreadError,
     ThreadState,
 };
 
-pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut ThreadControlBlock {
+pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut Thread {
     let tcb_ptr = create_tcb(entry_point, arg, priority, proc).expect("Unable to spawn kernel thread");
 
     let mut best_core = 0;
@@ -58,7 +58,7 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
 
 pub fn spawn_user_thread(
     entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process,
-) -> *mut ThreadControlBlock {
+) -> *mut Thread {
     let tcb_ptr = create_user_tcb(entry_point, user_stack_top, arg, priority, proc).expect("Unable to spawn user thread");
 
     let mut best_core = 0;
@@ -96,17 +96,17 @@ pub fn spawn_user_thread(
 
 pub fn create_user_thread_suspended(
     entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process,
-) -> *mut ThreadControlBlock {
+) -> *mut Thread {
     create_user_tcb(entry_point, user_stack_top, arg, priority, proc).expect("Unable to create suspended user thread")
 }
 
-pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> Result<*mut ThreadControlBlock, ThreadError> {
+pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> Result<*mut Thread, ThreadError> {
     let stack_size = 4096 * 4;
     // alloc memory for structs
-    let tcb_layout = Layout::new::<ThreadControlBlock>();
+    let tcb_layout = Layout::new::<Thread>();
     let stack_layout = Layout::from_size_align(stack_size, 4096)?;
 
-    let tcb_ptr = unsafe { alloc(tcb_layout) as *mut ThreadControlBlock };
+    let tcb_ptr = unsafe { alloc(tcb_layout) as *mut Thread };
     let stack_base = unsafe { alloc(stack_layout) as usize };
 
     unsafe {
@@ -132,12 +132,12 @@ pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc
 
 pub fn create_user_tcb(
     entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process,
-) -> Result<*mut ThreadControlBlock, ThreadError> {
+) -> Result<*mut Thread, ThreadError> {
     let stack_size = 4096 * 4;
-    let tcb_layout = Layout::new::<ThreadControlBlock>();
+    let tcb_layout = Layout::new::<Thread>();
     let stack_layout = Layout::from_size_align(stack_size, 4096)?;
 
-    let tcb_ptr = unsafe { alloc(tcb_layout) as *mut ThreadControlBlock };
+    let tcb_ptr = unsafe { alloc(tcb_layout) as *mut Thread };
     let stack_base = unsafe { alloc(stack_layout) as usize };
 
     unsafe {
@@ -161,7 +161,7 @@ pub fn create_user_tcb(
     Ok(tcb_ptr)
 }
 
-pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
+pub fn reschedule_thread_core(thread: *mut Thread) {
     if thread.is_null() {
         return;
     }
@@ -175,7 +175,7 @@ pub fn reschedule_thread_core(thread: *mut ThreadControlBlock) {
     }
 }
 
-pub fn enqueue_ready_thread(thread: *mut ThreadControlBlock) {
+pub fn enqueue_ready_thread(thread: *mut Thread) {
     if thread.is_null() {
         return;
     }
@@ -196,7 +196,7 @@ pub fn enqueue_ready_thread(thread: *mut ThreadControlBlock) {
     }
 }
 
-pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
+pub fn try_wake_thread(thread: *mut Thread) -> bool {
     unsafe {
         if (*thread).state() == ThreadState::Terminated {
             return false;
@@ -212,7 +212,7 @@ pub fn try_wake_thread(thread: *mut ThreadControlBlock) -> bool {
     }
 }
 
-pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) -> bool {
+pub fn cancel_block_if_awoken(thread: &Thread, awoken: &AtomicBool) -> bool {
     if awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked, ThreadState::Running).is_ok() {
         thread.clear_block_state();
         true
@@ -221,16 +221,16 @@ pub fn cancel_block_if_awoken(thread: &ThreadControlBlock, awoken: &AtomicBool) 
     }
 }
 
-pub fn wake_thread(thread: *mut ThreadControlBlock) {
+pub fn wake_thread(thread: *mut Thread) {
     if !try_wake_thread(thread) {
         return;
     }
     enqueue_ready_thread(thread);
 }
 
-pub fn start_thread(thread: *mut ThreadControlBlock) { enqueue_ready_thread(thread); }
+pub fn start_thread(thread: *mut Thread) { enqueue_ready_thread(thread); }
 
-pub fn cancel_blocked_thread(thread: *mut ThreadControlBlock) -> bool {
+pub fn cancel_blocked_thread(thread: *mut Thread) -> bool {
     if thread.is_null() {
         return false;
     }

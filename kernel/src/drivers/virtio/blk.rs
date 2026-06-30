@@ -36,10 +36,10 @@ use crate::sched::dispatch::{
     wake_thread,
 };
 use crate::sched::{
-    ThreadControlBlock,
+    Thread,
     ThreadState,
 };
-use crate::core::time;
+use crate::time;
 use crate::drivers::virtio::mmio::{
     VirtioBlockDriver,
     init_virtio,
@@ -130,7 +130,7 @@ impl Drop for Virtqueue {
 #[derive(Debug)]
 pub struct VirtqueueState {
     pub vq: TicketLock<Virtqueue>,
-    pub worker_tcb: AtomicPtr<ThreadControlBlock>,
+    pub worker_tcb: AtomicPtr<Thread>,
     pub has_interrupts: AtomicBool,
     pub awoken: AtomicBool,
 }

@@ -34,7 +34,7 @@ use crate::{
     terminate_thread,
 };
 
-fn current_thread() -> &'static crate::sched::ThreadControlBlock { unsafe { &*current_core_mut().scheduler.get_current_thread() } }
+fn current_thread() -> &'static crate::sched::Thread { unsafe { &*current_core_mut().scheduler.get_current_thread() } }
 
 fn test_yield() {
     let restore_interrupts = interrupts_enabled();
@@ -44,13 +44,13 @@ fn test_yield() {
     }
 }
 
-static WAKE_TARGET: AtomicPtr<crate::sched::ThreadControlBlock> = AtomicPtr::new(core::ptr::null_mut());
+static WAKE_TARGET: AtomicPtr<crate::sched::Thread> = AtomicPtr::new(core::ptr::null_mut());
 static START_WAKE_RACE: AtomicBool = AtomicBool::new(false);
 static WAKE_WORKERS_DONE: AtomicUsize = AtomicUsize::new(0);
 static WAKE_TARGET_RUNS: AtomicUsize = AtomicUsize::new(0);
 static STEAL_WORKERS_DONE: AtomicUsize = AtomicUsize::new(0);
 static STEAL_REMOTE_RUNS: AtomicUsize = AtomicUsize::new(0);
-static MIGRATED_BLOCKED_THREAD: AtomicPtr<crate::sched::ThreadControlBlock> = AtomicPtr::new(core::ptr::null_mut());
+static MIGRATED_BLOCKED_THREAD: AtomicPtr<crate::sched::Thread> = AtomicPtr::new(core::ptr::null_mut());
 static MIGRATED_FIRST_CORE: AtomicUsize = AtomicUsize::new(usize::MAX);
 static MIGRATED_SECOND_CORE: AtomicUsize = AtomicUsize::new(usize::MAX);
 
@@ -92,7 +92,7 @@ extern "C" fn migrated_wake_target(_arg: usize) -> ! {
     terminate_thread!();
 }
 
-fn enqueue_test_thread_on_core(thread: *mut crate::sched::ThreadControlBlock, core: usize) {
+fn enqueue_test_thread_on_core(thread: *mut crate::sched::Thread, core: usize) {
     unsafe {
         (*thread).set_assigned_core(core);
     }
@@ -156,7 +156,7 @@ fn test_wake_immediately_after_blocking_makes_thread_ready() {
     assert_eq!(thread.state(), ThreadState::Ready);
     thread.transition(ThreadState::Ready, ThreadState::Running).expect("test thread was not ready");
     unsafe {
-        (*(thread as *const _ as *mut crate::sched::ThreadControlBlock)).effective_priority = thread.base_priority;
+        (*(thread as *const _ as *mut crate::sched::Thread)).effective_priority = thread.base_priority;
     }
 }
 

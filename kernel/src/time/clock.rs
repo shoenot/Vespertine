@@ -16,7 +16,7 @@ use crate::sched::{
     ThreadBlockState,
     ThreadState,
 };
-use crate::core::time::callout::{
+use crate::time::callout::{
     Callout,
     CalloutPayload,
 };

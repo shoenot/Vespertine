@@ -17,7 +17,7 @@ use crate::sched::ThreadState;
 use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::dispatch::{cancel_block_if_awoken, create_tcb};
 use crate::sched::priority::ThreadPriority;
-use crate::core::time::get_time;
+use crate::time::get_time;
 
 pub struct TimerRegistration {
     active: AtomicBool,

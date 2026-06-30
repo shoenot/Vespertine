@@ -6,12 +6,12 @@ use core::task::{
 };
 
 use crate::cpu::current_core_mut;
-use crate::core::time::callout::{
+use crate::time::callout::{
     Callout,
     CalloutPayload,
     TimerRegistration,
 };
-use crate::core::time::{
+use crate::time::{
     get_time,
     ns_to_ticks,
     update_hardware_timer,

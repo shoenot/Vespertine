@@ -41,7 +41,7 @@ use crate::core::object::obj::{
 };
 use crate::core::sync::Mutex;
 use crate::process::current_process;
-use crate::core::time::get_realtime;
+use crate::time::get_realtime;
 use crate::klogln;
 
 const MAX_MESSAGE_BYTES: usize = 2048;

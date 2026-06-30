@@ -11,18 +11,18 @@ use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::obj::KernelObject;
 use crate::sched::dispatch::reschedule_thread_core;
-use crate::sched::ThreadControlBlock;
+use crate::sched::Thread;
 
 #[derive(Debug)]
-pub struct Thread {
-    pub tcb: *mut ThreadControlBlock,
+pub struct ThreadObject {
+    pub tcb: *mut Thread,
 }
 
-unsafe impl Sync for Thread {}
-unsafe impl Send for Thread {}
+unsafe impl Sync for ThreadObject {}
+unsafe impl Send for ThreadObject {}
 
 #[async_trait]
-impl KernelObject for Thread {
+impl KernelObject for ThreadObject {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Thread(ThreadOp::Kill) => {

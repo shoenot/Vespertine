@@ -38,16 +38,16 @@ use crate::sched::dispatch::{
 };
 use crate::sched::scheduler::ScheduleReason;
 use crate::sched::{
-    ThreadControlBlock,
+    Thread,
     ThreadState,
 };
-use crate::core::time::arm_sleep_ns;
+use crate::time::arm_sleep_ns;
 
 static TASK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 pub static RUN_QUEUE: TicketLock<VecDeque<Arc<Task>>> = TicketLock::new(VecDeque::new());
 
-pub static EXECUTOR_THREAD_PTR: AtomicPtr<ThreadControlBlock> = AtomicPtr::new(null_mut());
+pub static EXECUTOR_THREAD_PTR: AtomicPtr<Thread> = AtomicPtr::new(null_mut());
 static EXECUTOR_AWOKEN: AtomicBool = AtomicBool::new(false);
 
 #[repr(u8)]

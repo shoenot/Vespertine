@@ -4,21 +4,21 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::sched::ThreadControlBlock;
+use crate::sched::Thread;
 use crate::sched::dispatch::wake_thread;
 
 #[derive(Debug)]
 pub struct ThreadWakeRegistration {
     active: AtomicBool,
     fired: AtomicBool,
-    thread: *mut ThreadControlBlock,
+    thread: *mut Thread,
 }
 
 unsafe impl Send for ThreadWakeRegistration {}
 unsafe impl Sync for ThreadWakeRegistration {}
 
 impl ThreadWakeRegistration {
-    pub fn new(thread: *mut ThreadControlBlock) -> Arc<Self> {
+    pub fn new(thread: *mut Thread) -> Arc<Self> {
         Arc::new(Self { active: AtomicBool::new(true), fired: AtomicBool::new(false), thread })
     }
 
@@ -37,5 +37,5 @@ impl ThreadWakeRegistration {
 
     pub fn fired(&self) -> bool { self.fired.load(Ordering::Acquire) }
 
-    pub fn thread(&self) -> *mut ThreadControlBlock { self.thread }
+    pub fn thread(&self) -> *mut Thread { self.thread }
 }

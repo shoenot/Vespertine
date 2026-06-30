@@ -2,9 +2,9 @@ use alloc::alloc::dealloc;
 use hal::context::deallocate_extended_context;
 use core::alloc::Layout;
 use core::ptr::drop_in_place;
-use crate::sched::ThreadControlBlock;
+use crate::sched::Thread;
 use crate::sched::scheduler::GRAVEYARD;
-use crate::core::time::sleep;
+use crate::time::sleep;
 
 pub extern "C" fn reaper_daemon(_arg: usize) -> ! {
     loop {
@@ -20,7 +20,7 @@ pub extern "C" fn reaper_daemon(_arg: usize) -> ! {
     }
 }
 
-fn reap_thread(thread: *mut ThreadControlBlock) {
+fn reap_thread(thread: *mut Thread) {
     unsafe {
         // bootstrap thread (stack base is 0) so cannot be free by the standard heap
         if (*thread).stack_base == 0 {
@@ -37,7 +37,7 @@ fn reap_thread(thread: *mut ThreadControlBlock) {
         deallocate_extended_context(extended_context).expect("failed to deallocate thread extended context");
         drop_in_place(thread);
 
-        let tcb_layout = Layout::new::<ThreadControlBlock>();
+        let tcb_layout = Layout::new::<Thread>();
         dealloc(thread as *mut u8, tcb_layout);
     }
 }

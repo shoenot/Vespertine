@@ -19,10 +19,10 @@ use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::sched::ThreadControlBlock;
+use crate::sched::Thread;
 use crate::sched::scheduler::SchedulerState;
 use crate::sched::workqueue::WorkQueue;
-use crate::core::time::callout::Callout;
+use crate::time::callout::Callout;
 use crate::klogln;
 use crate::memory::BOOTSTRAP_ALLOC;
 use crate::memory::magazine::Magazine;
@@ -35,7 +35,7 @@ pub struct KernelCoreData {
     pub scheduler: SchedulerState,
     pub work_queue: WorkQueue,
     pub callout_queue: TicketLock<BinaryHeap<Callout>>,
-    pub timer_daemon_tcb: *mut ThreadControlBlock,
+    pub timer_daemon_tcb: *mut Thread,
     pub timer_daemon_awoken: AtomicBool,
     pub magazine: Magazine,
     pub steal_requester: AtomicUsize,

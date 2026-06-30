@@ -1,7 +1,7 @@
 use hal::context::init_bootstrap_thread_stack;
 
 use crate::cpu::hal_boot_alloc;
-use crate::sched::ThreadControlBlock;
+use crate::sched::Thread;
 use crate::sched::priority::ThreadPriority;
 use crate::{
     BOOTSTRAP_ALLOC,
@@ -15,10 +15,10 @@ fn idle_loop() -> ! {
     }
 }
 
-pub fn init_idle_thread(core_logical_id: usize) -> *mut ThreadControlBlock {
+pub fn init_idle_thread(core_logical_id: usize) -> *mut Thread {
     let stack_size = 4096 * 16;
 
-    let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
+    let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<Thread>(), 8) as *mut Thread;
     let stack_base = BOOTSTRAP_ALLOC.lock().alloc(stack_size, 8) as usize;
 
     let idle_loop_addr = idle_loop as *const () as usize;

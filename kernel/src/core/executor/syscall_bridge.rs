@@ -30,18 +30,18 @@ use crate::sched::dispatch::cancel_block_if_awoken;
 use crate::sched::scheduler::ScheduleReason;
 use crate::sched::{
     ThreadBlockState,
-    ThreadControlBlock,
+    Thread,
     ThreadState,
 };
 
 struct ThreadWaker {
-    thread: *mut ThreadControlBlock,
+    thread: *mut Thread,
     registration: TicketLock<Arc<ThreadWakeRegistration>>,
     awoken: AtomicBool,
 }
 
 impl ThreadWaker {
-    fn new(thread: *mut ThreadControlBlock) -> Arc<Self> {
+    fn new(thread: *mut Thread) -> Arc<Self> {
         Arc::new(Self { thread, registration: TicketLock::new(ThreadWakeRegistration::new(thread)), awoken: AtomicBool::new(false) })
     }
 

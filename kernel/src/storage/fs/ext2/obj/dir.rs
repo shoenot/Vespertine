@@ -46,7 +46,7 @@ use crate::core::security::permissions::{
 };
 use crate::core::sync::RwLock;
 use crate::process::current_process;
-use crate::core::time::get_realtime;
+use crate::time::get_realtime;
 use crate::memory::vmo::FileVmo;
 use crate::memory::{
     ALLOCATOR,

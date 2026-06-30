@@ -23,7 +23,7 @@ use super::{
 };
 use crate::core::executor::waiter::AsyncWaiter;
 use crate::cpu::current_core_mut;
-use crate::core::time::callout::{
+use crate::time::callout::{
     CalloutPayload,
     TimerRegistration,
     dispatch_callout_payload,

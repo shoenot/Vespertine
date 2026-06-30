@@ -45,7 +45,7 @@ use crate::cpu::current_core_mut;
 use crate::core::object::handle::HandleTable;
 use crate::core::object::help::RightsWrapper;
 use crate::core::object::invoke::InvocationError;
-use crate::process::thread_object::Thread;
+use crate::process::thread_object::ThreadObject;
 use crate::core::object::obj::{
     KernelObject,
     ObjectWaitFuture,
@@ -62,7 +62,7 @@ use crate::sched::dispatch::{
 use crate::sched::priority::ThreadPriority;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{
-    ThreadControlBlock,
+    Thread,
     ThreadState,
 };
 use super::current_process;
@@ -102,7 +102,7 @@ pub struct ProcessControlBlock {
     pub memory: Arc<VmAccounting>,
     pub pml4_addr: usize,
 
-    pub threads: RwLock<Vec<*mut ThreadControlBlock>>,
+    pub threads: RwLock<Vec<*mut Thread>>,
     pub active_threads: AtomicUsize,
     pub initial_thread: AtomicUsize,
 
@@ -308,7 +308,7 @@ impl ProcessControlBlock {
         true
     }
 
-    pub fn finish_thread_exit(&self, thread: *mut ThreadControlBlock, normal_exit_code: u32) -> bool {
+    pub fn finish_thread_exit(&self, thread: *mut Thread, normal_exit_code: u32) -> bool {
         if !self.unregister_thread(thread) {
             return false;
         }
@@ -341,7 +341,7 @@ impl ProcessControlBlock {
 
     pub fn is_terminated(&self) -> bool { matches!(*self.lifecycle.lock(), ProcLifecycle::Terminated(_)) }
 
-    pub fn register_thread(&self, thread: *mut ThreadControlBlock) {
+    pub fn register_thread(&self, thread: *mut Thread) {
         if thread.is_null() {
             return;
         }
@@ -351,9 +351,9 @@ impl ProcessControlBlock {
         }
     }
 
-    pub fn thread_snapshot(&self) -> Vec<*mut ThreadControlBlock> { self.threads.read().clone() }
+    pub fn thread_snapshot(&self) -> Vec<*mut Thread> { self.threads.read().clone() }
 
-    pub fn unregister_thread(&self, thread: *mut ThreadControlBlock) -> bool {
+    pub fn unregister_thread(&self, thread: *mut Thread) -> bool {
         let mut threads = self.threads.write();
         let old_len = threads.len();
         threads.retain(|&cd| cd != thread);
@@ -373,7 +373,7 @@ impl KernelObject for ProcessControlBlock {
                 if thread == 0 {
                     return Ok(0);
                 }
-                start_thread(thread as *mut ThreadControlBlock);
+                start_thread(thread as *mut Thread);
                 Ok(0)
             }
             Invocation::Proc(ProcOp::Terminate { reason }) => {
@@ -392,7 +392,7 @@ impl KernelObject for ProcessControlBlock {
                 let tp = ThreadPriority::from(priority);
                 let proc = current_process().ok_or(InvocationError::ThreadSpawnFail)?;
                 let thread = spawn_user_thread(entry, stack_top, arg, tp, proc.clone());
-                let obj = Arc::new(Thread { tcb: thread });
+                let obj = Arc::new(ThreadObject { tcb: thread });
                 let id = self.handles.write().insert(obj, AccessRights::all());
                 Ok(id.0)
             }

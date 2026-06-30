@@ -12,7 +12,7 @@ use core::task::{
 };
 
 use super::AsyncSleep;
-use crate::core::time::callout::{
+use crate::time::callout::{
     CalloutPayload,
     TimerRegistration,
     dispatch_callout_payload,

@@ -23,7 +23,7 @@ use crate::core::sync::TicketLock;
 use crate::sched::dispatch::wake_thread;
 use crate::process::current_process;
 use crate::sched::scheduler::ScheduleReason;
-use crate::core::time::get_time;
+use crate::time::get_time;
 use crate::drivers::keyboard;
 use crate::klogln;
 use crate::memory::handle_page_fault;

@@ -22,10 +22,10 @@ use crate::core::sync::TicketLock;
 use crate::sched::idle::*;
 use crate::sched::priority::ThreadPriority;
 use crate::sched::{
-    ThreadControlBlock,
+    Thread,
     ThreadState,
 };
-use crate::core::time::{
+use crate::time::{
     get_time,
     ns_to_ticks,
     update_hardware_timer,
@@ -65,7 +65,7 @@ pub enum ScheduleReason {
     RescheduleIpi,
 }
 
-pub(crate) fn account_running_thread(thread: &mut ThreadControlBlock, reason: ScheduleReason, now: usize) {
+pub(crate) fn account_running_thread(thread: &mut Thread, reason: ScheduleReason, now: usize) {
     if thread.last_started != 0 {
         thread.total_runtime = thread.total_runtime.saturating_add(now.saturating_sub(thread.last_started));
     }
@@ -76,34 +76,34 @@ pub(crate) fn account_running_thread(thread: &mut ThreadControlBlock, reason: Sc
 }
 
 pub(crate) fn should_refresh_quantum(
-    next_thread: *mut ThreadControlBlock, prev_thread: *mut ThreadControlBlock, reason: ScheduleReason, quantum_expiry: usize, now: usize,
+    next_thread: *mut Thread, prev_thread: *mut Thread, reason: ScheduleReason, quantum_expiry: usize, now: usize,
 ) -> bool {
     next_thread != prev_thread || reason == ScheduleReason::QuantumExpired || quantum_expiry <= now
 }
 
 pub struct TCBQueue {
     pub queue_length: AtomicUsize,
-    head: *mut ThreadControlBlock,
-    tail: *mut ThreadControlBlock,
+    head: *mut Thread,
+    tail: *mut Thread,
 }
 
 unsafe impl Send for TCBQueue {}
 
-impl_queue_methods!(TCBQueue, ThreadControlBlock, head, tail);
+impl_queue_methods!(TCBQueue, Thread, head, tail);
 
 pub struct SchedulerState {
     pub core_logical_id: usize,
 
     pub queue_length: AtomicUsize,
-    pub ready_queue_heads: [*mut ThreadControlBlock; 32],
-    pub ready_queue_tails: [*mut ThreadControlBlock; 32],
+    pub ready_queue_heads: [*mut Thread; 32],
+    pub ready_queue_tails: [*mut Thread; 32],
     pub active_priorities: u32,
 
-    pub sleep_queue_head: *mut ThreadControlBlock,
+    pub sleep_queue_head: *mut Thread,
     pub mailbox: TicketLock<TCBQueue>,
-    pub idle_thread: *mut ThreadControlBlock,
+    pub idle_thread: *mut Thread,
 
-    pub current_thread: *mut ThreadControlBlock,
+    pub current_thread: *mut Thread,
 }
 
 unsafe impl Send for SchedulerState {}
@@ -134,9 +134,9 @@ impl SchedulerState {
     pub fn init_threads(&mut self, logical_id: usize) {
         self.idle_thread = init_idle_thread(logical_id);
 
-        let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
+        let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<Thread>(), 8) as *mut Thread;
 
-        unsafe { write_bytes(tcb_ptr as *mut u8, 0, size_of::<ThreadControlBlock>()) };
+        unsafe { write_bytes(tcb_ptr as *mut u8, 0, size_of::<Thread>()) };
 
         let fpu_ptr = allocate_bootstrap_extended_context(hal_boot_alloc);
         let kernel_proc = KERNEL_PROCESS.get().expect("[FATAL] Kernel process was not initialized before scheduler threads").clone();
@@ -278,7 +278,7 @@ impl SchedulerState {
         }
     }
 
-    pub fn push(&mut self, item: *mut ThreadControlBlock) {
+    pub fn push(&mut self, item: *mut Thread) {
         if item.is_null() {
             return;
         }
@@ -306,7 +306,7 @@ impl SchedulerState {
         self.active_priorities |= 1 << priority;
     }
 
-    pub fn pop(&mut self) -> *mut ThreadControlBlock {
+    pub fn pop(&mut self) -> *mut Thread {
         if self.active_priorities == 0 {
             return null_mut();
         }
@@ -335,7 +335,7 @@ impl SchedulerState {
         }
     }
 
-    pub fn get_current_thread(&self) -> *mut ThreadControlBlock { self.current_thread }
+    pub fn get_current_thread(&self) -> *mut Thread { self.current_thread }
 
     pub fn terminate_current_thread(&mut self, exit_code: u32) -> ! {
         disable_interrupts();
@@ -351,9 +351,9 @@ impl SchedulerState {
 
     pub fn terminate(&mut self, exit_code: u32) -> ! { self.terminate_current_thread(exit_code); }
 
-    pub(crate) fn pop_lowest_priority_migratable(&mut self) -> *mut ThreadControlBlock {
+    pub(crate) fn pop_lowest_priority_migratable(&mut self) -> *mut Thread {
         for priority in (0..32).rev() {
-            let mut previous: *mut ThreadControlBlock = null_mut();
+            let mut previous: *mut Thread = null_mut();
             let mut current = self.ready_queue_heads[priority];
 
             while !current.is_null() {
@@ -447,14 +447,14 @@ impl SchedulerState {
     }
 }
 
-fn thread_should_exit(thread: *mut ThreadControlBlock) -> bool {
+fn thread_should_exit(thread: *mut Thread) -> bool {
     if thread.is_null() {
         return false;
     }
     unsafe { (*thread).cancel_requested() || (*thread).process.is_terminating() }
 }
 
-fn retire_queued_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool {
+fn retire_queued_thread(thread: *mut Thread, exit_code: u32) -> bool {
     if thread.is_null() {
         return false;
     }
@@ -476,7 +476,7 @@ fn retire_queued_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool
     }
 }
 
-fn retire_current_thread(thread: *mut ThreadControlBlock, exit_code: u32) -> bool {
+fn retire_current_thread(thread: *mut Thread, exit_code: u32) -> bool {
     if thread.is_null() {
         return false;
     }
