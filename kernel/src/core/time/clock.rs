@@ -6,9 +6,10 @@ use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
+use hal::timer::{arm_local_timer_oneshot, stop_local_timer};
+use vespertine_common::datetime::datetime_to_epoch;
 
-use crate::arch::{arm_local_timer_oneshot, get_rtc_unix_timestamp, stop_local_timer};
-use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::arch::x86_64::timer::read_rtc;
 use crate::core::cpu::current_core_mut;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::block::ThreadWakeRegistration;
@@ -35,6 +36,8 @@ use crate::util::write_to_msr;
 
 static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
 static BOOT_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
+
+pub fn get_rtc_unix_timestamp() -> i64 { datetime_to_epoch(read_rtc()) }
 
 pub fn init_realtime() {
     BOOT_RTC_TIMESTAMP.get_or_init(|| get_rtc_unix_timestamp());

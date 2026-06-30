@@ -5,11 +5,9 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::{get_core_data, send_tlb_shootdown_ipi};
-use crate::arch::x86_64::apic::lapic::ApicDriver;
+use hal::ipi::send_tlb_shootdown_ipi;
 use crate::core::cpu::{
-    NUM_CORES,
-    get_core_data_for,
+    NUM_CORES, current_core_id, current_core_mut
 };
 use hal::mmu::flush_tlb;
 
@@ -56,7 +54,7 @@ pub fn service_pending_shootdown() {
         return;
     }
 
-    let core = get_core_data();
+    let core = current_core_mut();
     let seen = core.shootdown_generation.load(Ordering::Acquire);
     if seen == generation {
         return;
@@ -71,7 +69,7 @@ pub fn service_pending_shootdown() {
 
 #[allow(unused)]
 pub fn shootdown(addr: usize, size: usize) {
-    let this_core_id = get_core_data().logical_id;
+    let this_core_id = current_core_id();
     let _lock = SHOOTDOWN_LOCK.lock();
 
     SHOOTDOWN_INFO.addr.store(addr, Ordering::Release);
@@ -87,7 +85,7 @@ pub fn shootdown(addr: usize, size: usize) {
     }
 
     flush_tlb(addr as u64);
-    get_core_data().shootdown_generation.store(generation, Ordering::Release);
+    current_core_mut().shootdown_generation.store(generation, Ordering::Release);
 
     while SHOOTDOWN_INFO.counter.load(Ordering::Acquire) != 0 {
         service_pending_shootdown();

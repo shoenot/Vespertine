@@ -6,9 +6,8 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::send_reschedule_ipi;
-use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::task::context::init_thread_stack;
+use hal::ipi::send_reschedule_ipi;
+use hal::context::init_thread_stack;
 use crate::core::cpu::{
     NUM_CORES, current_core_id, current_core_mut, get_core_data_for, try_get_core_data_for
 };

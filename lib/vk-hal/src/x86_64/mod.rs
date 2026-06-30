@@ -7,3 +7,7 @@ pub mod usercopy;
 pub mod registers;
 pub mod mmu;
 pub mod tlb;
+pub mod apic;
+pub mod task;
+pub mod fpu;
+mod lock;

@@ -26,3 +26,6 @@ codegen-units = 1
 panic = "abort"     
 strip = false        
 debug = true
+
+[workspace.lints.rust]
+dead_code = "allow"

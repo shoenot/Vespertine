@@ -13,7 +13,7 @@ use vespertine_abi::{
 };
 
 use crate::arch::x86_64::IO_APIC;
-use crate::arch::x86_64::io::{
+use hal::io::{
     inb,
     outb,
 };

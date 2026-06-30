@@ -10,3 +10,6 @@ bench = false
 [dependencies]
 vespertine-abi = { path = "../vespertine-abi/" }
 vespertine-common = { path = "../vespertine-common/" }
+
+[lints]
+workspace = true

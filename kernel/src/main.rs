@@ -15,9 +15,11 @@ mod tests;
 mod util;
 
 use alloc::sync::Arc;
+use hal::fpu::init_fpu;
 
 use ::core::sync::atomic::Ordering;
-use crate::core::cpu::{KernelCoreData, current_core_mut};
+use crate::arch::x86_64::{init_global_apics, init_interrupts};
+use crate::core::cpu::{KernelCoreData, current_core_mut, hal_boot_alloc, init_bootstrap_core};
 use crate::core::time::callout::init_timer_daemon;
 use boot::smp::BSP_CR3;
 pub use boot::*;
@@ -31,9 +33,6 @@ use memory::{
 use vespertine_abi::HandleID;
 pub use vespertine_common::define_bitflags;
 
-use crate::arch::x86_64::cpu::core::{
-    CPULocalData,
-};
 use crate::core::cpu::init_smp;
 use crate::core::object::handle::{
     AccessRights,
@@ -94,14 +93,14 @@ pub extern "C" fn kmain() -> ! {
     let bootstrap_page = GLOBAL_PMM.lock().alloc(BlockSize::Huge).unwrap() as usize;
     BOOTSTRAP_ALLOC.lock().init(bootstrap_page);
 
-    arch::init();
-    arch::init_bootstrap_core();
+    init_interrupts();
+    init_bootstrap_core();
 
     klogln!("[INFO] GS Base initialized. Starting FPU...");
-    arch::init_fpu(true);
+    init_fpu(true, hal_boot_alloc);
 
     klogln!("[INFO] FPU initialized. Starting Global APICs...");
-    arch::init_global_apics();
+    init_global_apics();
 
     init_kernel_process();
 

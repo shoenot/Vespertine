@@ -11,14 +11,12 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::cpu::halt_loop;
+use hal::cpu::{halt_loop, set_kernel_stack};
 use hal::interrupts::disable_interrupts;
+use hal::ipi::send_reschedule_ipi;
 
-use crate::arch::{send_reschedule_ipi, set_kernel_stack};
-use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::cpu::fpu::*;
 use crate::core::cpu::{
-    NO_STEAL_REQUEST, NUM_CORES, current_core_mut, get_core_data_for
+    NO_STEAL_REQUEST, NUM_CORES, current_core_mut, get_core_data_for, hal_boot_alloc
 };
 use crate::core::sync::TicketLock;
 use crate::core::thread::idle::*;
@@ -26,13 +24,14 @@ use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::{
     ThreadControlBlock,
     ThreadState,
-    switch_threads_avx,
-    switch_threads_legacy,
 };
 use crate::core::time::{
     get_time,
     ns_to_ticks,
     update_hardware_timer,
+};
+use hal::context::{
+    allocate_bootstrap_extended_context, switch_from_bootstrap, switch_threads
 };
 use hal::mmu::load_cr3;
 use crate::util::write_to_msr;
@@ -140,7 +139,7 @@ impl SchedulerState {
 
         unsafe { write_bytes(tcb_ptr as *mut u8, 0, size_of::<ThreadControlBlock>()) };
 
-        let fpu_ptr = crate::arch::x86_64::task::context::allocate_fpu_context_bootstrap();
+        let fpu_ptr = allocate_bootstrap_extended_context(hal_boot_alloc);
         let kernel_proc = KERNEL_PROCESS.get().expect("[FATAL] Kernel process was not initialized before scheduler threads").clone();
 
         unsafe {
@@ -236,7 +235,7 @@ impl SchedulerState {
         self.current_thread = next_thread;
 
         let next_stack_top = unsafe { (*next_thread).stack_base + (*next_thread).stack_size };
-        set_kernel_stack(next_stack_top);
+        unsafe { set_kernel_stack(next_stack_top); }
         update_hardware_timer();
 
         if prev_retired {
@@ -262,45 +261,20 @@ impl SchedulerState {
 
         if !prev_thread.is_null() {
             unsafe {
-                if USE_XSAVE.load(Ordering::Relaxed) {
-                    switch_threads_avx(
-                        &mut (*prev_thread).stack_ptr as *mut usize,
-                        (*next_thread).stack_ptr,
-                        (*prev_thread).extended_context,
-                        (*next_thread).extended_context,
-                    );
-                } else {
-                    switch_threads_legacy(
-                        &mut (*prev_thread).stack_ptr as *mut usize,
-                        (*next_thread).stack_ptr,
-                        (*prev_thread).extended_context,
-                        (*next_thread).extended_context,
-                    );
-                }
+                switch_threads(
+                    &mut (*prev_thread).stack_ptr as *mut usize,
+                    (*next_thread).stack_ptr,
+                    (*prev_thread).extended_context,
+                    (*next_thread).extended_context,
+                );
             }
         } else {
-            let mut dummy_stack_ptr = 0usize;
-            if USE_XSAVE.load(Ordering::Relaxed) {
-                let dummy_fpu_ptr = gen_avx_dummy_fpu().ok().unwrap();
-                unsafe {
-                    switch_threads_avx(
-                        &mut dummy_stack_ptr as *mut usize,
-                        (*next_thread).stack_ptr,
-                        dummy_fpu_ptr,
-                        (*next_thread).extended_context,
-                    );
-                }
-            } else {
-                let mut dummy_fpu = LegacyXtCxt::new();
-                unsafe {
-                    let dummy_fpu_ptr = &mut dummy_fpu as *mut LegacyXtCxt as *mut u8;
-                    switch_threads_legacy(
-                        &mut dummy_stack_ptr as *mut usize,
-                        (*next_thread).stack_ptr,
-                        dummy_fpu_ptr,
-                        (*next_thread).extended_context,
-                    );
-                }
+            unsafe {
+                switch_from_bootstrap(
+                    (*next_thread).stack_ptr,
+                    (*next_thread).extended_context,
+                )
+                .expect("failed to switch from bootstrap context");
             }
         }
     }

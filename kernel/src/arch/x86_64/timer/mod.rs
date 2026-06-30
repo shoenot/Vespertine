@@ -4,11 +4,11 @@ pub(crate) mod hpet;
 mod realtime;
 pub(crate) mod tsc;
 
+use hal::arch::apic::lapic::{LocalApicDriver, current_local_apic};
 use hal::cpu::cpuid::*;
+use hal::timer::{TimerMode, setup_local_timer, stop_local_timer};
 pub use realtime::read_rtc;
 
-use crate::arch::x86_64::apic::lapic::*;
-use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::timer::hpet::read_hpet_direct;
 use crate::arch::x86_64::timer::tsc::read_tsc_direct;
 use crate::core::acpi::hpet::get_hpet_base_addr;
@@ -52,8 +52,6 @@ pub fn init() {
         }
     }
 
-    let core_data = get_core_data();
-
     if need_calibration {
         let tsc = tsc::TSC { frequency: 0 };
 
@@ -66,8 +64,8 @@ pub fn init() {
             0
         };
 
-        core_data.apic_mode.timer_setup(35, 0x0FFF_FFFF, TimerMode::OneShot);
-        let start_lapic = core_data.apic_mode.current_count();
+        setup_local_timer(35, 0x0FFF_FFFF, TimerMode::OneShot);
+        let start_lapic = current_local_apic().current_count();
 
         if let Some(hpet) = &hpet_opt {
             let target = hpet.frequency / 100;
@@ -77,7 +75,7 @@ pub fn init() {
             }
         }
 
-        let end_lapic = core_data.apic_mode.current_count();
+        let end_lapic = current_local_apic().current_count();
         let end_tsc = if use_tsc && tsc_fq == 0 {
             unsafe {
                 core::arch::asm!("lfence");
@@ -102,7 +100,7 @@ pub fn init() {
         }
     }
 
-    core_data.apic_mode.stop_timer();
+    stop_local_timer();
 
     if lapic_fq == 0 {
         panic!("FATAL: Failed to obtain LAPIC frequency.");
@@ -126,17 +124,9 @@ pub fn init() {
 
     if has_tsc_deadline() {
         USE_TSC_DEADLINE.store(true, Ordering::Relaxed);
-        core_data.apic_mode.timer_setup(35, 0, TimerMode::TscDeadline);
+        setup_local_timer(35, 0, TimerMode::TscDeadline);
     } else {
         USE_TSC_DEADLINE.store(false, Ordering::Relaxed);
-        core_data.apic_mode.timer_setup(35, 0, TimerMode::OneShot);
+        setup_local_timer(35, 0, TimerMode::OneShot);
     }
-}
-
-pub fn arm_local_timer_oneshot(ticks: u32) {
-    get_core_data().apic_mode.arm_oneshot(ticks);
-}
-
-pub fn stop_local_timer() {
-    get_core_data().apic_mode.stop_timer();
 }

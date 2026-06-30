@@ -31,3 +31,13 @@ impl fmt::Display for ThreadError {
 impl From<LayoutError> for ThreadError {
     fn from(value: LayoutError) -> Self { ThreadError::SpawnAllocationError(value) }
 }
+
+impl From<hal::context::ContextError> for ThreadError {
+    fn from(error: hal::context::ContextError) -> Self {
+        match error {
+            hal::context::ContextError::Layout(layout) => Self::SpawnAllocationError(layout),
+            hal::context::ContextError::AllocationFailed => Self::AllocationFailed,
+            hal::context::ContextError::ExtendedContext => Self::AllocationFailed,
+        }
+    }
+}

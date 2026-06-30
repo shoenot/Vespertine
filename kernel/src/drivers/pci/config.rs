@@ -1,4 +1,6 @@
-use crate::arch::x86_64::io::{
+use hal::interrupts::msi_message_fields_for_target;
+
+use hal::io::{
     inl,
     outl,
 };
@@ -117,7 +119,7 @@ pub fn pci_setup_msix_entry(bus: u8, slot: u8, func: u8, vector: u8, target_core
     let table_virt = table_phys + *HHDMOFFSET as u64;
 
     let entry_ptr = (table_virt + (entry_idx * 16) as u64) as *mut u32;
-    let (msg_addr_low, msg_addr_high, msg_data) = crate::arch::msi_message_fields_for_target(target_core, vector);
+    let (msg_addr_low, msg_addr_high, msg_data) = msi_message_fields_for_target(target_core, vector);
 
     unsafe {
         write_volatile(entry_ptr, msg_addr_low);

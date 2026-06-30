@@ -13,3 +13,6 @@ vrt = { package = "vespertine-rt", path = "../../lib/vespertine-rt" }
 vabi = { package = "vespertine-abi", path = "../../lib/vespertine-abi" }
 vstd = { package = "vespertine-std", path = "../../lib/vespertine-std" }
 vapp = { package = "vespertine-app", path = "../../lib/vespertine-app" }
+
+[lints]
+workspace = true

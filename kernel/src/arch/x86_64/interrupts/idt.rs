@@ -1,6 +1,7 @@
 use core::arch::asm;
 
-use crate::arch::x86_64::apic::lapic::send_eoi;
+use hal::interrupts::send_eoi;
+
 use crate::arch::x86_64::interrupts::handle;
 use crate::core::sync::KernelOnceCell;
 use crate::klogln;

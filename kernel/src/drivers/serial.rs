@@ -2,7 +2,7 @@
 
 use core::hint::spin_loop;
 
-use crate::arch::x86_64::io::{
+use hal::io::{
     inb,
     outb,
 };

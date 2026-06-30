@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
+use hal::context::SyscallFrame;
 use core::fmt::Display;
 use core::mem::zeroed;
 
@@ -16,8 +17,6 @@ use hal::usercopy::{
 use vespertine_abi::Invocation;
 
 use crate::core::cpu::current_core_mut;
-use crate::arch::get_core_data;
-use crate::arch::x86_64::task::context::SyscallFrame;
 use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::InvocationError;
@@ -202,7 +201,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 terminate_thread!((*frame).rdi as u32);
             }
             3 => {
-                get_core_data().scheduler.schedule(ScheduleReason::Yield);
+                current_core_mut().scheduler.schedule(ScheduleReason::Yield);
                 Ok(0)
             }
             4 => {
@@ -218,7 +217,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                         let int_state = interrupts_enabled();
                         disable_interrupts();
 
-                        let sched = &mut get_core_data().scheduler;
+                        let sched = &mut current_core_mut().scheduler;
                         let mut futexes = proc.futexes.write();
 
                         let mut current_val = 0u32;

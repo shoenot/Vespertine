@@ -156,15 +156,5 @@ pub fn get_current_process<'a>() -> Option<&'a Process> {
     if thread.is_null() { KERNEL_PROCESS.get() } else { unsafe { Some(&(*thread).process) } }
 }
 
-unsafe extern "sysv64" {
-    pub fn switch_threads_avx(
-        old_stack_ptr: *mut usize, new_stack_ptr: usize, old_extended_context: *mut u8, new_extended_context: *const u8,
-    );
-
-    pub fn switch_threads_legacy(
-        old_stack_ptr: *mut usize, new_stack_ptr: usize, old_extended_context: *mut u8, new_extended_context: *const u8,
-    );
-}
-
 unsafe impl Send for ThreadControlBlock {}
 unsafe impl Sync for ThreadControlBlock {}

@@ -3,8 +3,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::send_reschedule_ipi;
-use crate::arch::x86_64::apic::lapic::ApicDriver;
+use hal::ipi::send_reschedule_ipi;
 use crate::core::sync::{
     Mutex,
     Semaphore,

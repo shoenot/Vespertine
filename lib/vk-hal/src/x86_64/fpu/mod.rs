@@ -1,5 +1,9 @@
+extern crate alloc;
 use alloc::alloc::alloc;
-use core::alloc::Layout;
+use core::alloc::{
+    Layout,
+    LayoutError,
+};
 use core::arch::asm;
 use core::ptr::{
     copy_nonoverlapping,
@@ -13,14 +17,25 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use hal::cpu::cpuid::{
+use crate::cpu::BootAllocFn;
+use crate::x86_64::cpu::cpuid::{
     check_xsave_support,
     get_xsave_details,
 };
 
-use crate::BOOTSTRAP_ALLOC;
-use crate::core::sync::TicketLock;
-use crate::core::thread::ThreadError;
+use crate::x86_64::lock::TicketLock;
+
+#[derive(Debug)]
+pub enum FpuError {
+    Layout(LayoutError),
+    AllocationFailed
+}
+
+impl From<LayoutError> for FpuError {
+    fn from(value: LayoutError) -> Self {
+        Self::Layout(value)
+    }
+}
 
 pub(crate) static CLEAN_FPU_CXT: AtomicPtr<u8> = AtomicPtr::new(null_mut() as *mut u8);
 pub(crate) static CLEAN_LEGACY_FPU_CXT: TicketLock<Option<LegacyXtCxt>> = TicketLock::new(None);
@@ -43,7 +58,7 @@ pub(crate) struct LegacyXtCxt {
 }
 
 impl LegacyXtCxt {
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             fcw: 0,
             fsw: 0,
@@ -82,7 +97,7 @@ unsafe extern "sysv64" {
     pub fn init_cr4();
 }
 
-fn init_default_fpu_avx_cxt() -> Option<()> {
+fn init_default_fpu_avx_cxt(alloc: BootAllocFn) -> Option<()> {
     if check_xsave_support() {
         let (eax, ..) = get_xsave_details();
         if (eax & (0x7)) == 0x7 {
@@ -91,7 +106,7 @@ fn init_default_fpu_avx_cxt() -> Option<()> {
                 init_xsave();
                 let (_, ebx, _) = get_xsave_details();
                 FPU_CXT_SIZE.store(ebx, Ordering::Relaxed);
-                let clean_fpu_cxt = BOOTSTRAP_ALLOC.lock().alloc(ebx, 64) as *mut u8;
+                let clean_fpu_cxt = alloc(ebx, 64) as *mut u8;
 
                 write_bytes(clean_fpu_cxt, 0, ebx);
 
@@ -113,21 +128,40 @@ fn init_default_fpu_legacy_cxt() {
     *cln = Some(clean_state);
 }
 
-pub(crate) fn init_default_fpu_cxt() {
-    if let Some(_) = init_default_fpu_avx_cxt() {
+pub fn init_default_fpu_cxt(alloc: BootAllocFn) {
+    if let Some(_) = init_default_fpu_avx_cxt(alloc) {
         return;
     } else {
         init_default_fpu_legacy_cxt();
     }
 }
 
-pub(crate) fn gen_avx_dummy_fpu() -> Result<*mut u8, ThreadError> {
+pub(crate) fn gen_avx_dummy_fpu() -> Result<*mut u8, FpuError> {
     unsafe {
         let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
         let fpu_layout = Layout::from_size_align(size, 64)?;
         let fpu_ptr = alloc(fpu_layout) as *mut u8;
+        if fpu_ptr.is_null() { return Err(FpuError::AllocationFailed); }
         let def = CLEAN_FPU_CXT.load(Ordering::Relaxed);
         copy_nonoverlapping(def, fpu_ptr, size);
         Ok(fpu_ptr)
     }
 }
+
+pub(crate) fn use_xsave() -> bool {
+    USE_XSAVE.load(Ordering::Relaxed)
+}
+
+pub fn init_fpu(bsp: bool, alloc: BootAllocFn) {
+    unsafe {
+        init_cr4();
+    }
+    if bsp {
+        init_default_fpu_cxt(alloc);
+    } else if check_xsave_support() {
+        unsafe {
+            init_xsave();
+        }
+    }
+}
+

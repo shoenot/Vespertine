@@ -14,3 +14,6 @@ vabi = { package = "vespertine-abi", path = "../../lib/vespertine-abi" }
 vstd = { package = "vespertine-std", path = "../../lib/vespertine-std" }
 vapp = { package = "vespertine-app", path = "../../lib/vespertine-app" }
 vconfig = { package = "vespertine-config", path = "../../lib/vespertine-config" }
+
+[lints]
+workspace = true

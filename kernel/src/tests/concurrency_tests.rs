@@ -11,8 +11,7 @@ use hal::interrupts::{
     interrupts_enabled,
 };
 
-use crate::arch::send_reschedule_ipi;
-use crate::arch::x86_64::apic::lapic::ApicDriver;
+use hal::ipi::send_reschedule_ipi;
 use crate::core::cpu::{
     NO_STEAL_REQUEST, NUM_CORES, current_core_id, current_core_mut, get_core_data_for
 };

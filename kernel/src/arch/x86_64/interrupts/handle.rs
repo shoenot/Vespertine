@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use hal::io;
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
@@ -13,12 +14,11 @@ use vespertine_abi::{
     PROC_FAULT_PAGE,
 };
 
-use crate::arch::x86_64::apic::lapic::ApicDriver;
-use crate::arch::x86_64::cpu::core::get_core_data;
+use hal::timer::arm_local_timer_oneshot;
 use crate::arch::x86_64::interrupts::extable::fixup_exception;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::arch::x86_64::interrupts::shootdown::service_pending_shootdown;
-use crate::arch::x86_64::io;
+use crate::core::cpu::current_core_mut;
 use crate::core::object::models::process::ProcTermination;
 use crate::core::sync::TicketLock;
 use crate::core::thread::dispatch::wake_thread;
@@ -39,10 +39,10 @@ fn terminate_user_fault(frame: &InterruptStackFrame, code: u32, detail: usize) -
     } else {
         panic!("user fault without current process: {:#?}", frame);
     }
-    get_core_data().scheduler.terminate_current_thread(code)
+    current_core_mut().scheduler.terminate_current_thread(code)
 }
 
-pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
+pub fn page_fault_handler(frame: &mut InterruptStackFrame) {
     let cr2: u64;
     unsafe {
         asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
@@ -101,7 +101,7 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
     }
 }
 
-pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &mut InterruptStackFrame) {
+pub fn gpf_handler(frame: &mut InterruptStackFrame) {
     if frame_from_user(frame) {
         klogln!(
             "terminating process after user general protection fault: rip: {:#018X} error: {:#018X}",
@@ -115,7 +115,7 @@ pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &mut InterruptStac
     halt_loop();
 }
 
-pub(in crate::arch::x86_64::interrupts) fn invalid_opcode_handler(frame: &mut InterruptStackFrame) {
+pub fn invalid_opcode_handler(frame: &mut InterruptStackFrame) {
     if frame_from_user(frame) {
         klogln!("terminating process after user invalid opcode: rip: {:#018X}", frame.instruction_pointer);
 
@@ -125,15 +125,15 @@ pub(in crate::arch::x86_64::interrupts) fn invalid_opcode_handler(frame: &mut In
     panic!("INVALID OPCODE (#UD): {:#?}", frame);
 }
 
-pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &mut InterruptStackFrame) {
+pub fn unexpected_interrupt_handler(frame: &mut InterruptStackFrame) {
     klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
 }
 
-pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
-    let core_data = get_core_data();
+pub fn timer_interrupt_handler() {
+    let core_data = current_core_mut();
 
     if core_data.scheduler.idle_thread.is_null() {
-        core_data.apic_mode.arm_oneshot(100_000);
+        arm_local_timer_oneshot(100_000);
         return;
     }
     let td_tcb_ptr = core_data.timer_daemon_tcb;
@@ -154,9 +154,9 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     core_data.scheduler.schedule(reason);
 }
 
-pub(in crate::arch::x86_64::interrupts) fn ipi_handler() { get_core_data().scheduler.schedule(ScheduleReason::RescheduleIpi); }
+pub fn ipi_handler() { current_core_mut().scheduler.schedule(ScheduleReason::RescheduleIpi); }
 
-pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
+pub fn keyboard_irq_handler() {
     for _ in 0..256 {
         if unsafe { (io::inb(0x64) & 0x1) == 0 } {
             break;
@@ -165,4 +165,4 @@ pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     }
 }
 
-pub(in crate::arch::x86_64::interrupts) fn shootdown_handler() { service_pending_shootdown(); }
+pub fn shootdown_handler() { service_pending_shootdown(); }

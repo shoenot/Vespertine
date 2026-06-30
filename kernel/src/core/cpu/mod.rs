@@ -1,5 +1,6 @@
 use alloc::collections::binary_heap::BinaryHeap;
 use alloc::vec::Vec;
+use hal::cpu::{activate_core, current_kernel_core, init_bootstrap_cpu_local};
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
@@ -10,11 +11,7 @@ use core::sync::atomic::{
 
 use limine::mp::MpGotoFunction;
 
-use crate::arch::x86_64::cpu::core::{
-    CPULocalData,
-    get_core_data,
-    init_core_data,
-};
+use hal::cpu::init_cpu_local_with_hardware_id;
 use crate::boot::MP_REQUEST;
 use crate::boot::smp::ap_entry;
 use crate::core::sync::{
@@ -26,6 +23,7 @@ use crate::core::thread::schedule::SchedulerState;
 use crate::core::thread::workqueue::WorkQueue;
 use crate::core::time::callout::Callout;
 use crate::klogln;
+use crate::memory::BOOTSTRAP_ALLOC;
 use crate::memory::magazine::Magazine;
 
 pub const NO_STEAL_REQUEST: usize = usize::MAX;
@@ -61,6 +59,10 @@ impl KernelCoreData {
     }
 }
 
+pub fn hal_boot_alloc(size: usize, align: usize) -> usize {
+    BOOTSTRAP_ALLOC.lock().alloc(size, align) as usize
+}
+
 pub const MAX_CORES: usize = 256;
 pub static NUM_CORES: KernelOnceCell<usize> = KernelOnceCell::new();
 
@@ -71,12 +73,19 @@ pub fn register_core_data(logical_id: usize, data_ptr: *mut KernelCoreData) {
     GLOBAL_CPU_DATA[logical_id].store(data_ptr, Ordering::Release);
 }
 
+pub fn allocate_kernel_core_data(logical_id: usize) -> *mut KernelCoreData {
+    unsafe {
+        let data_addr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<KernelCoreData>(), align_of::<KernelCoreData>());
+        let data_ptr = data_addr as *mut KernelCoreData;
+        core::ptr::write(data_ptr, KernelCoreData::new(logical_id));
+        data_ptr
+    }
+}
+
 pub fn init_smp() {
     let mp_resp = MP_REQUEST.response().expect("[FATAL] No SMP Response from limine");
     let bsp_id = mp_resp.bsp_lapic_id;
-    let bsp = crate::arch::get_core_data();
-    crate::arch::x86_64::cpu::core::register_arch_core_data(0, bsp);
-    register_core_data(0, &mut bsp.kernel_data as *mut KernelCoreData);
+    register_core_data(0, current_kernel_core() as *mut KernelCoreData);
 
     let mut logical_id = 1;
     for core in mp_resp.cpus() {
@@ -84,12 +93,9 @@ pub fn init_smp() {
             continue;
         }
 
-        let ap_data_ptr = init_core_data(core.lapic_id as usize, logical_id, get_core_data().apic_mode.clone());
-        crate::arch::x86_64::cpu::core::register_arch_core_data(logical_id, ap_data_ptr);
-
-        unsafe {
-            register_core_data(logical_id, &mut (*ap_data_ptr).kernel_data as *mut KernelCoreData);
-        }
+        let kernel_data = allocate_kernel_core_data(logical_id);
+        let ap_data_ptr = init_cpu_local_with_hardware_id(core.lapic_id as usize, logical_id, kernel_data as *mut (), hal_boot_alloc);
+        register_core_data(logical_id, kernel_data);
 
         let ap_data_addr = ap_data_ptr as u64;
         let ap_entry_ptr = ap_entry as MpGotoFunction;
@@ -133,17 +139,24 @@ pub fn get_active_cores() -> Vec<usize> {
 }
 
 pub fn current_core() -> &'static KernelCoreData {
-    let ptr = crate::arch::current_kernel_core_data();
+    let ptr = hal::cpu::current_kernel_core() as *mut KernelCoreData;
     assert!(!ptr.is_null(), "Current core data was not initialized");
     unsafe { &*ptr }
 }
 
 pub fn current_core_mut() -> &'static mut KernelCoreData {
-    let ptr = crate::arch::current_kernel_core_data();
+    let ptr = hal::cpu::current_kernel_core() as *mut KernelCoreData;
     assert!(!ptr.is_null(), "Current core data was not initialized");
     unsafe { &mut *ptr }
 }
 
 pub fn current_core_id() -> usize {
     current_core().logical_id
+}
+
+pub fn init_bootstrap_core() {
+    hal::x86_64::apic::lapic::init_apic_direct_map(*crate::memory::HHDMOFFSET);
+    let kernel_data = allocate_kernel_core_data(0);
+    let data_ptr = init_bootstrap_cpu_local(0, kernel_data as *mut (), hal_boot_alloc);
+    activate_core(data_ptr);
 }

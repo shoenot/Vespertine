@@ -1,14 +1,11 @@
 pub mod apic;
-pub mod cpu;
-pub mod cpuid;
 pub mod interrupts;
-pub mod io;
 pub mod task;
 pub mod timer;
 
 
 use apic::ioapic::*;
-use apic::lapic::get_apic_base;
+use hal::arch::apic::lapic::get_apic_base;
 
 use crate::arch::x86_64::interrupts::{
     arch_free_vector,

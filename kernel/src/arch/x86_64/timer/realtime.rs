@@ -5,8 +5,8 @@ use hal::interrupts::{
     enable_interrupts,
     interrupts_enabled,
 };
+use hal::io::read_cmos;
 
-use super::super::io::*;
 use crate::core::acpi::fadt::get_century_register;
 use crate::core::time::datetime::DateTime;
 
