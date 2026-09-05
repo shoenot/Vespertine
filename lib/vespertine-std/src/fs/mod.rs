@@ -1,6 +1,7 @@
 mod dir;
 mod file;
 
+use super::prelude::alloc::format;
 pub use dir::*;
 pub use file::*;
 use vespertine_abi::{
@@ -25,7 +26,13 @@ pub fn resolve(path: &Path<'_>, rights: AccessRights) -> Result<HandleID, Error>
 pub fn resolve_from(path: &Path<'_>, root: HandleID, cwd: HandleID, rights: AccessRights) -> Result<HandleID, Error> {
     path.validate().map_err(Error::from)?;
     let op = DirectoryOp::Resolve { start: cwd, path_ptr: path.as_str().as_ptr() as usize, path_len: path.as_str().len(), rights };
-    sys_invoke(root, &Invocation::Directory(op)).map(HandleID).map_err(Error::from)
+    sys_invoke(root, &Invocation::Directory(op)).map(HandleID).map_err(|e| {
+        let mut err = Error::from(e);
+        if err.message.is_empty() {
+            err.message = format!("failed to resolve '{}'", path.as_str());
+        }
+        err
+    })
 }
 
 pub fn stat(path: &Path<'_>) -> Result<FileStat, Error> {

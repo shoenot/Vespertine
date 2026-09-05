@@ -147,7 +147,12 @@ impl Exec {
     pub fn from_handle(exec_handle: HandleID, argv0: String) -> Self { Self::build(exec_handle, false, argv0) }
 
     pub fn open(path: &Path<'_>, argv0: String) -> Result<Self, Error> {
-        let exec_handle = resolve(path, AccessRights::READ | AccessRights::EXECUTE)?;
+        let exec_handle = resolve(path, AccessRights::READ | AccessRights::EXECUTE).map_err(|mut e| {
+            if e.message.is_empty() {
+                e.message = format!("failed to open executable '{}'", path.as_str());
+            }
+            e
+        })?;
         Ok(Self::build(exec_handle, true, argv0))
     }
 
