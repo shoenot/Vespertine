@@ -6,33 +6,47 @@ members = [
 
     "lib/vespertine-abi",
     "lib/vespertine-common",
-    "lib/vespertine-rt", 
-    "lib/vespertine-std", 
 
-	"lib/vespertine-app",
-    "lib/vespertine-cli",
-	"lib/vespertine-config",
+    "userland/base/rt", 
+    "userland/base/std", 
 
-	"userland/auth",
-    "userland/hesper", 
-    "userland/vlog",
-	"userland/vreg",
+	"userland/libraries/app",
+    "userland/libraries/cli",
+	"userland/libraries/config",
 
-	"userland/details",
-    "userland/dt", 
-    "userland/dusk", 
-    "userland/ns", 
-	"userland/nyx",
-	"userland/select",
-	"userland/stream",
-	"userland/sys",
-    "userland/terminal",
-	"userland/table",
+	"userland/system/auth",
+    "userland/system/hesper", 
+    "userland/system/vlog",
+	"userland/system/vreg",
+
+	"userland/programs/details",
+    "userland/programs/dt", 
+    "userland/programs/dusk", 
+    "userland/programs/ns", 
+	"userland/programs/nyx",
+	"userland/programs/select",
+	"userland/programs/stream",
+	"userland/programs/sys",
+    "userland/programs/terminal",
+	"userland/programs/table",
 ]
-
 exclude = ["xtask"]
+resolver = "3"
 
-resolver = "2"
+[workspace.dependencies]
+hal     = { package = "vk-hal", path = "lib/vk-hal" }
+
+vespertine-abi    = { package = "vespertine-abi", path = "lib/vespertine-abi" }
+vespertine-common  = { package = "vespertine-common", path = "lib/vespertine-common" }
+
+# userland base
+vrt     = { package = "vespertine-rt", path = "userland/base/rt" }
+vstd    = { package = "vespertine-std", path = "userland/base/std" }
+
+# userland libs
+vapp    = { package = "vespertine-app", path = "userland/libraries/app" }
+vcli    = { package = "vespertine-cli", path = "userland/libraries/cli" }
+vconfig = { package = "vespertine-config", path = "userland/libraries/config" }
 
 [profile.dev]
 panic = "abort"

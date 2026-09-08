@@ -1,0 +1,16 @@
+[package]
+name = "auth"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "auth"
+test = false
+bench = false
+
+[dependencies]
+vrt = { workspace = true }
+vespertine-abi = { workspace = true }
+vstd = { workspace = true }
+vapp = { workspace = true }
+vconfig = { workspace = true }

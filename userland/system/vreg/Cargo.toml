@@ -1,0 +1,17 @@
+[package]
+name = "vreg"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "vreg"
+test = false
+bench = false
+
+[dependencies]
+vespertine-common = { workspace = true }
+vrt = { workspace = true }
+vespertine-abi = { workspace = true }
+vstd = { workspace = true }
+vapp = { workspace = true }
+vconfig = { workspace = true }

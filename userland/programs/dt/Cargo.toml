@@ -1,0 +1,18 @@
+[package]
+name = "dt"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "dt"
+test = false
+bench = false
+
+[dependencies]
+vrt = { workspace = true }
+vespertine-abi = { workspace = true }
+vstd = { workspace = true }
+vapp = { workspace = true }
+vcli = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }
+chrono-tz = { version = "0.10", default-features = false, features = ["case-insensitive"] }

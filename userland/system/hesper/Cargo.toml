@@ -1,0 +1,19 @@
+[package]
+name = "hesper"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "hesper"
+test = false
+bench = false
+
+[dependencies]
+vrt     = { workspace = true }
+vespertine-abi    = { workspace = true }
+vstd    = { workspace = true }
+vapp    = { workspace = true }
+vconfig = { workspace = true }
+
+[lints]
+workspace = true

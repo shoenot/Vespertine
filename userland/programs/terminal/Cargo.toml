@@ -1,0 +1,16 @@
+[package]
+name = "terminal"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "terminal"
+test = false
+bench = false
+
+[dependencies]
+vrt = { workspace = true }
+vespertine-abi = { workspace = true }
+vstd = { workspace = true }
+vapp = { workspace = true }
+vte = { version = "0.15.0", default-features = false }

@@ -1,19 +1,15 @@
 [package]
-name = "kernel"
+name = "vespertine-rt"
 version = "0.1.0"
 edition = "2024"
 
-[lints]
-workspace = true
-
-[[bin]]
-name = "kernel"
+[lib]
 test = false
 bench = false
 
 [dependencies]
-async-trait = "0.1.89"
-simple-psf = "0.1.2"
 vespertine-abi = { workspace = true }
 vespertine-common = { workspace = true }
-hal = { workspace = true }
+
+[lints]
+workspace = true
