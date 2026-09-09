@@ -29,6 +29,7 @@ members = [
 	"userland/programs/sys",
     "userland/programs/terminal",
 	"userland/programs/table",
+	"userland/programs/vtest",
 ]
 exclude = ["xtask"]
 resolver = "3"

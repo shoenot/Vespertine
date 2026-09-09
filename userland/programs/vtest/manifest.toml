@@ -1,0 +1,10 @@
+[application]
+name = "vtest"
+id = "core.vespertine.vtest"
+
+[entrypoints.main]
+binary = "vtest"
+input = "terminal"
+modes = ["terminal"]
+default = "terminal"
+

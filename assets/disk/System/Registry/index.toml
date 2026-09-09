@@ -9,6 +9,7 @@ applications = [
     "core.vespertine.stream",
     "core.vespertine.sys",
     "core.vespertine.table",
+    "core.vespertine.vtest",
     "os.vespertine.dusk",
     "os.vespertine.terminal",
     "ports.antirez.kilo",

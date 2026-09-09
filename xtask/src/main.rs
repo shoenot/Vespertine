@@ -27,6 +27,7 @@ const BUNDLE_APPS: &[&str] = &[
 	"sys",
 	"table",
 	"terminal",
+    "vtest",
 ];
 
 static ASM_FILES: &[(&str, &str)] = &[
@@ -256,7 +257,7 @@ fn build_userland(root: &Path, specific_package: Option<&str>) {
             let dst_bin = bin_dir.join(app);
             fs::copy(&src_bin, &dst_bin).unwrap();
 
-            let src_manifest = root.join("userland/app").join(app).join("manifest.toml");
+            let src_manifest = root.join("userland/programs").join(app).join("manifest.toml");
             if src_manifest.exists() {
                 let dst_manifest = bundle_dir.join("manifest.toml");
                 fs::copy(&src_manifest, &dst_manifest).unwrap();

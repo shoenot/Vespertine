@@ -1,0 +1,13 @@
+version = 1 
+
+[[application]]
+id = "core.vespertine.vtest"
+bundle = "/Programs/vtest.app"
+default-entrypoint = "main"
+
+[application.aliases]
+vtest = "main"
+
+[installation]
+installed-ts = 2026-09-09T17:08:07Z
+updated-ts = 2026-09-09T17:08:07Z

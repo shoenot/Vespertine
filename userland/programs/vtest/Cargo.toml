@@ -1,0 +1,16 @@
+[package]
+name = "vtest"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "vtest"
+test = false
+bench = false
+
+[dependencies]
+vespertine-abi = { workspace = true }
+vrt = { workspace = true }
+vstd = { workspace = true }
+vapp = { workspace = true }
+vcli = { workspace = true }
