@@ -472,6 +472,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vespertine-line"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-common",
+ "vespertine-std",
+]
+
+[[package]]
 name = "vespertine-rt"
 version = "0.1.0"
 dependencies = [

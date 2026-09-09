@@ -1,4 +1,6 @@
-mod scancodes;
+pub mod scancodes;
+mod keymaps;
+use core::num;
 use core::sync::atomic::{
     AtomicBool,
     AtomicUsize,
@@ -6,6 +8,7 @@ use core::sync::atomic::{
 };
 
 use scancodes::*;
+use vespertine_abi::key::{KeyCode, KeyEvent, KeyState, Modifiers};
 use vespertine_abi::op::FileOp;
 use vespertine_abi::{
     HandleID,
@@ -77,13 +80,16 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
     let mut shift_held = false;
     let mut ctrl_held = false;
     let mut alt_held = false;
+    let mut super_held = false;
     let mut caps_lock = false;
+    let mut num_lock = true;    // default on
+    let mut scroll_lock = false;
     let mut is_extended = false;
 
     loop {
         KBD_ITEMS_READY.wait();
-        let mut output = [0u8; KBD_BUFFER_SIZE * 2];
-        let mut output_len = 0;
+        let mut events = [KeyEvent::zeroed(); 64];
+        let mut event_count = 0;
 
         loop {
             let scancode = pop_scancode();
@@ -94,75 +100,45 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                 let is_release = (scancode & 0x80) != 0;
                 let key = (scancode & 0x7F) as usize;
 
-                match key {
-                    0x1D => ctrl_held = !is_release,
-                    0x38 => alt_held = !is_release,
-                    0x2A | 0x36 => shift_held = !is_release,
-                    0x3A if !is_release => caps_lock = !caps_lock,
-                    _ => {}
+                let code = scancode_to_keycode(key, is_extended);
+
+                match code {
+                    KeyCode::LeftShift | KeyCode::RightShift    => shift_held = !is_release,
+                    KeyCode::LeftCtrl | KeyCode::RightCtrl      => ctrl_held = !is_release,
+                    KeyCode::LeftAlt | KeyCode::RightAlt        => alt_held = !is_release,
+                    KeyCode::LeftSuper | KeyCode::RightSuper    => super_held = !is_release,
+                    KeyCode::CapsLock if !is_release            => caps_lock = !caps_lock,
+                    KeyCode::NumLock if !is_release             => num_lock = !num_lock,
+                    KeyCode::ScrollLock if !is_release          => scroll_lock = !scroll_lock,
+                    _ => {},
                 }
-                let mut handled_sequence = false;
-                if !is_release && !matches!(key, 0x1D | 0x2A | 0x36 | 0x38 | 0x3A) {
-                    if is_extended {
-                        let sequence: &[u8] = match key {
-                            0x48 => b"\x1b[A", // Up
-                            0x50 => b"\x1b[B", // Down
-                            0x4D => b"\x1b[C", // Right
-                            0x4B => b"\x1b[D", // Left
-                            _ => &[],
-                        };
 
-                        if !sequence.is_empty() {
-                            if output_len + sequence.len() <= output.len() {
-                                output[output_len..output_len + sequence.len()].copy_from_slice(sequence);
-                                output_len += sequence.len();
-                            }
-                            handled_sequence = true;
-                        }
-                    }
+                let state = if is_release {
+                    KeyState::Released
+                } else {
+                    KeyState::Pressed
+                };
 
-                    if !handled_sequence {
-                        let mut c = if shift_held {
-                            KBD_US_SHIFT[key]
-                        } else if is_extended {
-                            KBD_US_EXTENDED[key]
-                        } else {
-                            KBD_US_BASE[key]
-                        };
+                let mut mods = Modifiers::new();
+                if shift_held       { mods = mods.insert(Modifiers::SHIFT); }
+                if ctrl_held        { mods = mods.insert(Modifiers::CTRL); }
+                if alt_held         { mods = mods.insert(Modifiers::ALT); }
+                if super_held       { mods = mods.insert(Modifiers::SUPER); }
+                if caps_lock        { mods = mods.insert(Modifiers::CAPSL); }
+                if num_lock         { mods = mods.insert(Modifiers::NUML); }
+                if scroll_lock      { mods = mods.insert(Modifiers::SCRL); }
 
-                        if caps_lock && c.is_ascii_alphabetic() {
-                            c = if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() };
-                        }
+                let unicode = if !is_release {
+                    active_keymap().map_key(code, mods)
+                } else {
+                    '\0'
+                };
 
-                        if ctrl_held {
-                            c = match c {
-                                '@' | ' ' => '\x00',
-                                'a'..='z' => ((c as u8 - b'a') + 1) as char,
-                                'A'..='Z' => ((c as u8 - b'A') + 1) as char,
-                                '[' => '\x1b',
-                                '\\' => '\x1c',
-                                ']' => '\x1d',
-                                '^' => '\x1e',
-                                '_' => '\x1f',
-                                '?' => '\x7f',
-                                _ => c,
-                            };
-                        }
-
-                        if alt_held && output_len < output.len() {
-                            output[output_len] = 0x1b;
-                            output_len += 1;
-                        }
-
-                        if c != '\0' {
-                            let mut byte_buffer = [0u8; 4];
-                            let bytes = c.encode_utf8(&mut byte_buffer).as_bytes();
-                            if output_len + bytes.len() <= output.len() {
-                                output[output_len..output_len + bytes.len()].copy_from_slice(bytes);
-                                output_len += bytes.len();
-                            }
-                        }
-                    }
+                if code != KeyCode::Unknown && event_count < events.len() {
+                    events[event_count] = KeyEvent {
+                        code, state, mods, unicode,
+                    };
+                    event_count += 1;
                 }
 
                 is_extended = false;
@@ -173,8 +149,9 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
             }
         }
 
-        if output_len > 0 {
-            let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: output.as_ptr() as usize, len: output_len });
+        if event_count > 0 {
+            let byte_len = event_count * core::mem::size_of::<KeyEvent>();
+            let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: events.as_ptr() as usize, len: byte_len });
             let _ = handle_sys_invoke(chan_handle, write_op);
         }
     }

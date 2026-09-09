@@ -31,6 +31,8 @@ pub use user::*;
 mod stat;
 pub use stat::*;
 
+pub mod key;
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HandleID(pub usize);
