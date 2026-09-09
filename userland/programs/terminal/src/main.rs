@@ -3,7 +3,9 @@
 
 pub mod font;
 mod term;
+mod input;
 use vespertine_abi::app::termios::*;
+use vespertine_abi::key::KeyEvent;
 use vespertine_abi::protocol::PacketType;
 use vespertine_abi::tag::CAP_APP_TERMCTRL;
 use vrt::syscall::{
@@ -18,6 +20,7 @@ use vstd::fb::Framebuffer;
 use vstd::log::SystemLog;
 use vstd::prelude::*;
 use vstd::proc::Waiter;
+use input::translate_key_event;
 
 use crate::term::{
     Cell,
@@ -96,7 +99,6 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
         Waiter::new().readable(kbd_handle).readable(term_stdout.handle()).readable(blink_read.handle()).readable(ctrl_term.handle());
 
     let mut vte_parser = vte::Parser::new();
-    let mut buf = [0u8; 256];
 
     loop {
         grid.draw_cursor(grid.cursor_blink_on);
@@ -116,90 +118,104 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
         if waiter.ready(0) {
             grid.cursor_blink_on = true; // make it solid while typing
 
-            match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
-                Ok(n) if n > 0 => {
-                    let mut raw_trans_buffer = Vec::new();
+            const KEY_EVENT_MEM_SIZE: usize = size_of::<KeyEvent>();
+            let mut kbd_events = [KeyEvent::zeroed(); 16];
+            let kbd_buf_ptr = kbd_events.as_mut_ptr() as *mut u8;
+            let kbd_buf_len = kbd_events.len() * size_of::<KeyEvent>();
 
-                    for &raw_byte in &buf[..n] {
-                        let mut processed_byte = raw_byte;
-                        let iflag = grid.termios.c_iflag;
-                        let lflag = grid.termios.c_lflag;
-                        let oflag = grid.termios.c_oflag;
+            match sys_read(kbd_handle, kbd_buf_ptr, kbd_buf_len, 0) {
+                Ok(n) if n >= KEY_EVENT_MEM_SIZE => {
+                    let event_count = n / KEY_EVENT_MEM_SIZE;
+                    let mut translated = Vec::new();
 
-                        let mut should_echo = false;
+                    for event in &kbd_events[..event_count] {
+                        translate_key_event(event, &mut translated);
+                    }
 
-                        // c_iflag transformations
-                        if check_flag(iflag, ISTRIP) {
-                            processed_byte &= 0x7f;
+                    if !check_flag(grid.termios.c_lflag, ICANON) {
+                        // raw mode: forward translated byte sequences directly without canonical editing
+                        if !translated.is_empty() {
+                            let _ = sys_write_bytes(term_stdin.handle(), &translated);
                         }
-
-                        if check_flag(iflag, IUCLC) && processed_byte.is_ascii_uppercase() {
-                            processed_byte = processed_byte.to_ascii_lowercase();
-                        }
-
-                        if processed_byte == b'\r' {
-                            if check_flag(iflag, IGNCR) {
-                                continue; // ignore carriage return 
-                            }
-                            if check_flag(iflag, ICRNL) {
-                                processed_byte = b'\n' // \r -> \n
-                            }
-                        } else if processed_byte == b'\n' {
-                            if check_flag(iflag, INLCR) {
-                                processed_byte = b'\r' // \n -> \r
-                            }
-                        }
-
-                        // TODO: ISIG handling
-                        if check_flag(lflag, ISIG) {
-                            if processed_byte == grid.termios.c_cc[VINTR as usize] {}
-                        }
-
-                        // ECHO / ECHONL handling
-                        if check_flag(lflag, ECHO) {
-                            should_echo = true;
-                        } else if check_flag(lflag, ECHONL) && processed_byte == b'\n' {
-                            should_echo = true;
-                        }
-
-                        if should_echo && !matches!(processed_byte, b'\x08' | b'\x7f') {
-                            if processed_byte == b'\n' && check_flag(oflag, OPOST) && check_flag(oflag, ONLCR) {
-                                vte_parser.advance(&mut grid, &[b'\r', b'\n']);
-                            } else {
-                                vte_parser.advance(&mut grid, &[processed_byte]);
-                            }
-                        }
-
-                        // ICANON
-                        if (grid.termios.c_lflag & ICANON) == 0 {
-                            // raw mode: accumulate into raw mode buffer for atomicity
-                            raw_trans_buffer.push(processed_byte);
+                    } else {
+                        // canonical mode: ignore multi-byte escape sequences 
+                        if translated.starts_with(b"\x1b") && translated.len() > 1 {
+                            // DON'T INJECT ESCAPE SEQUENCES INTO THE COOKED BUFFER
                         } else {
-                            // canonical mode: buffer locally until enter/newline
-                            match processed_byte {
-                                b'\x08' | b'\x7f' => {
-                                    if let Some(_popped) = grid.can_buffer.pop() {
-                                        if check_flag(lflag, ECHOE) {
-                                            vte_parser.advance(&mut grid, &[b'\x08', b' ', b'\x08']);
-                                        }
+                            for &raw_byte in &translated {
+                                let mut processed_byte = raw_byte;
+                                let iflag = grid.termios.c_iflag;
+                                let lflag = grid.termios.c_lflag;
+                                let oflag = grid.termios.c_oflag;
+
+                                let mut should_echo = false;
+
+                                // c_iflag transformations
+                                if check_flag(iflag, ISTRIP) {
+                                    processed_byte &= 0x7f;
+                                }
+
+                                if check_flag(iflag, IUCLC) && processed_byte.is_ascii_uppercase() {
+                                    processed_byte = processed_byte.to_ascii_lowercase();
+                                }
+
+                                if processed_byte == b'\r' {
+                                    if check_flag(iflag, IGNCR) {
+                                        continue; // ignore carriage return
+                                    }
+                                    if check_flag(iflag, ICRNL) {
+                                        processed_byte = b'\n'; // \r -> \n
+                                    }
+                                } else if processed_byte == b'\n' {
+                                    if check_flag(iflag, INLCR) {
+                                        processed_byte = b'\r'; // \n -> \r
                                     }
                                 }
-                                b'\n' => {
-                                    grid.can_buffer.push(b'\n');
-                                    let _ = sys_write_bytes(term_stdin.handle(), &grid.can_buffer);
-                                    grid.can_buffer.clear();
+
+                                // ISIG handling
+                                if check_flag(lflag, ISIG) {
+                                    if processed_byte == grid.termios.c_cc[VINTR as usize] {
+                                        // TODO: send SIGINT
+                                    }
                                 }
-                                other => {
-                                    grid.can_buffer.push(other);
+
+                                // ECHO / ECHONL handling
+                                if check_flag(lflag, ECHO) {
+                                    should_echo = true;
+                                } else if check_flag(lflag, ECHONL) && processed_byte == b'\n' {
+                                    should_echo = true;
+                                }
+
+                                if should_echo && !matches!(processed_byte, b'\x08' | b'\x7f') {
+                                    if processed_byte == b'\n' && check_flag(oflag, OPOST) && check_flag(oflag, ONLCR) {
+                                        vte_parser.advance(&mut grid, &[b'\r', b'\n']);
+                                    } else {
+                                        vte_parser.advance(&mut grid, &[processed_byte]);
+                                    }
+                                }
+
+                                // Canonical line buffer
+                                match processed_byte {
+                                    b'\x08' | b'\x7f' => {
+                                        if let Some(_popped) = grid.can_buffer.pop() {
+                                            if check_flag(lflag, ECHOE) {
+                                                vte_parser.advance(&mut grid, &[b'\x08', b' ', b'\x08']);
+                                            }
+                                        }
+                                    }
+                                    b'\n' => {
+                                        grid.can_buffer.push(b'\n');
+                                        let _ = sys_write_bytes(term_stdin.handle(), &grid.can_buffer);
+                                        grid.can_buffer.clear();
+                                    }
+                                    other => {
+                                        grid.can_buffer.push(other);
+                                    }
                                 }
                             }
                         }
                     }
-
-                    if !check_flag(grid.termios.c_lflag, ICANON) && !raw_trans_buffer.is_empty() {
-                        let _ = sys_write_bytes(term_stdin.handle(), &raw_trans_buffer);
-                    }
-                }
+    			}
                 _ => {}
             }
         }
