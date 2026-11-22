@@ -50,6 +50,7 @@ use crate::object::obj::{
 };
 use crate::sync::Mutex;
 
+#[cfg(feature = "diagnostics")]
 #[path = "socket_tests.rs"]
 mod tests;
 
@@ -559,4 +560,5 @@ pub fn init_ipc_pipeline() -> (HandleID, HandleID) {
     (h1, h2)
 }
 
+#[cfg(feature = "diagnostics")]
 pub(crate) fn run_diagnostic_tests() { tests::run(); }

@@ -2,11 +2,15 @@ mod bootalloc;
 pub mod heap;
 mod init_pmm;
 pub mod magazine;
-pub mod paging;
 mod pmm;
+pub mod range_tree;
 pub mod vmm;
 pub mod vmo;
 pub mod shootdown;
+pub mod frame;
+pub mod pool;
+
+pub use frame::Frame4K;
 
 use core::alloc::GlobalAlloc;
 use core::sync::atomic::{
@@ -21,28 +25,22 @@ use hal::interrupts::{
     enable_interrupts,
     interrupts_enabled,
 };
+use hal::mmu::{FrameAllocator, get_cr3, load_cr3};
+use hal::mmu::pager::{PageTable, Pager};
 use heap::*;
-use paging::*;
 use pmm::*;
-pub use pmm::{
-    BlockSize,
-    HUGE_PAGE_SIZE,
-    NORMAL_PAGE_SIZE,
-};
 use vespertine_common::slab::SlabAllocator;
-use vmm::*;
 
 use crate::cpu::current_core_mut;
-use crate::sync::{
-    KernelOnceCell,
-    TicketLock,
-};
+use crate::sync::TicketLock;
 use crate::process::current_process;
 use crate::{
     klogln,
 };
+pub use hal::mmu::{PhysAddr, PageSize, DIRECT_MAP_OFFSET};
 
-pub static DIRECT_MAP_OFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
+pub static PAGE_SIZE_4K: usize = PageSize::Size4K.bytes();
+pub static PAGE_SIZE_2M: usize = PageSize::Size2M.bytes();
 
 // wrapper that disables interrupts and reenables them (needed bc the slab code was moved to common
 pub struct KernelAllocatorWrapper(SlabAllocator<KernelPageProvider>);
@@ -88,24 +86,31 @@ pub static KERNEL_ALLOCATOR: KernelAllocatorWrapper = KernelAllocatorWrapper(Sla
 
 pub static GLOBAL_PMM: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 pub static ALLOCATOR: PCAllocator = PCAllocator {};
-pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
+pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(PhysAddr(0)));
 
 pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> {
     if let Some(proc) = current_process() {
-        proc.vmm.read().handle_page_fault(addr, error_code)
+        proc.vmm.read().as_ref().ok_or(FaultError::InvalidAddress)?.handle_page_fault(addr, error_code)
     } else {
         Err(FaultError::InvalidAddress)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaultError {
+    InvalidAddress,
+    AccessDenied,
+    OutOfMemory,
 }
 
 #[derive(Debug)]
 pub struct PCAllocator {}
 
 impl PCAllocator {
-    pub fn alloc(&self, size: BlockSize) -> usize {
+    pub fn alloc(&self, size: PageSize) -> Option<usize> {
         match size {
-            BlockSize::Huge => GLOBAL_PMM.lock().alloc(size).expect("[FATAL] Global PMM Exhausted"),
-            BlockSize::Normal => {
+            PageSize::Size2M => GLOBAL_PMM.lock().alloc(size),
+            PageSize::Size4K => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
                 let ret = current_core_mut().magazine.alloc();
@@ -113,34 +118,46 @@ impl PCAllocator {
                     enable_interrupts();
                 }
                 ret
-            }
+            },
+            PageSize::Size1G => None,
         }
     }
 
     pub fn alloc_order(&self, order: usize) -> Option<usize> { GLOBAL_PMM.lock().alloc_order(order) }
 
-    pub fn free(&self, addr: usize, size: BlockSize) {
+    pub fn free(&self, addr: usize, size: PageSize) {
         match size {
-            BlockSize::Huge => {
-                GLOBAL_PMM.lock().free(addr, size);
-            }
-            BlockSize::Normal => {
+            PageSize::Size2M => GLOBAL_PMM.lock().free(addr, size),
+            PageSize::Size4K => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
                 current_core_mut().magazine.free(addr);
                 if int_state {
                     enable_interrupts();
                 }
-            }
+            },
+            PageSize::Size1G => {
+                klogln!("[WARNING] Ignored attempt to free unsupported 1G page at {:#X}", addr);
+            },
         }
     }
 
     pub fn free_order(&self, addr: usize, order: usize) { GLOBAL_PMM.lock().free_order(addr, order) }
 }
 
+impl FrameAllocator for PCAllocator {
+    fn allocate_frame(&mut self) -> Option<usize> {
+        self.alloc(PageSize::Size4K)
+    }
+
+    fn deallocate_frame(&mut self, phys_addr: usize) {
+        self.free(phys_addr, PageSize::Size4K)
+    }
+}
+
 pub fn init() {
     klogln!("[INFO] Initiating memory management system...");
-    DIRECT_MAP_OFFSET.get_or_init(|| direct_map_offset());
+    hal::mmu::init_direct_map_offset(direct_map_offset());
     // Inititate PMM
     {
         let mut global_pmm = GLOBAL_PMM.lock();
@@ -149,8 +166,18 @@ pub fn init() {
     klogln!("[SUCCESS] Physical memory manager operational.");
     // Inititate Pager
     {
-        let mut pager = PAGER.lock();
-        pager.init();
+        let boot_cr3 = get_cr3() & 0x000F_FFFF_FFFF_F000;
+
+        let new_root = GLOBAL_PMM.lock().alloc(PageSize::Size4K).expect("Failed to allocate kernel root page table");
+
+        unsafe { PageTable::from_phys(PhysAddr(new_root)).zero(); }
+        let mut kernel_pager = Pager::new(PhysAddr(new_root));
+
+        kernel_pager.sync_kernel_mappings(PhysAddr(boot_cr3 as usize));
+
+        load_cr3(new_root as u64);
+
+        *PAGER.lock() = kernel_pager;
     }
     klogln!("[SUCCESS] Switched CR3. Paging handover complete.");
 }
@@ -165,6 +192,44 @@ pub fn calculate_order(bytes: usize) -> usize {
 
 pub fn hal_map_mmio(phys: u64, _size: usize) -> Option<usize> {
     let page = phys & !0xFFF;
-    PAGER.lock().map_mmio_addr(page)?;
+    let flags = hal::mmu::PageFlags::PRESENT | hal::mmu::PageFlags::WRITABLE | hal::mmu::PageFlags::NO_EXECUTE | hal::mmu::PageFlags::NO_CACHE | hal::mmu::PageFlags::WRITE_THROUGH;
+    let mut alloc_wrapper = PCAllocator {};
+
+    let result = PAGER.lock().map_page(
+        hal::mmu::VirtAddr(page as usize + *DIRECT_MAP_OFFSET),
+        hal::mmu::PhysAddr(page as usize),
+        flags,
+        hal::mmu::PageSize::Size4K,
+        &mut alloc_wrapper
+    );
+
+    if let Err(e) = result {
+        if e != hal::mmu::pager::PagerError::AlreadyMapped {
+            return None;
+        }
+    }
+
     Some(phys as usize + *DIRECT_MAP_OFFSET)
+}
+
+// temp owner of one 4kb dma or io buffer
+#[derive(Debug)]
+pub struct PhysBuffer {
+    frame: Frame4K,
+}
+
+impl PhysBuffer {
+    pub fn new() -> Option<Self> {
+        Some(Self {
+            frame: Frame4K::allocate()?,
+        })
+    }
+
+    pub fn phys(&self) -> usize {
+        self.frame.phys()
+    }
+
+    pub fn virt(&self) -> usize {
+        self.frame.virt()
+    }
 }

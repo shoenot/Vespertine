@@ -32,6 +32,7 @@ use vespertine_abi::{
 };
 
 use crate::executor::Executor;
+use crate::memory::PAGE_SIZE_4K;
 use crate::object::handle::HandleTable;
 use crate::object::help::RightsWrapper;
 use crate::object::invoke::InvocationError;
@@ -44,22 +45,17 @@ use crate::process::{
 };
 use crate::object::obj::KernelObject;
 use crate::program::env::ProcessEnvironment;
-use crate::program::load_elf;
+use crate::program::{LoaderError, load_elf};
 use crate::security::credentials::Credentials;
 use crate::sched::dispatch::{
-    create_user_thread_suspended,
-    spawn_user_thread,
+    create_user_tcb, create_user_thread_suspended, spawn_user_thread,
 };
 use crate::process::current_process;
 use crate::sched::priority::ThreadPriority;
 use crate::memory::vmm::{
-    VM_FLAG_USER,
-    VM_FLAG_WRITE,
+    VmOptions, VmaBacking,
 };
-use crate::memory::vmo::Vmo;
-
-pub const DEFAULT_PROCESS_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
-pub const DEFAULT_PROCESS_MEMORY_MAXIMUM: usize = 1024 * 1024 * 1024;
+use crate::memory::vmo::AnonymousVmo;
 
 #[derive(Debug)]
 pub struct ProcessManager {}
@@ -95,6 +91,15 @@ impl KernelObject for ProcessManager {
                 let new_proc_root = parent_proc.handles.read().resolve(root_handle, root_rights)?;
                 let new_proc_cwd = parent_proc.handles.read().resolve(cwd_handle, cwd_rights)?;
 
+                let grant_bytes = capabilities_len
+                    .checked_mul(size_of::<CapabilityGrant>())
+                    .ok_or(InvocationError::InvalidArgument)?;
+
+                if grant_bytes.checked_add(args_buffer_len)
+                    .is_none_or(|bytes| bytes > PAGE_SIZE_4K) {
+                        return Err(InvocationError::OutOfMemory);
+                }
+
                 let mut new_proc_table = HandleTable::new(); // create a blank table
 
                 // root handle at 1
@@ -110,35 +115,35 @@ impl KernelObject for ProcessManager {
                     new_proc_table.insert_at(HandleID(3), sink_obj, AccessRights::WRITE);
                 }
 
-                // memory pool handle at 4
-                let mem_pool_obj = Arc::new(MemPool::new_expandable(DEFAULT_PROCESS_MEMORY_LIMIT, DEFAULT_PROCESS_MEMORY_MAXIMUM, None));
-                new_proc_table.insert_at(HandleID(4), mem_pool_obj, AccessRights::WRITE | AccessRights::CREATE | AccessRights::MUTATE);
+                // memory pool at handle 4 created by ProcessControlBlock::new_unregistered() now
 
                 // cwd handle at 5
                 new_proc_table.insert_at(HandleID(5), new_proc_cwd, cwd_rights);
 
-                // keep executable file alive for page faults
-                new_proc_table.insert(executable, AccessRights::READ);
-
                 // extract handles safely
-                let mut child_capabilities = Vec::with_capacity(capabilities_len);
+                let mut child_capabilities = Vec::new();
+                child_capabilities.try_reserve_exact(capabilities_len).map_err(|_| InvocationError::OutOfMemory)?;
 
                 if capabilities_len > 0 {
-                    let mut parent_grants =
-                        vec![
-                            CapabilityGrant { id: HandleID(0), rights: AccessRights::new(), capability: CapabilityID(0) };
-                            capabilities_len
-                        ];
-
-                    let success = safe_copy_from(
-                        parent_grants.as_mut_ptr() as *mut u8,
-                        capabilities_ptr as *const u8,
-                        size_of::<CapabilityGrant>() * capabilities_len,
+                    let mut parent_grants = Vec::new();
+                    parent_grants.try_reserve_exact(capabilities_len)
+                        .map_err(|_| InvocationError::OutOfMemory)?;
+                    parent_grants.resize(
+                        capabilities_len,
+                        CapabilityGrant {
+                            id: HandleID(0),
+                            rights: AccessRights::new(),
+                            capability: CapabilityID(0),
+                        },
                     );
 
-                    if !success {
+                    if !safe_copy_from(
+                        parent_grants.as_mut_ptr().cast::<u8>(),
+                        capabilities_ptr as *const u8,
+                        grant_bytes,
+                    ) {
                         return Err(InvocationError::InvalidPointer);
-                    };
+                    }
 
                     for grant in parent_grants {
                         // ensure parent itself has the rights its trying to grant
@@ -177,19 +182,17 @@ impl KernelObject for ProcessManager {
                 let name_str = String::from_utf8(name_bytes).map_err(|_| InvocationError::InvalidArgument)?;
 
                 // create the process
-                let new_proc = ProcessControlBlock::new_unregistered(new_proc_table, name_str, child_credentials);
+                let new_proc = ProcessControlBlock::new_unregistered(new_proc_table, name_str, child_credentials)?;
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
-                let load_result = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?;
+                let load_result = load_elf(executable, &new_proc).await
+                    .map_err(|error| match error {
+                        LoaderError::OutOfMemory => InvocationError::OutOfMemory,
+                        _ => InvocationError::InvalidHandle,
+                    })?;
 
-                // insert self handle at 0 after creating process
-                new_proc.handles.write().insert_at(
-                    HandleID(1),
-                    new_proc.clone(),
-                    AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE,
-                );
-
-                let mut args_buffer = Vec::with_capacity(args_buffer_len);
+                let mut args_buffer = Vec::new();
+                args_buffer.try_reserve_exact(args_buffer_len).map_err(|_| InvocationError::OutOfMemory)?;
                 let mut argc = 0;
 
                 if args_buffer_len > 0 {
@@ -209,13 +212,14 @@ impl KernelObject for ProcessManager {
 
                 // stack building
                 let stack_size = 1024 * 1024; // 1 MB
-                let stack_vmo = Vmo::new(stack_size);
+                let stack_vmo = AnonymousVmo::new(stack_size);
 
                 let stack_addr = new_proc
                     .vmm
                     .write()
-                    .mmap_vmo(stack_size, VM_FLAG_USER | VM_FLAG_WRITE, stack_vmo.clone())
-                    .ok_or(InvocationError::OutOfMemory)?;
+                    .as_mut().ok_or(InvocationError::InvalidHandle)?
+                    .reserve(stack_size, VmOptions::user_rw(), VmaBacking::Vmo(stack_vmo.clone()))
+                    .map_err(|_| InvocationError::OutOfMemory)?;
 
                 let initpkg = ProcessInitPackage {
                     root_handle: HandleID(0),
@@ -250,23 +254,27 @@ impl KernelObject for ProcessManager {
                     )?
                 };
 
-                register_process(&new_proc);
-
                 // spawn thread, passing the struct pointer as an arg
                 let start_ip = load_result.interpreter_entry.unwrap_or(load_result.entry_point);
-                let _thread = if start_suspended {
-                    let thread =
-                        create_user_thread_suspended(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone());
-                    new_proc.initial_thread.store(thread as usize, Ordering::Release);
-                    thread
-                } else {
-                    spawn_user_thread(start_ip, safe_stack_top, pkg_vaddr, ThreadPriority::MEDIUM, new_proc.clone())
-                };
+                let thread = create_user_tcb(
+                    start_ip,
+                    safe_stack_top,
+                    pkg_vaddr,
+                    ThreadPriority::MEDIUM,
+                    new_proc.clone(),
+                )?;
 
-                let new_handle_id =
-                    parent_proc.handles.write().insert(new_proc, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+                new_proc.handles.write().insert_at(HandleID(1), new_proc.clone(), 
+                    AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE | AccessRights::CREATE);
 
-                Ok(new_handle_id.0)
+                unsafe { new_proc.install_initial_thread(thread) };
+                register_process(&new_proc);
+
+                let handle = parent_proc.handles.write().insert(new_proc.clone(), AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+
+                if !start_suspended { new_proc.resume_initial_thread(); }
+
+                Ok(handle.0)
             }
             Invocation::ProcessManager(ProcManOp::List { offset, sink }) => {
                 calling_rights.err_if_no(AccessRights::LIST)?;

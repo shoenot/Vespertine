@@ -35,6 +35,8 @@ use vespertine_abi::{
     WaitOp,
 };
 use vespertine_common::lock::TicketLock;
+use crate::object::mempool::MemPool;
+use crate::sync::TicketLock as IrqTicketLock;
 
 use crate::executor::waiter::{
     AsyncWaiter,
@@ -54,26 +56,24 @@ use crate::object::obj::{
 use crate::security::credentials::Credentials;
 use crate::sync::RwLock;
 use crate::sched::dispatch::{
-    cancel_blocked_thread,
-    reschedule_thread_core,
-    spawn_user_thread,
-    start_thread,
+    cancel_blocked_thread, create_user_tcb, enqueue_new_user_thread, reschedule_thread_core, spawn_user_thread, start_thread,
 };
 use crate::sched::priority::ThreadPriority;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{
-    Thread,
-    ThreadState,
+    Thread, ThreadPin, ThreadState,
 };
 use super::current_process;
 use crate::memory::vmm::{
-    VirtMemManager,
-    VmAccounting,
+    VirtMemManager, VmAccounting, VmError, VmPermissions,
 };
 use crate::memory::{
     ALLOCATOR,
     kernel_heap_allocated,
 };
+
+pub const DEFAULT_PROCESS_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+pub const DEFAULT_PROCESS_MEMORY_MAXIMUM: usize = 1024 * 1024 * 1024;
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 static PROCESS_REGISTRY: RwLock<BTreeMap<usize, Process>> = RwLock::new(BTreeMap::new());
@@ -98,15 +98,17 @@ pub struct ProcessControlBlock {
     pub credentials: Credentials,
 
     pub handles: RwLock<HandleTable>,
-    pub vmm: RwLock<VirtMemManager>,
+    pub vmm: RwLock<Option<VirtMemManager>>,
     pub memory: Arc<VmAccounting>,
-    pub pml4_addr: usize,
+    pub default_pool: Arc<MemPool>,
+    pub root_addr: usize,
 
-    pub threads: RwLock<Vec<*mut Thread>>,
+    // Bootstrap registration and scheduler retirement must not sleep.
+    threads: IrqTicketLock<Vec<*mut Thread>>,
     pub active_threads: AtomicUsize,
-    pub initial_thread: AtomicUsize,
+    unreaped_threads: AtomicUsize,
 
-    pub lifecycle: TicketLock<ProcLifecycle>,
+    pub lifecycle: IrqTicketLock<LifecycleState>,
     pub completion_waiters: TicketLock<WaiterList>,
 
     pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
@@ -114,6 +116,14 @@ pub struct ProcessControlBlock {
 
 unsafe impl Send for ProcessControlBlock {}
 unsafe impl Sync for ProcessControlBlock {}
+
+#[derive(Debug)]
+struct LifecycleState {
+    phase: ProcLifecycle,
+    initial_thread: Option<*mut Thread>,
+}
+
+unsafe impl Send for LifecycleState {}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ProcLifecycle {
@@ -210,47 +220,64 @@ impl Future for WaitManyFuture<'_> {
 }
 
 impl ProcessControlBlock {
-    pub fn new_unregistered(init_table: HandleTable, name: String, credentials: Credentials) -> Process {
-        let vmm = VirtMemManager::new(&ALLOCATOR);
-        let memory = vmm.accounting();
-        let pml4_addr = vmm.get_pml4_addr();
+    pub fn new_unregistered(mut init_table: HandleTable, name: String, credentials: Credentials) -> Result<Process, VmError> {
+        let default_pool = Arc::new(MemPool::new_expandable(
+            DEFAULT_PROCESS_MEMORY_LIMIT,
+            DEFAULT_PROCESS_MEMORY_MAXIMUM,
+            None,
+        ));
 
-        Arc::new(Self {
+        init_table.insert_at(
+            HandleID(4),
+            default_pool.clone(),
+            AccessRights::WRITE | AccessRights::CREATE | AccessRights::MUTATE,
+        );
+
+        let vmm = VirtMemManager::try_new(&ALLOCATOR)?;
+        let memory = vmm.accounting();
+        let root_addr = vmm.address_space_root();
+
+        Ok(Arc::new(Self {
             proc_id: get_new_pid(),
             proc_name: name,
             credentials,
 
             handles: RwLock::new(init_table),
-            vmm: RwLock::new(vmm),
+            vmm: RwLock::new(Some(vmm)),
             memory,
-            pml4_addr,
+            default_pool,
+            root_addr,
 
-            threads: RwLock::new(Vec::new()),
+            threads: IrqTicketLock::new(Vec::new()),
             active_threads: AtomicUsize::new(0),
-            initial_thread: AtomicUsize::new(0),
+            unreaped_threads: AtomicUsize::new(0),
 
-            lifecycle: TicketLock::new(ProcLifecycle::Running),
+            lifecycle: IrqTicketLock::new(LifecycleState { phase: ProcLifecycle::Running, initial_thread: None }),
             completion_waiters: TicketLock::new(WaiterList::new()),
 
             futexes: RwLock::new(BTreeMap::new()),
-        })
+        }))
     }
 
     pub fn new(init_table: HandleTable, name: String, credentials: Credentials) -> Process {
-        let proc = Self::new_unregistered(init_table, name, credentials);
+        let proc = Self::new_unregistered(init_table, name, credentials)
+            .expect("cannot create kernel process address space");
         register_process(&proc);
         proc
     }
 
     pub fn snapshot_info(&self) -> ProcInfo {
-        let lc = *self.lifecycle.lock();
-        let (state, term_reason, term_code, term_detail) = match lc {
+        let phase = self.lifecycle.lock().phase;
+        let (state, term_reason, term_code, term_detail) = match phase {
             ProcLifecycle::Running => (ProcState::Running, ProcTermReason::None, 0, 0),
             ProcLifecycle::Terminating(t) => (ProcState::Terminating, t.reason, t.code, t.detail),
             ProcLifecycle::Terminated(t) => (ProcState::Terminated, t.reason, t.code, t.detail),
         };
 
-        let memory_usage = if self.proc_id == 0 { kernel_heap_allocated() } else { self.memory.resident_bytes() };
+        let memory_usage = if self.proc_id == 0 { kernel_heap_allocated() } else { 
+            self.vmm.read().as_ref()
+                .map_or(0, |vmm| vmm.accounting().snapshot().resident_bytes)
+        };
 
         let mut info = ProcInfo::zeroed();
 
@@ -279,16 +306,19 @@ impl ProcessControlBlock {
 
     pub fn request_terminate(&self, termination: ProcTermination) -> bool {
         {
-            let mut lc = self.lifecycle.lock();
-            match *lc {
-                ProcLifecycle::Running => {
-                    *lc = ProcLifecycle::Terminating(termination);
-                }
-                ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_) => return false,
+            let mut lifecycle = self.lifecycle.lock();
+            if !matches!(lifecycle.phase, ProcLifecycle::Running) { return false }
+
+            lifecycle.phase = ProcLifecycle::Terminating(termination);
+
+            if let Some(thread) = lifecycle.initial_thread.take() {
+                // the scheduler retires it before running the entry point
+                unsafe { enqueue_new_user_thread(thread) }
             }
         }
-        let threads = self.thread_snapshot();
-        for thread in threads {
+        for pin in self.pinned_thread_snapshot() {
+            let thread = pin.as_ptr();
+
             if thread.is_null() {
                 continue;
             }
@@ -320,13 +350,13 @@ impl ProcessControlBlock {
 
         let mut lc = self.lifecycle.lock();
 
-        let termination = match *lc {
+        let termination = match lc.phase {
             ProcLifecycle::Running => ProcTermination::exited(normal_exit_code),
             ProcLifecycle::Terminating(t) => t,
             ProcLifecycle::Terminated(_) => return false,
         };
 
-        *lc = ProcLifecycle::Terminated(termination);
+        lc.phase = ProcLifecycle::Terminated(termination);
         drop(lc);
 
         unregister_process(self.proc_id);
@@ -337,27 +367,65 @@ impl ProcessControlBlock {
         true
     }
 
-    pub fn is_terminating(&self) -> bool { matches!(*self.lifecycle.lock(), ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_)) }
+    pub fn is_terminating(&self) -> bool { matches!(self.lifecycle.lock().phase, ProcLifecycle::Terminating(_) | ProcLifecycle::Terminated(_)) }
 
-    pub fn is_terminated(&self) -> bool { matches!(*self.lifecycle.lock(), ProcLifecycle::Terminated(_)) }
+    pub fn is_terminated(&self) -> bool { matches!(self.lifecycle.lock().phase, ProcLifecycle::Terminated(_)) }
 
     pub fn register_thread(&self, thread: *mut Thread) {
         if thread.is_null() {
             return;
         }
-        let mut threads = self.threads.write();
+        let mut threads = self.threads.lock();
         if !threads.iter().any(|&cd| cd == thread) {
             threads.push(thread);
+            self.unreaped_threads.fetch_add(1, Ordering::AcqRel);
+            self.active_threads.fetch_add(1, Ordering::AcqRel);
         }
     }
 
-    pub fn thread_snapshot(&self) -> Vec<*mut Thread> { self.threads.read().clone() }
+    pub fn pinned_thread_snapshot(&self) -> Vec<ThreadPin> {
+        let threads = self.threads.lock();
+
+        threads.iter()
+            .map(|&thread| unsafe { ThreadPin::acquire_protected(thread) })
+            .collect()
+    }
 
     pub fn unregister_thread(&self, thread: *mut Thread) -> bool {
-        let mut threads = self.threads.write();
+        let mut threads = self.threads.lock();
         let old_len = threads.len();
         threads.retain(|&cd| cd != thread);
         threads.len() != old_len
+    }
+
+    pub unsafe fn install_initial_thread(&self, thread: *mut Thread) {
+        assert!(!thread.is_null());
+
+        let mut lifecycle = self.lifecycle.lock();
+        assert!(matches!(lifecycle.phase, ProcLifecycle::Running));
+        assert!(lifecycle.initial_thread.is_none());
+        lifecycle.initial_thread = Some(thread);
+    }
+
+    pub fn resume_initial_thread(&self) {
+        let mut lifecycle = self.lifecycle.lock();
+        if !matches!(lifecycle.phase, ProcLifecycle::Running) { return };
+
+        if let Some(thread) = lifecycle.initial_thread.take() {
+            unsafe { enqueue_new_user_thread(thread); }
+        }
+    }
+
+    pub fn finish_thread_reap(&self) {
+        let prev = self.unreaped_threads.fetch_sub(1, Ordering::AcqRel);
+        assert!(prev != 0, "unregistered thread reached the reaper");
+
+        if prev == 1 && self.proc_id != 0 {
+            debug_assert!(self.is_terminated());
+
+            let addr_space = self.vmm.write().take();
+            drop(addr_space);
+        }
     }
 }
 
@@ -369,40 +437,43 @@ impl KernelObject for ProcessControlBlock {
         match invocation {
             Invocation::Proc(ProcOp::Resume) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
-                let thread = self.initial_thread.swap(0, Ordering::AcqRel);
-                if thread == 0 {
-                    return Ok(0);
-                }
-                start_thread(thread as *mut Thread);
+                self.resume_initial_thread();
                 Ok(0)
-            }
+            },
             Invocation::Proc(ProcOp::Terminate { reason }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 self.request_terminate(ProcTermination::terminated(reason));
                 Ok(0)
-            }
+            },
             Invocation::Proc(ProcOp::GetInfo { info_ptr }) => {
                 calling_rights.err_if_no(AccessRights::READ)?;
                 self.info(info_ptr as *mut ProcInfo)
-            }
+            },
             Invocation::Proc(ProcOp::Unmap { vaddr, len }) => {
-                self.vmm.write().munmap(vaddr, len).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            }
+                let mut slot = self.vmm.write();
+                let vmm = slot.as_mut().ok_or(InvocationError::InvalidHandle)?;
+                vmm.unmap_range(vaddr, len)?;
+                Ok(0)
+            },
             Invocation::Proc(ProcOp::SpawnThread { entry, stack_top, arg, priority }) => {
-                let tp = ThreadPriority::from(priority);
+                let priority = ThreadPriority::from(priority);
                 let proc = current_process().ok_or(InvocationError::ThreadSpawnFail)?;
-                let thread = spawn_user_thread(entry, stack_top, arg, tp, proc.clone());
-                let obj = Arc::new(ThreadObject { tcb: thread });
-                let id = self.handles.write().insert(obj, AccessRights::all());
+
+                let thread = create_user_tcb(entry, stack_top, arg, priority, proc.clone())?;
+
+                let object = unsafe { ThreadObject::attach(thread) };
+                let id = self.handles.write().insert(object, AccessRights::all());
+
+                unsafe { enqueue_new_user_thread(thread) };
                 Ok(id.0)
-            }
+            },
             Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
                 WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
-            }
+            },
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
                 let current_thread = current_core_mut().scheduler.get_current_thread();
                 if current_thread.is_null() {
@@ -413,17 +484,21 @@ impl KernelObject for ProcessControlBlock {
                     set_user_thread_pointer(fs_base);
                 }
                 Ok(0)
-            }
+            },
             Invocation::Proc(ProcOp::InsertHandle { source_handle, rights }) => {
                 calling_rights.err_if_no(AccessRights::MUTATE)?;
                 let caller = current_process().ok_or(InvocationError::InvalidHandle)?;
                 let obj = caller.handles.read().resolve(source_handle, rights)?;
                 let new_handle_id = self.handles.write().insert(obj, rights);
                 Ok(new_handle_id.0)
-            }
+            },
             Invocation::Proc(ProcOp::Mprotect { vaddr, len, prot }) => {
-                self.vmm.write().mprotect(vaddr, len, prot).map(|_| 0).map_err(|_| InvocationError::InvalidArgument)
-            }
+                let perms = VmPermissions::from_user_vm_flags(prot)?;
+                let mut slot = self.vmm.write();
+                let vmm = slot.as_mut().ok_or(InvocationError::InvalidHandle)?;
+                vmm.protect_range(vaddr, len, perms)?;
+                Ok(0)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

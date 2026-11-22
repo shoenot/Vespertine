@@ -1,4 +1,4 @@
-use alloc::alloc::alloc;
+use alloc::alloc::{alloc, dealloc};
 use core::alloc::Layout;
 use core::ptr::write_volatile;
 use core::sync::atomic::{
@@ -57,17 +57,27 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
 }
 
 pub fn spawn_user_thread(
-    entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process,
-) -> *mut Thread {
-    let tcb_ptr = create_user_tcb(entry_point, user_stack_top, arg, priority, proc).expect("Unable to spawn user thread");
+    entry_point: usize, 
+    user_stack_top: usize, 
+    arg: usize, 
+    priority: ThreadPriority, 
+    proc: Process) -> *mut Thread {
+    let tcb_ptr = create_user_tcb(entry_point, user_stack_top, arg, priority, proc)
+        .expect("Unable to spawn user thread");
 
+    unsafe { enqueue_new_user_thread(tcb_ptr) };
+    tcb_ptr
+
+}
+
+pub unsafe fn enqueue_new_user_thread(tcb_ptr: *mut Thread) {
     let mut best_core = 0;
     let mut min_load = usize::MAX;
 
     for logical_id in 0..*NUM_CORES {
         if let Some(target_data) = try_get_core_data_for(logical_id) {
-            let load = target_data.scheduler.queue_length.load(Ordering::Acquire) +
-                target_data.scheduler.mailbox.lock().queue_length.load(Ordering::Acquire);
+            let load = target_data.scheduler.queue_length.load(Ordering::Acquire) 
+                + target_data.scheduler.mailbox.lock().queue_length.load(Ordering::Acquire);
             if load < min_load {
                 min_load = load;
                 best_core = logical_id;
@@ -75,23 +85,13 @@ pub fn spawn_user_thread(
         }
     }
 
-    unsafe {
-        (*tcb_ptr).set_assigned_core(best_core);
-    }
+    unsafe { (*tcb_ptr).set_assigned_core(best_core) };
 
     let this_core = current_core_id();
-    let target_data = get_core_data_for(best_core);
+    let target = get_core_data_for(best_core);
+    target.scheduler.mailbox.lock().push(tcb_ptr);
 
-    if best_core == this_core {
-        target_data.scheduler.mailbox.lock().push(tcb_ptr);
-    } else {
-        let mut mailbox = target_data.scheduler.mailbox.lock();
-        mailbox.push(tcb_ptr);
-        drop(mailbox);
-
-        send_reschedule_ipi(best_core);
-    }
-    tcb_ptr
+    if best_core != this_core { send_reschedule_ipi(best_core) };
 }
 
 pub fn create_user_thread_suspended(
@@ -125,7 +125,6 @@ pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc
     }
 
     proc.register_thread(tcb_ptr);
-    proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
     Ok(tcb_ptr)
 }
@@ -137,8 +136,15 @@ pub fn create_user_tcb(
     let tcb_layout = Layout::new::<Thread>();
     let stack_layout = Layout::from_size_align(stack_size, 4096)?;
 
-    let tcb_ptr = unsafe { alloc(tcb_layout) as *mut Thread };
-    let stack_base = unsafe { alloc(stack_layout) as usize };
+    let tcb_ptr = unsafe { alloc(tcb_layout) }.cast::<Thread>();
+    if tcb_ptr.is_null() { return Err(ThreadError::AllocationFailed) };
+
+    let stack = unsafe { alloc(stack_layout) };
+    if stack.is_null() {
+        unsafe { dealloc(tcb_ptr.cast::<u8>(), tcb_layout) };
+        return Err(ThreadError::AllocationFailed);
+    }
+    let stack_base = stack as usize;
 
     unsafe {
         let stack_ptr_u64 = stack_base as *mut u64;
@@ -148,7 +154,16 @@ pub fn create_user_tcb(
         write_volatile(tcb_ptr as *mut u8, 0);
     }
 
-    let (switch_addr, fpu_ptr) = init_thread_stack(entry_point, arg, stack_base, stack_size, true, user_stack_top)?;
+    let (switch_addr, fpu_ptr) = match init_thread_stack(entry_point, arg, stack_base, stack_size, true, user_stack_top) {
+        Ok(context) => context,
+        Err(error) => {
+            unsafe {
+                dealloc(stack, stack_layout);
+                dealloc(tcb_ptr.cast::<u8>(), tcb_layout);
+            }
+            return Err(error.into());
+        }
+    };
 
     // init TCB
     unsafe {
@@ -156,7 +171,6 @@ pub fn create_user_tcb(
     }
 
     proc.register_thread(tcb_ptr);
-    proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
     Ok(tcb_ptr)
 }

@@ -21,6 +21,8 @@ use crate::executor::waiter::AsyncWaiter;
 use crate::object::invoke::InvocationError;
 use crate::security::permissions::FilePermissions;
 
+use crate::memory::vmo::AnonymousVmo;
+
 #[async_trait]
 pub trait KernelDirectory: Send + Sync {
     async fn lookup_child(&self, name: &str) -> Result<Arc<dyn KernelObject>, InvocationError>;
@@ -59,6 +61,10 @@ pub trait KernelObject: Send + Sync + Debug {
     fn permissions(&self) -> Option<FilePermissions> { None }
 
     fn as_directory(&self) -> Option<&dyn KernelDirectory> { None }
+
+    async fn copy_file_into_vmo(&self, _offset: usize, _bytes: usize, _backing: &AnonymousVmo) -> Result<(), InvocationError> {
+        Err(InvocationError::UnsupportedOperation)
+    }
 }
 
 pub fn matching_signals(current: Signal, requested: Signal) -> Signal { current & requested }

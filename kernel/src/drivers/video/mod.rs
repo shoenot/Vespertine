@@ -5,7 +5,7 @@ use crate::object::framebuffer::FramebufferDevice;
 use crate::object::vmo::VmoObject;
 use crate::sync::TicketLock;
 use crate::drivers::logger;
-use crate::memory::vmo::Vmo;
+use crate::memory::vmo::DeviceVmo;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -24,9 +24,9 @@ pub fn init_framebuffer() -> FramebufferDevice {
     logger::disable_screen_logging();
 
     let fb = get_framebuffer();
-    let fb_size = fb.pitch * fb.height;
-
-    let fb_vmo = Vmo::new_phys(fb.physical_address, fb_size);
+    let fb_size = fb.pitch.checked_mul(fb.height).expect("framebuffer size overflow");
+    let fb_vmo = DeviceVmo::from_kernel_mapping(fb.virtual_address, fb_size)
+        .expect("invalid framebuffer kernel mapping");
     let fb_vmo_obj = Arc::new(VmoObject::new(fb_vmo));
 
     let info = FramebufferInfo { width: fb.width, height: fb.height, pitch: fb.pitch, bpp: fb.bpp };

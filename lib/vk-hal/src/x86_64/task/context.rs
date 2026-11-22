@@ -3,6 +3,7 @@ use alloc::alloc::alloc;
 use alloc::alloc::dealloc;
 use core::alloc::{Layout, LayoutError};
 use core::ptr::copy_nonoverlapping;
+use core::ptr::null_mut;
 use core::sync::atomic::Ordering;
 
 use crate::x86_64::cpu::BootAllocFn;
@@ -259,6 +260,8 @@ unsafe extern "sysv64" {
         new_stack_ptr: usize, 
         old_extended_context: *mut u8, 
         new_extended_context: *const u8,
+        tail: Option<extern "sysv64" fn(*mut ())>,
+        tail_arg: *mut (),
     );
 
     fn switch_threads_legacy(
@@ -266,6 +269,8 @@ unsafe extern "sysv64" {
         new_stack_ptr: usize, 
         old_extended_context: *mut u8, 
         new_extended_context: *const u8,
+        tail: Option<extern "sysv64" fn(*mut ())>,
+        tail_arg: *mut (),
     );
 }
 
@@ -274,12 +279,14 @@ pub unsafe fn switch_threads(
     new_stack_ptr: usize,
     old_extended_context: *mut u8,
     new_extended_context: *const u8,
+    tail: Option<extern "sysv64" fn(*mut ())>,
+    tail_arg: *mut (),
 ) {
     unsafe {
         if use_xsave() {
-            switch_threads_avx(old_stack_ptr, new_stack_ptr, old_extended_context, new_extended_context);
+            switch_threads_avx(old_stack_ptr, new_stack_ptr, old_extended_context, new_extended_context, tail, tail_arg);
         } else {
-            switch_threads_legacy(old_stack_ptr, new_stack_ptr, old_extended_context, new_extended_context);
+            switch_threads_legacy(old_stack_ptr, new_stack_ptr, old_extended_context, new_extended_context, tail, tail_arg);
         }
     }
 }
@@ -295,6 +302,8 @@ pub unsafe fn switch_from_bootstrap(new_stack_ptr: usize, new_extended_context: 
                 new_stack_ptr,
                 dummy_fpu_ptr,
                 new_extended_context,
+                None,
+                null_mut(),
             );
         }
     } else {
@@ -306,6 +315,8 @@ pub unsafe fn switch_from_bootstrap(new_stack_ptr: usize, new_extended_context: 
                 new_stack_ptr,
                 dummy_fpu_ptr,
                 new_extended_context,
+                None,
+                null_mut(),
             );
         }
     }

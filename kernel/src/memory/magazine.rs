@@ -1,5 +1,5 @@
 use crate::memory::{
-    BlockSize,
+    PageSize,
     GLOBAL_PMM,
 };
 
@@ -13,23 +13,22 @@ pub struct Magazine {
 impl Magazine {
     pub const fn init() -> Self { Self { pages: [0; MAG_CAPACITY], count: 0 } }
 
-    pub fn alloc(&mut self) -> usize {
-        if self.count > 0 {
+    pub fn alloc(&mut self) -> Option<usize> {
+        if self.count != 0 {
             self.count -= 1;
-            let ret = self.pages[self.count];
-            self.pages[self.count] = 0;
-            ret
-        } else {
-            let mut pmm = GLOBAL_PMM.lock();
-            for _ in 0..(MAG_CAPACITY / 2 - 1) {
-                let block = pmm.alloc(BlockSize::Normal);
-                self.pages[self.count] = block.expect("Global PMM exhausted");
-                self.count += 1;
-            }
-            let ret = pmm.alloc(BlockSize::Normal).expect("Global PMM exhausted");
-            drop(pmm);
-            ret
+            return Some(core::mem::replace(&mut self.pages[self.count], 0));
+        } 
+
+        let mut pmm = GLOBAL_PMM.lock();
+        let requested = pmm.alloc(PageSize::Size4K)?;
+
+        for _ in 0..(MAG_CAPACITY / 2 - 1) {
+            let Some(page) = pmm.alloc(PageSize::Size4K) else { break };
+            self.pages[self.count] = page;
+            self.count += 1;
         }
+
+        Some(requested)
     }
 
     pub fn free(&mut self, addr: usize) {
@@ -40,7 +39,7 @@ impl Magazine {
             let mut pmm = GLOBAL_PMM.lock();
             for _ in 0..(MAG_CAPACITY / 2) {
                 self.count -= 1;
-                pmm.free(self.pages[self.count], BlockSize::Normal);
+                pmm.free(self.pages[self.count], PageSize::Size4K);
             }
             self.pages[self.count] = addr;
             self.count += 1;

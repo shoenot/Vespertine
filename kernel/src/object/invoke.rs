@@ -1,6 +1,9 @@
 use core::fmt;
 use core::str::Utf8Error;
 
+use crate::memory::vmm::VmError;
+use crate::sched::ThreadError;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum InvocationError {
     AccessDenied,
@@ -41,4 +44,23 @@ impl fmt::Display for InvocationError {
 
 impl From<Utf8Error> for InvocationError {
     fn from(_: Utf8Error) -> Self { InvocationError::InvalidArgument }
+}
+
+impl From<VmError> for InvocationError {
+    fn from(value: VmError) -> Self {
+        match value {
+            VmError::AccessDenied => Self::AccessDenied,
+            VmError::OutOfMemory => Self::OutOfMemory,
+            _ => Self::InvalidArgument,
+        }
+    }
+}
+
+impl From<ThreadError> for InvocationError {
+    fn from(value: ThreadError) -> Self {
+        match value {
+            ThreadError::AllocationFailed => Self::OutOfMemory,
+            ThreadError::SpawnAllocationError(_) => Self::ThreadSpawnFail,
+        }
+    }
 }

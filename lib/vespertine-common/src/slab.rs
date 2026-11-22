@@ -13,7 +13,7 @@ pub trait PageProvider {
 
 const CACHE_SIZES: [usize; 10] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
-pub const NORMAL_PAGE_SIZE: usize = 4096;
+pub const PAGE_SIZE_4K: usize = 4096;
 
 #[repr(C)]
 struct FreeBlock {
@@ -45,14 +45,14 @@ unsafe impl<P: PageProvider> Sync for SlabAllocator<P> {}
 unsafe impl<P: PageProvider> GlobalAlloc for SlabAllocator<P> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = calc_size(&layout);
-        if size <= NORMAL_PAGE_SIZE {
+        if size <= PAGE_SIZE_4K {
             let idx = size.ilog2().saturating_sub(3) as usize;
             let mut cache_lock = self.caches[idx].lock();
             unsafe { cache_lock.allocate(&self.provider) }
         } else {
             // large allocations go directly to the provider bypassing memcache
-            let pages = (size + NORMAL_PAGE_SIZE - 1) / NORMAL_PAGE_SIZE;
-            let size_needed = pages * NORMAL_PAGE_SIZE;
+            let pages = (size + PAGE_SIZE_4K - 1) / PAGE_SIZE_4K;
+            let size_needed = pages * PAGE_SIZE_4K;
             self.provider.allocate_pages(size_needed)
         }
     }
@@ -62,13 +62,13 @@ unsafe impl<P: PageProvider> GlobalAlloc for SlabAllocator<P> {
             return;
         }
         let size = calc_size(&layout);
-        if size <= NORMAL_PAGE_SIZE {
+        if size <= PAGE_SIZE_4K {
             let idx = size.ilog2().saturating_sub(3) as usize;
             let mut cache_lock = self.caches[idx].lock();
             unsafe { cache_lock.deallocate(ptr) }
         } else {
-            let pages = (size + NORMAL_PAGE_SIZE - 1) / NORMAL_PAGE_SIZE;
-            let size_needed = pages * NORMAL_PAGE_SIZE;
+            let pages = (size + PAGE_SIZE_4K - 1) / PAGE_SIZE_4K;
+            let size_needed = pages * PAGE_SIZE_4K;
             self.provider.free_pages(ptr, size_needed);
         }
     }
@@ -95,8 +95,11 @@ impl MemCache {
     }
 
     unsafe fn refill<P: PageProvider>(&mut self, provider: &P) -> *mut u8 {
-        let virt_page_start = provider.allocate_pages(NORMAL_PAGE_SIZE) as usize;
-        let num_objects = NORMAL_PAGE_SIZE / self.object_size;
+        let page = provider.allocate_pages(PAGE_SIZE_4K);
+        if page.is_null() { return null_mut() };
+
+        let virt_page_start = page as usize;
+        let num_objects = PAGE_SIZE_4K / self.object_size;
 
         for i in 1..num_objects {
             let current_ptr = (virt_page_start + (self.object_size * i)) as *mut FreeBlock;

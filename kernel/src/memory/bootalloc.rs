@@ -1,6 +1,6 @@
 use crate::sync::TicketLock;
 use crate::memory::DIRECT_MAP_OFFSET;
-use crate::memory::pmm::HUGE_PAGE_SIZE;
+use crate::memory::PAGE_SIZE_2M;
 
 pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());
 
@@ -21,7 +21,7 @@ impl BumpAllocator {
         let alloc_base = (self.next + align - 1) & !(align - 1);
         let next = alloc_base.saturating_add(size);
 
-        if next <= (self.virt_base + HUGE_PAGE_SIZE) {
+        if next <= (self.virt_base + PAGE_SIZE_2M) {
             self.next = next;
             alloc_base as *mut u8
         } else {

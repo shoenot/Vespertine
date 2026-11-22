@@ -1,45 +1,22 @@
-use crate::klogln;
+mod concurrency_tests;
+pub(crate) mod ext2_tests;
+mod memory_tests;
+mod object_tests;
+pub(crate) mod shootdown_tests;
+pub(crate) mod thread_lifetime_tests;
 
-pub mod concurrency_tests;
-pub mod memory_tests;
-pub mod object_tests;
-pub mod smp_tests;
-
-pub const RUN_TESTS: bool = false;
-
-pub fn run_pre_vfs_tests() {
-    if !RUN_TESTS {
-        return;
-    }
-    klogln!("========== RUNNING SYSTEM DIAGNOSITC UNIT TESTS (PHASE 1) ==========");
+pub(crate) fn run_pre_vfs_tests() {
+    crate::klogln!("[TEST] Pre-VFS diagnostics");
     concurrency_tests::run_concurrency_tests();
-    memory_tests::run_pmm_tests();
-    klogln!("================= ALL DIAGNOSTIC UNIT TESTS PASSED =================");
+    crate::executor::run_diagnostic_tests();
+    crate::object::ipc::socket::run_diagnostic_tests();
+    crate::drivers::virtio::blk::run_diagnostic_tests();
+    memory_tests::run();
+    crate::klogln!("[TEST] Pre-VFS diagnostics passed");
 }
 
-pub async fn run_post_vfs_tests() {
-    if !RUN_TESTS {
-        return;
-    }
-    klogln!("========== RUNNING SYSTEM DIAGNOSITC UNIT TESTS (PHASE 2) ==========");
-    object_tests::run_object_tests().await;
-    klogln!("================= ALL DIAGNOSTIC UNIT TESTS PASSED =================");
-}
-
-#[macro_export]
-macro_rules! vklog {
-    ($verbose:expr, $($arg:tt)*) => {
-        if $verbose {
-            klog!($($arg)*);
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! vklogln {
-    ($verbose:expr, $($arg:tt)*) => {
-        if $verbose {
-            klogln!($($arg)*);
-        }
-    };
+pub(crate) async fn run_post_vfs_tests() {
+    crate::klogln!("[TEST] Post-VFS diagnostics");
+    object_tests::run().await;
+    crate::klogln!("[TEST] Post-VFS diagnostics passed");
 }

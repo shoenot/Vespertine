@@ -17,6 +17,7 @@ mod syscall;
 mod sync;
 mod init;
 mod time;
+#[cfg(feature = "diagnostics")]
 mod tests;
 mod util;
 
@@ -33,7 +34,7 @@ use hal::interrupts::enable_interrupts;
 use hal::mmu::get_cr3;
 use memory::{
     BOOTSTRAP_ALLOC,
-    BlockSize,
+    PageSize,
 };
 pub use vespertine_common::define_bitflags;
 
@@ -59,7 +60,7 @@ pub extern "C" fn kmain() -> ! {
     LOGGER.lock().init();
 
     memory::init();
-    let bootstrap_page = GLOBAL_PMM.lock().alloc(BlockSize::Huge).unwrap() as usize;
+    let bootstrap_page = GLOBAL_PMM.lock().alloc(PageSize::Size2M).unwrap() as usize;
     BOOTSTRAP_ALLOC.lock().init(bootstrap_page);
 
     interrupts::init();
@@ -86,6 +87,8 @@ pub extern "C" fn kmain() -> ! {
     BSP_CR3.store(cr3, Ordering::Release);
 
     init_smp();
+    #[cfg(feature = "diagnostics")]
+    tests::shootdown_tests::run_bsp();
 
     enumerate_pci_devices();
     for dev in &*PCI_DEVICES.lock() {
@@ -101,8 +104,9 @@ pub extern "C" fn kmain() -> ! {
     blk_arc.setup_interrupts().ok();
 
     {
-        let kernel_pml4 = PAGER.lock().get_l4_addr();
-        KERNEL_PROCESS.vmm.write().refresh_kernel_half(kernel_pml4);
+        let kernel_root_phys = PAGER.lock().root_phys().0;
+        KERNEL_PROCESS.vmm.write().as_mut().expect("kernel address space missing")
+            .refresh_kernel_mappings(kernel_root_phys as usize);
     }
 
     let blk_dyn: Arc<dyn AsyncBlockDevice> = blk_arc.clone();

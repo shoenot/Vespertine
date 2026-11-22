@@ -46,7 +46,7 @@ use crate::object::obj::{
 };
 use crate::sync::RwLock;
 use crate::process::current_process;
-use crate::memory::NORMAL_PAGE_SIZE;
+use crate::memory::PAGE_SIZE_4K;
 
 pub const FILENAME_LEN_MAX: usize = 254;
 
@@ -143,7 +143,7 @@ impl KernelObject for Directory {
                     inode: self as *const _ as u64,
                     device: 0,
                     size: 0 as u64,
-                    block_size: NORMAL_PAGE_SIZE as u32,
+                    block_size: PAGE_SIZE_4K as u32,
                     blocks: 0,
                     nlink: 1,
                     atime_sec: 0,

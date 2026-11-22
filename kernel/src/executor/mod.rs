@@ -1,6 +1,7 @@
 pub mod async_mutex;
 pub mod async_sleep;
 pub mod syscall_bridge;
+#[cfg(feature = "diagnostics")]
 mod tests;
 pub mod waiter;
 use alloc::boxed::Box;
@@ -232,4 +233,5 @@ impl Executor {
 
 pub extern "C" fn executor_thread(_arg: usize) -> ! { Executor::new().run() }
 
+#[cfg(feature = "diagnostics")]
 pub(crate) fn run_diagnostic_tests() { tests::run(); }

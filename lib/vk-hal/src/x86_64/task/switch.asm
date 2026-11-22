@@ -9,6 +9,16 @@ section .text
 ; RDX = old_extended_context (*mut ExtendedContext)
 ; RCX = new_extended_context (*const ExtendedContext)
 
+%macro RUN_SWITCH_TAIL 0
+    test r12, r12
+    jz %%done
+    mov rdi, r9
+    sub rsp, 8
+    call r12
+    add rsp, 8
+%%done:
+%endmacro
+
 switch_threads_legacy:
     ; step 1: save callee saved regs on old thread's stack
     push rbx
@@ -18,15 +28,20 @@ switch_threads_legacy:
     push r14
     push r15
 
+    mov r12, r8                 ; fifth argument: optional callback
+    mov r13, rcx                ; preserve incoming FPU context pointer 
+
     ; step 2: save extended context
     fxsave64 [rdx]              ; writing into old_extended_context
 
     ; step 3: swap stack ptrs
     mov [rdi], rsp              ; writing into old_stack_ptr
     mov rsp, rsi                ; read from new_stack_ptr
+
+    RUN_SWITCH_TAIL
     
     ; step 4: restore extended context 
-    fxrstor64 [rcx]             ; read from new_extended_context
+    fxrstor64 [r13]             ; read from new_extended_context
 
     ; step 5: restore callee saved regs from new thread's stack
     pop r15
@@ -48,6 +63,9 @@ switch_threads_avx:
     push r14
     push r15
 
+    mov r12, r8                 ; fifth argument: optional callback
+    mov r13, rcx                ; preserve incoming FPU context pointer 
+
     ; step 2: save extended context
     mov r8, rdx
     mov eax, 0xFFFFFFFF
@@ -57,11 +75,13 @@ switch_threads_avx:
     ; step 3: swap stack ptrs
     mov [rdi], rsp              ; writing into old_stack_ptr
     mov rsp, rsi                ; read from new_stack_ptr
-    
+
+    RUN_SWITCH_TAIL
+
     ; step 4: restore extended context 
     mov eax, 0xFFFFFFFF
     mov edx, 0xFFFFFFFF
-    xrstor64 [rcx]             ; read from new_extended_context
+    xrstor64 [r13]             ; read from new_extended_context
 
     ; step 5: restore callee saved regs from new thread's stack
     pop r15

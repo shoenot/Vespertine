@@ -1,8 +1,4 @@
 use alloc::sync::Arc;
-use core::hint::spin_loop;
-use core::sync::atomic::Ordering;
-
-use hal::interrupts::enable_interrupts;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
     CAP_LOGGER,
@@ -18,6 +14,7 @@ use vespertine_abi::{
     SpawnCredentials,
 };
 
+use crate::cpu::current_core_mut;
 use crate::executor::{
     Executor,
     executor_thread,
@@ -29,34 +26,31 @@ use crate::object::vfs::{
     kernel_register_obj,
     kernel_walk,
 };
-use crate::cpu::current_core_mut;
 use crate::sched::dispatch::spawn_kernel_thread;
 use crate::sched::priority::ThreadPriority;
 use crate::sched::reap::reaper_daemon;
-use crate::time;
-use crate::time::datetime::epoch_to_datetime;
-use crate::time::sleep;
 use crate::drivers::keyboard::kbd_processor_thread;
 use crate::drivers::logger::ScreenWriter;
 use crate::init::vfs_init::init_vfs;
-use crate::tests::smp_tests::{
-    MUTEX_RACE,
-    THREADS_FINISHED,
-};
+#[cfg(feature = "diagnostics")]
+use crate::tests;
 use crate::{
     KERNEL_PROCESS,
     klogln,
     terminate_thread,
-    tests,
 };
 
 // Kernel initialization tasks
 
 // Init function dispatcher
 pub extern "C" fn initializer(_arg: usize) -> ! {
+    #[cfg(feature = "diagnostics")]
     tests::run_pre_vfs_tests();
 
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER, KERNEL_PROCESS.clone());
+
+    #[cfg(feature = "diagnostics")]
+    tests::thread_lifetime_tests::run();
 
     // socket pair for keyboard
     let (kbd_source_handle, kbd_sink_handle) = init_ipc_pipeline();
@@ -72,8 +66,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         init_vfs().await;
         klogln!("[ASYNC INIT] init_vfs completed");
 
+        #[cfg(feature = "diagnostics")]
         tests::run_post_vfs_tests().await;
-        klogln!("[ASYNC INIT] post vfs tests completed");
 
         let pm_broker_handle = kernel_walk("/System/Services/ProcManager", HandleID(0), AccessRights::READ)
             .await
@@ -138,38 +132,4 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     });
 
     terminate_thread!();
-}
-
-pub extern "C" fn watchdog(threads: usize) -> ! {
-    loop {
-        if THREADS_FINISHED.load(Ordering::Relaxed) == threads {
-            let guard = MUTEX_RACE.lock();
-            let counter = *guard;
-            drop(guard);
-            klogln!("All threads finished. Final count: {}", counter);
-            break;
-        } else {
-            sleep(1_000_000_000);
-        }
-    }
-    terminate_thread!();
-}
-
-pub extern "C" fn time_print_dispatcher(_arg: usize) -> ! {
-    loop {
-        spawn_kernel_thread(time_print as *const () as usize, 0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
-        sleep(1_000_000_000);
-    }
-}
-
-pub extern "C" fn time_print(_arg: usize) -> ! {
-    enable_interrupts();
-    klogln!("Current time is: {}", epoch_to_datetime(time::get_realtime().0));
-    terminate_thread!();
-}
-
-pub extern "C" fn test_userspace(_arg: usize) -> ! {
-    loop {
-        spin_loop();
-    }
 }

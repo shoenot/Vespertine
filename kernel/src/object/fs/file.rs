@@ -13,18 +13,12 @@ use vespertine_abi::{
 };
 
 use crate::object::invoke::InvocationError;
-use crate::object::vmo::VmoObject;
+use crate::object::vmo::{VmoObject, install_private_file_vmo, new_private_file_vmo};
 use crate::object::obj::KernelObject;
 use crate::sync::TicketLock;
 use crate::process::current_process;
-use crate::memory::vmo::{
-    PagedBackingStore,
-    Vmo,
-};
-use crate::memory::{
-    DIRECT_MAP_OFFSET,
-    NORMAL_PAGE_SIZE,
-};
+use crate::memory::vmo::AnonymousVmo;
+use crate::memory::PAGE_SIZE_4K;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -41,7 +35,7 @@ unsafe impl Sync for FileObj {}
 impl KernelObject for FileObj {
     fn object_type(&self) -> ObjectType { ObjectType::File }
 
-    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
                 let mut current_offset = offset;
@@ -57,7 +51,7 @@ impl KernelObject for FileObj {
                 }
 
                 Ok(bytes_read)
-            }
+            },
             Invocation::File(FileOp::Stat { stat_ptr }) => {
                 let stat = FileStat {
                     object_type: ObjectType::File as u32,
@@ -67,7 +61,7 @@ impl KernelObject for FileObj {
                     inode: self.addr as u64,
                     device: 0,
                     size: self.size as u64,
-                    block_size: NORMAL_PAGE_SIZE as u32,
+                    block_size: PAGE_SIZE_4K as u32,
                     blocks: self.size.div_ceil(512) as u64,
                     nlink: 1,
                     atime_sec: 0,
@@ -82,27 +76,17 @@ impl KernelObject for FileObj {
                     return Err(InvocationError::InvalidPointer);
                 }
                 Ok(0)
-            }
+            },
             Invocation::File(FileOp::GetVmo) => {
-                let vmo = Vmo::new(self.size);
-                let num_pages = self.size.div_ceil(NORMAL_PAGE_SIZE);
-                for i in 0..num_pages {
-                    let page_offset = i * NORMAL_PAGE_SIZE;
-                    let pfn = vmo.request_page(page_offset).map_err(|_| InvocationError::OutOfMemory)?;
-                    let dest_virt = pfn + *DIRECT_MAP_OFFSET;
-                    let chunk = min(NORMAL_PAGE_SIZE, self.size - page_offset);
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(self.addr.add(page_offset), dest_virt as *mut u8, chunk);
-                        if chunk < NORMAL_PAGE_SIZE {
-                            core::ptr::write_bytes((dest_virt + chunk) as *mut u8, 0, NORMAL_PAGE_SIZE - chunk);
-                        }
-                    }
-                }
-                let vmo_obj = Arc::new(VmoObject::new(vmo));
-                let current_proc = current_process().ok_or(InvocationError::UnsupportedOperation)?;
-                let handle_id = current_proc.handles.write().insert(vmo_obj, AccessRights::all());
-                Ok(handle_id.0 as usize)
-            }
+                let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
+                let backing = proc.default_pool.allocate_backing(self.size)?;
+                self.copy_file_into_vmo(0, self.size, &backing).await?;
+
+                let access = AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE;
+                let rights = AccessRights::MUTATE | AccessRights::CREATE | (calling_rights & access);
+                let handle = proc.handles.write().insert(Arc::new(VmoObject::new(backing)), rights);
+                Ok(handle.0)
+            },
             Invocation::File(FileOp::Seek { offset, whence }) => {
                 let mut cursor = self.offset.lock();
                 let new_pos = match whence {
@@ -118,7 +102,27 @@ impl KernelObject for FileObj {
 
                 *cursor = new_pos as usize;
                 Ok(*cursor)
-            }
+            },
+            Invocation::File(FileOp::GetPrivateVmo { offset, len }) => {
+                let backing = new_private_file_vmo(offset, len, self.size)?;
+
+                for dst_offset in (0..len).step_by(PAGE_SIZE_4K) {
+                    let src_offset = offset + dst_offset;
+                    let bytes = (self.size - src_offset).min(PAGE_SIZE_4K);
+                    let frame = backing.get_page(dst_offset)
+                        .map_err(|_| InvocationError::OutOfMemory)?;
+
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(
+                            self.addr.add(src_offset),
+                            frame.virt() as *mut u8,
+                            bytes,
+                        );
+                    }
+                }
+
+                install_private_file_vmo(backing, calling_rights)
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -147,5 +151,24 @@ impl FileObj {
             };
         }
         Ok(read_len)
+    }
+
+    async fn copy_file_into_vmo(&self, offset: usize, bytes: usize, backing: &AnonymousVmo) -> Result<(), InvocationError> {
+        let page = PAGE_SIZE_4K;
+        if offset % page != 0 || offset.checked_add(bytes).is_none_or(|end| end > self.size) {
+            return Err(InvocationError::InvalidArgument);
+        }
+
+        for dst_offset in (0..bytes).step_by(page) {
+            let count = (bytes - dst_offset).min(page);
+            let frame = backing.get_page(dst_offset)
+                .map_err(|_| InvocationError::OutOfMemory)?;
+
+            unsafe {
+                core::ptr::copy_nonoverlapping(self.addr.add(offset + dst_offset), frame.virt() as *mut u8, count);
+            }
+        }
+
+        Ok(())
     }
 }

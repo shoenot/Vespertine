@@ -11,6 +11,9 @@ name = "kernel"
 test = false
 bench = false
 
+[features]
+diagnostics = []
+
 [dependencies]
 async-trait = "0.1.89"
 simple-psf = "0.1.2"

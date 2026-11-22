@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 use crate::executor::Executor;
 use crate::executor::async_sleep::sleep_async;
 use crate::sync::RwLock;
-use crate::memory::vmo::FileVmo;
 use crate::storage::blockdev::AsyncBlockDevice;
 use crate::storage::fs::ext2::Ext2FileSystem;
 use crate::storage::fs::ext2::obj::{
@@ -15,31 +14,16 @@ use crate::storage::partition::gpt::GptTable;
 
 async fn ext2_writeback_daemon(fs: Arc<Ext2FileSystem>) {
     loop {
-        // sleep 5 secs
-        let _ = sleep_async(5000).await;
+        // sleep 5 seconds
+        sleep_async(5000).await;
 
-        let file_vmos: Vec<Arc<FileVmo>> = {
-            let files = fs.active_files.lock();
-            files.values().filter_map(|weak| weak.upgrade()).map(|file| file.file_vmo.clone()).collect()
-        };
-        let dirty_list: Vec<(u32, Arc<Ext2File>)> = {
-            let dirty = fs.dirty_files.lock();
-            dirty.iter().map(|(&num, file)| (num, Arc::clone(file))).collect()
+        let dirty: Vec<Arc<Ext2File>> = {
+            let files = fs.dirty_files.lock();
+            files.values().cloned().collect()
         };
 
-        for vmo in file_vmos {
-            let _ = vmo.flush_to_disk().await;
-        }
-        for (inode_num, file) in dirty_list {
-            if file.file_vmo.flush_to_disk().await.is_ok() {
-                let is_still_dirty = {
-                    let dirty = file.file_vmo.anonymous_vmo.dirty_pages.lock();
-                    dirty.values().any(|&d| d)
-                };
-                if !is_still_dirty {
-                    fs.dirty_files.lock().remove(&inode_num);
-                }
-            }
+        for file in dirty {
+            let _ = file.flush_dirty_pages().await;
         }
 
         let _ = fs.cache.flush().await;
@@ -53,13 +37,17 @@ pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> A
 
     let ext2_fs = Arc::new(Ext2FileSystem::mount(partition).await.expect("Failed mounting Ext2 arch metadata"));
 
-    // launch daemon after mounting
-    let fs_clone = Arc::clone(&ext2_fs);
-    Executor::new().spawn(ext2_writeback_daemon(fs_clone));
-
+    // launch daemon after mounting 
     let root_inode_data = ext2_fs.read_inode(2).await.expect("Failed parsing root inode structs");
+    let root_dir_object = Arc::new(Ext2Directory {
+        fs: Arc::clone(&ext2_fs),
+        inode_num: 2,
+        inode_data: RwLock::new(root_inode_data),
+    });
 
-    let root_dir_object = Arc::new(Ext2Directory { fs: ext2_fs, inode_num: 2, inode_data: RwLock::new(root_inode_data) });
+    #[cfg(feature = "diagnostics")]
+    crate::tests::ext2_tests::test_ext2_owned_cache(&root_dir_object).await;
 
+    Executor::new().spawn(ext2_writeback_daemon(ext2_fs));
     root_dir_object
 }

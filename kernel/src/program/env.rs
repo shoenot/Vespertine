@@ -9,13 +9,13 @@ use vespertine_abi::{
     CapabilityGrant,
     ProcessInitPackage,
 };
-use vespertine_common::slab::NORMAL_PAGE_SIZE;
+use vespertine_common::slab::PAGE_SIZE_4K;
 
 use crate::object::invoke::InvocationError;
 use crate::memory::DIRECT_MAP_OFFSET;
 use crate::memory::vmo::{
     PagedBackingStore,
-    Vmo,
+    AnonymousVmo
 };
 
 const AUX_ENTRY_COUNT: usize = 8;
@@ -30,11 +30,11 @@ struct AuxEntry {
 
 impl ProcessEnvironment {
     pub fn inject(
-        stack_vmo: &Arc<Vmo>, stack_vaddr: usize, stack_size: usize, capabilities: &[CapabilityGrant], args_buffer: &[u8], argc: usize,
+        stack_vmo: &AnonymousVmo, stack_vaddr: usize, stack_size: usize, capabilities: &[CapabilityGrant], args_buffer: &[u8], argc: usize,
         mut initpkg: ProcessInitPackage, entry_point: usize, phdr_addr: usize, phnum: usize, base_addr: usize,
     ) -> Result<(usize, usize), InvocationError> {
-        let top_page_offset = stack_size - NORMAL_PAGE_SIZE;
-        let phys_frame = stack_vmo.request_page(top_page_offset).map_err(|_| InvocationError::OutOfMemory)?;
+        let top_page_offset = stack_size - PAGE_SIZE_4K;
+        let frame = stack_vmo.get_page(top_page_offset).map_err(|_| InvocationError::OutOfMemory)?;
 
         // calculate sizes
         let initpkg_size = size_of::<ProcessInitPackage>();
@@ -48,11 +48,11 @@ impl ProcessEnvironment {
         // Pack top-down: sysv (lowest) -> pkg -> capabilities -> strings (highest)
         // This ensures RSP (at sysv) has the entire payload ABOVE it.
         let total_payload_size = sysv_total_size + 16 + initpkg_size + 16 + capabilities_array_size + 16 + strings_size;
-        if total_payload_size > NORMAL_PAGE_SIZE {
+        if total_payload_size > PAGE_SIZE_4K {
             return Err(InvocationError::OutOfMemory);
         }
 
-        let base_offset = (NORMAL_PAGE_SIZE - total_payload_size) & !0xF;
+        let base_offset = (PAGE_SIZE_4K - total_payload_size) & !0xF;
 
         let sysv_offset = base_offset;
         let pkg_offset = (sysv_offset + sysv_total_size + 15) & !0xF;
@@ -60,7 +60,7 @@ impl ProcessEnvironment {
         let strings_offset = (capabilities_offset + capabilities_array_size + 15) & !0xF;
 
         // direct map ptrs
-        let direct_map_addr = phys_frame + *DIRECT_MAP_OFFSET;
+        let direct_map_addr = frame.virt();
 
         let strings_direct_ptr = (direct_map_addr + strings_offset) as *mut u8;
         let capabilities_direct_ptr = (direct_map_addr + capabilities_offset) as *mut CapabilityGrant;

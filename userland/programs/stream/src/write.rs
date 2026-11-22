@@ -11,7 +11,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("write").options(WRITE_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: stream echo -o [file] [text..]");
+        println!("usage: stream write -o [file] [text..]");
         return Ok(());
     }
 

@@ -25,35 +25,32 @@ use crate::cpu::current_core_mut;
 use crate::object::invoke::InvocationError;
 use crate::object::vfs::kernel_invoke;
 use crate::sync::TicketLock;
-use crate::sched::block::ThreadWakeRegistration;
+use crate::sched::block::{ThreadWakeRegistration, WakeTarget};
 use crate::sched::dispatch::cancel_block_if_awoken;
 use crate::sched::scheduler::ScheduleReason;
 use crate::sched::{
     ThreadBlockState,
-    Thread,
     ThreadState,
 };
 
 struct ThreadWaker {
-    thread: *mut Thread,
+    target: Arc<WakeTarget>,
     registration: TicketLock<Arc<ThreadWakeRegistration>>,
     awoken: AtomicBool,
 }
 
 impl ThreadWaker {
-    fn new(thread: *mut Thread) -> Arc<Self> {
-        Arc::new(Self { thread, registration: TicketLock::new(ThreadWakeRegistration::new(thread)), awoken: AtomicBool::new(false) })
+    fn new(target: Arc<WakeTarget>) -> Arc<Self> {
+        let reg = ThreadWakeRegistration::new(Arc::clone(&target));
+        Arc::new(Self { target, registration: TicketLock::new(reg), awoken: AtomicBool::new(false) })
     }
 
     fn arm(&self) -> Arc<ThreadWakeRegistration> {
-        let reg = ThreadWakeRegistration::new(self.thread);
+        let reg = ThreadWakeRegistration::new(Arc::clone(&self.target));
         *self.registration.lock() = reg.clone();
         reg
     }
 }
-
-unsafe impl Send for ThreadWaker {}
-unsafe impl Sync for ThreadWaker {}
 
 impl Wake for ThreadWaker {
     fn wake(self: Arc<Self>) { self.wake_by_ref(); }
@@ -68,7 +65,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
     let tcb = current_core_mut().scheduler.get_current_thread();
     let mut future = Box::pin(kernel_invoke(handle, invocation));
 
-    let waker_inner = ThreadWaker::new(tcb);
+    let waker_inner = ThreadWaker::new(unsafe { Arc::clone(&(*tcb).wake_target) });
     let waker = waker_inner.clone().into();
     let mut context = Context::from_waker(&waker);
 
@@ -109,7 +106,7 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
 
 pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
     let tcb = current_core_mut().scheduler.get_current_thread();
-    let waker_inner = ThreadWaker::new(tcb);
+    let waker_inner = ThreadWaker::new(unsafe { Arc::clone(&(*tcb).wake_target) });
     let waker = waker_inner.clone().into();
     let mut context = Context::from_waker(&waker);
 

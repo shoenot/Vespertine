@@ -29,9 +29,7 @@ use super::{
     take_request,
 };
 use crate::memory::{
-    ALLOCATOR,
-    BlockSize,
-    DIRECT_MAP_OFFSET,
+    ALLOCATOR, DIRECT_MAP_OFFSET, PhysBuffer,
 };
 use crate::storage::blockdev::DmaBuffer;
 
@@ -73,18 +71,6 @@ fn observer_context(request: Arc<BlockRequest>) -> (Arc<ResultObserver>, core::t
 }
 
 fn poll_future(future: &mut BlockTransferFuture, context: &mut Context<'_>) -> Poll<Result<(), ()>> { Pin::new(future).poll(context) }
-
-fn alloc_page() -> usize {
-    let page = ALLOCATOR.alloc(BlockSize::Normal);
-    assert_ne!(page, 0, "failed to allocate test page");
-    page
-}
-
-fn set_status(page_phys: usize, status: u8) {
-    unsafe {
-        *((page_phys + 512 + *DIRECT_MAP_OFFSET) as *mut u8) = status;
-    }
-}
 
 fn mark_request_complete(request: &Arc<BlockRequest>, ok: bool) {
     request.result.store(if ok { RESULT_OK } else { super::RESULT_ERROR }, Ordering::Release);
@@ -150,9 +136,9 @@ fn test_virtqueue(queue_size: u16, free_descs: u16) -> Virtqueue {
 }
 
 fn queued_request(vq: &mut Virtqueue) -> Arc<BlockRequest> {
-    let page_phys = alloc_page();
-    let (d0, d1, d2) = alloc_request_descs(vq, page_phys).expect("descriptor allocation failed");
-    let request = BlockRequest::new(d0, d1, d2, page_phys, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let header = PhysBuffer::new().expect("header allocation failed");
+    let (d0, d1, d2) = alloc_request_descs(vq).expect("descriptor allocation failed");
+    let request = BlockRequest::new(d0, d1, d2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
     store_request(vq, &request);
     request
 }
@@ -194,25 +180,23 @@ fn test_dropped_future_is_not_woken() {
 }
 
 fn test_completion_before_registration_returns_ready() {
-    let page_phys = alloc_page();
-    let request = BlockRequest::new(0, 1, 2, page_phys, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let header = PhysBuffer::new().expect("header allocation failed");
+    let request = BlockRequest::new(0, 1, 2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
     mark_request_complete(&request, true);
     let (_, waker) = counting_context();
     let mut future = BlockTransferFuture { request: request.clone(), completion: None };
     assert_eq!(poll_future(&mut future, &mut Context::from_waker(&waker)), Poll::Ready(Ok(())));
-    ALLOCATOR.free(page_phys, BlockSize::Normal);
 }
 
 fn test_completion_between_check_and_registration_returns_ready() {
-    let page_phys = alloc_page();
-    let request = BlockRequest::new(0, 1, 2, page_phys, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let header = PhysBuffer::new().expect("header allocation failed");
+    let request = BlockRequest::new(0, 1, 2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
     let (_, waker) = counting_context();
     let result = poll_block_request(&request, &mut Context::from_waker(&waker), || {
         mark_request_complete(&request, true);
     });
 
     assert_eq!(result, Poll::Ready(Ok(())));
-    ALLOCATOR.free(page_phys, BlockSize::Normal);
 }
 
 fn test_request_status_is_published_before_waking() {
@@ -230,9 +214,9 @@ fn test_request_status_is_published_before_waking() {
 
 fn test_request_exists_before_submission_publication() {
     let mut vq = test_virtqueue(8, 8);
-    let page_phys = alloc_page();
-    let (d0, d1, d2) = alloc_request_descs(&mut vq, page_phys).expect("descriptor allocation failed");
-    let request = BlockRequest::new(d0, d1, d2, page_phys, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let header = PhysBuffer::new().expect("header allocation failed");
+    let (d0, d1, d2) = alloc_request_descs(&mut vq).expect("descriptor allocation failed");
+    let request = BlockRequest::new(d0, d1, d2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
     store_request(&vq, &request);
 
     unsafe {
@@ -248,14 +232,13 @@ fn test_request_exists_before_submission_publication() {
 
 fn test_descriptor_allocation_failure_cleans_up_resources() {
     let mut vq = test_virtqueue(2, 2);
-    let page_phys = alloc_page();
 
-    assert!(alloc_request_descs(&mut vq, page_phys).is_err(), "descriptor allocation unexpectedly succeeded");
+    {
+        let _header = PhysBuffer::new().expect("header allocation failed");
+        assert!(alloc_request_descs(&mut vq).is_err(), "descriptor allocation unexpectedly succeeded");
+    }
+
     assert_eq!(drain_descs(&mut vq, 2), alloc::vec![0, 1], "descriptor cleanup did not restore the freelist");
-
-    let recycled = ALLOCATOR.alloc(BlockSize::Normal);
-    assert_eq!(recycled, page_phys, "request page was not returned to the local allocator");
-    ALLOCATOR.free(recycled, BlockSize::Normal);
 }
 
 fn test_completion_happens_exactly_once() {
@@ -273,25 +256,33 @@ fn test_completion_happens_exactly_once() {
 }
 
 fn test_read_completion_copies_dma_back_to_destination() {
-    let page_phys = alloc_page();
+    let header = PhysBuffer::new().expect("header allocation failed");
+    let destination = PhysBuffer::new().expect("destination allocation failed");
     let dma = DmaBuffer::new(512).expect("dma buffer alloc failed");
     let src = [0x5Au8; 512];
+
     unsafe {
         core::ptr::copy_nonoverlapping(src.as_ptr(), (dma.phys() + *DIRECT_MAP_OFFSET) as *mut u8, src.len());
     }
 
-    let request = BlockRequest::new(0, 1, 2, page_phys, dma);
+    let request = BlockRequest::new(0, 1, 2, header, dma);
     mark_request_complete(&request, true);
-    let (_, waker) = counting_context();
-    let mut future =
-        BlockTransferFuture { request: request.clone(), completion: Some(BlockCompletion::CopyToPhys { dst_phys: page_phys }) };
 
-    assert_eq!(poll_future(&mut future, &mut Context::from_waker(&waker)), Poll::Ready(Ok(())));
+    let (_, waker) = counting_context();
+    let mut future = BlockTransferFuture {
+        request: request.clone(),
+        completion: Some(BlockCompletion::CopyToPhys { dst_phys: destination.phys() }),
+    };
+
+    assert_eq!(
+        poll_future(&mut future, &mut Context::from_waker(&waker)),
+        Poll::Ready(Ok(())),
+    );
+
     unsafe {
-        let dst = core::slice::from_raw_parts((page_phys + *DIRECT_MAP_OFFSET) as *const u8, src.len());
+        let dst = core::slice::from_raw_parts(destination.virt() as *const u8, src.len());
         assert_eq!(dst, src);
     }
-    ALLOCATOR.free(page_phys, BlockSize::Normal);
 }
 
 pub(super) fn run() {

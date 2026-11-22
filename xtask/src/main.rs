@@ -3,6 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod disk;
+use disk::ensure_disk_layout;
+
 use clap::{Parser, Subcommand};
 
 const TARGET_NAME: &str = "x86_64-unknown-none";
@@ -71,7 +74,11 @@ enum Commands {
     /// rebuild ext2 partition image and update target/disk.img
     UpdateDisk,
     /// build bootable ISO image
-    Iso,
+    Iso {
+        /// include kernel diagnostics in the ISO
+        #[arg(long)]
+        diagnostics: bool,
+    },
     /// build everything
     Prep, 
     Run {
@@ -112,7 +119,7 @@ fn run() -> Result<(), String> {
 
             if build_all || kernel {
                 build_kernel_asm(&root);
-                build_kernel(&root);
+                build_kernel(&root, false);
             }
 
             if ports {
@@ -137,14 +144,14 @@ fn run() -> Result<(), String> {
             stage_disk(&root)?;
             update_disk_image(&root)
         }
-        Commands::Iso => {
+        Commands::Iso { diagnostics } => {
             build_kernel_asm(&root);
-            build_kernel(&root);
+            build_kernel(&root, diagnostics);
             build_iso(&root)
         }
         Commands::Prep => {
             build_kernel_asm(&root);
-            build_kernel(&root);
+            build_kernel(&root, false);
             build_userland(&root, None);
             stage_disk(&root)?;
             update_disk_image(&root)?;
@@ -201,11 +208,14 @@ fn build_kernel_asm(root: &Path) {
     }
 }
 
-fn build_kernel(root: &Path) {
+fn build_kernel(root: &Path, diagnostics: bool) {
     let mut cmd = Command::new("cargo");
     cmd.current_dir(root).args([
         "build", "-p", "kernel", "--release", "--target", TARGET_NAME,
     ]);
+    if diagnostics {
+        cmd.args(["--features", "diagnostics"]);
+    }
     run_cmd(cmd, "building kernel").unwrap();
 }
 
@@ -289,20 +299,7 @@ fn update_disk_image(root: &Path) -> Result<(), String> {
     let partition_img = build_dir.join("partition.img");
     let stage = root.join("target/build_deps/disk");
 
-    if !disk_img.exists() {
-        let mut dd = Command::new("dd");
-        dd.args(["if=/dev/zero", "bs=1M", "count=64"])
-            .arg(format!("of={}", disk_img.display()));
-        run_cmd(dd, "creating target/disk.img")?;
-
-        let end_sector = PART_START + PART_SECTORS - 1;
-        let mut sg = Command::new("sgdisk");
-        sg.arg("-n")
-            .arg(format!("1:{}:{}", PART_START, end_sector))
-            .args(["-t", "1:8300"])
-            .arg(&disk_img);
-        run_cmd(sg, "partitioning target/disk.img")?;
-    }
+    ensure_disk_layout(&disk_img)?;
 
     let mut dd_zero = Command::new("dd");
     dd_zero
@@ -409,7 +406,7 @@ fn ensure_limine(root: &Path) -> Result<(), String> {
 }
 
 fn ensure_ovmf(root: &Path) -> Result<(), String> {
-    let ovmf_file = root.join("target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd");
+    let ovmf_file = root.join("target/build_deps/edk2-ovmf-bins/ovmf-code-x86_64.fd");
     if ovmf_file.exists() {
         return Ok(());
     }
@@ -417,7 +414,7 @@ fn ensure_ovmf(root: &Path) -> Result<(), String> {
     let deps_dir = root.join("target/build_deps");
     fs::create_dir_all(&deps_dir).unwrap();
     let sh_cmd = format!(
-        "curl -L https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/edk2-ovmf.tar.gz | tar -xzf - -C \"{}\"",
+        "curl -L https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/edk2-ovmf-bins.tar.gz | tar -xzf - -C \"{}\"",
         deps_dir.display()
     );
     let mut sh = Command::new("sh");
@@ -433,7 +430,7 @@ fn run_qemu(root: &Path, debug: bool, smp: u32, mem: &str, no_kvm: bool) -> Resu
         "-M",
         "q35",
         "-drive",
-        "if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on",
+        "if=pflash,unit=0,format=raw,file=target/build_deps/edk2-ovmf-bins/ovmf-code-x86_64.fd,readonly=on",
         "-cdrom",
         "target/build/kernel-x86_64.iso",
         "-drive",

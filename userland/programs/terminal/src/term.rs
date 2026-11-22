@@ -37,6 +37,8 @@ pub struct TerminalGrid {
     pub current_bg: u32,
 
     pub cells: Vec<Cell>,
+    pub back_buffer: Vec<u32>,
+    pub present_from: Option<usize>,
     pub fb: Framebuffer,
     pub app_source: HandleID,
 }
@@ -214,7 +216,7 @@ impl TerminalGrid {
             for x in 0..font::glyph_width() {
                 let bit_is_set = (font_byte & (0x80 >> x)) != 0;
                 let color = if bit_is_set { cell.fg } else { cell.bg };
-                self.fb.write_pixel(x_start + x, y_start + y, color);
+                self.write_content_pixel(x_start + x, y_start + y, color);
             }
         }
     }
@@ -227,8 +229,17 @@ impl TerminalGrid {
         let y_start = PADDING_Y + row * font::glyph_height();
         for y in 0..font::glyph_height() {
             for x in 0..font::glyph_width() {
-                self.fb.write_pixel(x_start + x, y_start + y, self.current_bg);
+                self.write_content_pixel(x_start + x, y_start + y, self.current_bg);
             }
+        }
+    }
+
+    fn write_content_pixel(&mut self, x: usize, y: usize, color: u32) {
+        let stride = self.fb.info().pitch / size_of::<u32>();
+        self.back_buffer[y * stride + x] = color;
+
+        if self.present_from.is_none() {
+            self.fb.write_pixel(x, y, color);
         }
     }
 
@@ -242,54 +253,47 @@ impl TerminalGrid {
 
     fn scroll(&mut self) {
         let row_cells = self.width_chars;
-        let cells_len = self.cells.len();
-        self.cells.copy_within(row_cells..cells_len, 0);
+        self.cells.copy_within(row_cells.., 0);
 
-        let last_row_start = (self.height_chars - 1) * self.width_chars;
-        for i in last_row_start..self.cells.len() {
-            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
-        }
+        let last_row = self.cells.len() - row_cells;
+        self.cells[last_row..].fill(Cell {
+            char: ' ',
+            fg: self.current_fg,
+            bg: self.current_bg,
+        });
 
-        let info = self.fb.info();
-        let screen_words = info.pitch / 4;
+        let stride = self.fb.info().pitch / size_of::<u32>();
+        let glyph_height = font::glyph_height();
 
-        let dst_start = PADDING_Y * screen_words;
-        let src_start = (PADDING_Y + font::glyph_height()) * screen_words;
-        let num_lines = (self.height_chars - 1) * font::glyph_height();
+        let dst = PADDING_Y * stride;
+        let src = dst + glyph_height * stride;
+        let words = (self.height_chars - 1) * glyph_height * stride;
 
-        unsafe {
-            let ptr = self.fb.pixel_ptr;
-            for y in 0..num_lines {
-                let dest_row = ptr.add(dst_start + y * screen_words);
-                let src_row = ptr.add(src_start + y * screen_words);
-                for x in 0..screen_words {
-                    write_volatile(dest_row.add(x), read_volatile(src_row.add(x)));
-                }
-            }
-        }
+        self.back_buffer.copy_within(src..src + words, dst);
+        self.back_buffer[dst + words..].fill(self.current_bg);
 
-        // fill bottom 16 scanlines with bg color
-        unsafe {
-            let ptr = self.fb.pixel_ptr;
-            let last_row_y_start = PADDING_Y + (self.height_chars - 1) * font::glyph_height();
-            let start_word = last_row_y_start * screen_words;
-            let total_words = self.fb.size_in_bytes / 4;
-            for i in start_word..total_words {
-                write_volatile(ptr.add(i), self.current_bg);
-            }
-        }
+        self.present_from = Some(self.present_from.map_or(dst, |start| start.min(dst)));
     }
 
+    pub fn present(&mut self) {
+        let Some(start) = self.present_from.take() else {
+            return;
+        };
+
+        let dst = self.fb.pixel_ptr;
+        for (offset, &color) in self.back_buffer[start..].iter().enumerate() {
+            unsafe { dst.add(start + offset).write_volatile(color) };
+        }
+    }
+    
     pub fn clear_screen(&mut self) {
         let _w = self.width_chars;
         let _h = self.height_chars;
         for i in 0..self.cells.len() {
             self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
         }
-        let pixels = self.fb.pixels_mut();
-        for p in pixels.iter_mut() {
-            *p = self.current_bg;
-        }
+        self.back_buffer.fill(self.current_bg);
+        self.present_from = Some(0);
         self.cursor_x = 0;
         self.cursor_y = 0;
     }

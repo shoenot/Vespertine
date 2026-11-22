@@ -62,6 +62,8 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
         current_fg: FG_COLOR,
         current_bg: BG_COLOR,
         cells: vec![Cell { char: ' ', fg: FG_COLOR, bg: BG_COLOR }; width_chars * height_chars],
+        back_buffer: vec![BG_COLOR; fb.size_in_bytes / size_of::<u32>()],
+        present_from: None,
         fb,
         app_source: term_stdin.handle(),
     };
@@ -99,8 +101,11 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
         Waiter::new().readable(kbd_handle).readable(term_stdout.handle()).readable(blink_read.handle()).readable(ctrl_term.handle());
 
     let mut vte_parser = vte::Parser::new();
+    let mut buf = [0u8; 256];
+    let mut app_buf = [0u8; 4096];
 
     loop {
+        grid.present();
         grid.draw_cursor(grid.cursor_blink_on);
 
         // block until either kbd or stdout is readable
@@ -222,7 +227,6 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
 
         // application output
         if waiter.ready(1) {
-            let mut app_buf = [0u8; 256];
             match sys_read(term_stdout.handle(), app_buf.as_mut_ptr(), app_buf.len(), 0) {
                 Ok(n) if n > 0 => {
                     let oflag = grid.termios.c_oflag;

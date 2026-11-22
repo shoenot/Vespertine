@@ -1,5 +1,6 @@
 use core::sync::atomic::Ordering;
 
+use alloc::sync::Arc;
 use hal::interrupts::{
     disable_interrupts,
     enable_interrupts,
@@ -113,7 +114,8 @@ pub fn sleep(ns: usize) {
 
     let sched = &mut current_core_mut().scheduler;
     let current_thread = sched.get_current_thread();
-    let registration = ThreadWakeRegistration::new(current_thread);
+    let target = unsafe { Arc::clone(&(*current_thread).wake_target) };
+    let registration = ThreadWakeRegistration::new(target);
 
     unsafe {
         (*current_thread).wake_time = target_time;

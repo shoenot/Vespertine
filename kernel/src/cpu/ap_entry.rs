@@ -33,6 +33,8 @@ pub extern "C" fn ap_entry(cpu_local: CpuLocalPtr) -> ! {
 
     hal::cpu::init_ap_state(hal_boot_alloc);
     hal::timer::init_local();
+    #[cfg(feature = "diagnostics")]
+    crate::tests::shootdown_tests::run_ap();
 
     hal::interrupts::enable_interrupts();
     terminate_thread!();

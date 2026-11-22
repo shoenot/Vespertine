@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use core::ptr::null_mut;
+use core::ptr;
 use core::sync::atomic::{
     AtomicBool,
     AtomicU8,
@@ -8,14 +8,13 @@ use core::sync::atomic::{
 };
 
 use super::priority::ThreadPriority;
-use crate::KERNEL_PROCESS;
-use crate::cpu::current_core_mut;
+use crate::process::thread_object::ThreadObject;
 use crate::process::{
     Process,
     ProcessControlBlock,
 };
 use crate::sync::TicketLock;
-use crate::sched::block::ThreadWakeRegistration;
+use crate::sched::block::{ThreadWakeRegistration, WakeTarget};
 use crate::sched::scheduler::get_new_tid;
 use crate::sched::wait::WaitQueue;
 
@@ -56,6 +55,7 @@ unsafe impl Sync for ThreadBlockState {}
 pub struct Thread {
     pub thread_id: usize,
     pub state: AtomicU8,
+    pub handle: Option<Arc<ThreadObject>>,
 
     pub cancel_requested: AtomicBool,
 
@@ -78,6 +78,8 @@ pub struct Thread {
     pub migration_disabled: AtomicBool,
     pub block_state: TicketLock<ThreadBlockState>,
 
+    pub wake_target: Arc<WakeTarget>,
+    pub reap_pins: AtomicUsize,
     pub process: Arc<ProcessControlBlock>,
     pub next: *mut Thread,
 }
@@ -92,32 +94,37 @@ impl Thread {
         priority: ThreadPriority, proc: Process,
     ) {
         unsafe {
-            core::ptr::write(&mut self.thread_id, get_new_tid());
-            core::ptr::write(&mut self.state, AtomicU8::new(ThreadState::Ready as u8));
+            let thread_ptr = ptr::from_mut(&mut *self);
 
-            core::ptr::write(&mut self.cancel_requested, AtomicBool::new(false));
+            ptr::write(&mut self.thread_id, get_new_tid());
+            ptr::write(&mut self.state, AtomicU8::new(ThreadState::Ready as u8));
+            ptr::write(&mut self.handle, None);
 
-            core::ptr::write(&mut self.base_priority, priority);
-            core::ptr::write(&mut self.effective_priority, priority);
+            ptr::write(&mut self.cancel_requested, AtomicBool::new(false));
 
-            core::ptr::write(&mut self.wake_time, 0);
-            core::ptr::write(&mut self.ready_since, 0);
-            core::ptr::write(&mut self.total_runtime, 0);
-            core::ptr::write(&mut self.last_started, 0);
-            core::ptr::write(&mut self.quantum_expiry, 0);
+            ptr::write(&mut self.base_priority, priority);
+            ptr::write(&mut self.effective_priority, priority);
 
-            core::ptr::write(&mut self.stack_ptr, stack_ptr);
-            core::ptr::write(&mut self.stack_base, stack_base);
-            core::ptr::write(&mut self.stack_size, stack_size);
-            core::ptr::write(&mut self.extended_context, fpu_ptr);
-            core::ptr::write(&mut self.fs_base, 0);
+            ptr::write(&mut self.wake_time, 0);
+            ptr::write(&mut self.ready_since, 0);
+            ptr::write(&mut self.total_runtime, 0);
+            ptr::write(&mut self.last_started, 0);
+            ptr::write(&mut self.quantum_expiry, 0);
 
-            core::ptr::write(&mut self.assigned_core, AtomicUsize::new(assigned_core));
-            core::ptr::write(&mut self.migration_disabled, AtomicBool::new(false));
-            core::ptr::write(&mut self.block_state, TicketLock::new(ThreadBlockState::None));
+            ptr::write(&mut self.stack_ptr, stack_ptr);
+            ptr::write(&mut self.stack_base, stack_base);
+            ptr::write(&mut self.stack_size, stack_size);
+            ptr::write(&mut self.extended_context, fpu_ptr);
+            ptr::write(&mut self.fs_base, 0);
 
-            core::ptr::write(&mut self.process, proc);
-            core::ptr::write(&mut self.next, null_mut());
+            ptr::write(&mut self.assigned_core, AtomicUsize::new(assigned_core));
+            ptr::write(&mut self.migration_disabled, AtomicBool::new(false));
+            ptr::write(&mut self.block_state, TicketLock::new(ThreadBlockState::None));
+
+            ptr::write(&mut self.wake_target, WakeTarget::new(thread_ptr));
+            ptr::write(&mut self.reap_pins, AtomicUsize::new(0));
+            ptr::write(&mut self.process, proc);
+            ptr::write(&mut self.next, ptr::null_mut());
         }
     }
 
@@ -153,3 +160,33 @@ impl Thread {
 
 unsafe impl Send for Thread {}
 unsafe impl Sync for Thread {}
+
+pub struct ThreadPin(*mut Thread);
+
+impl ThreadPin {
+    /// 'thread' must be reg'd and the caller must hold the registry lock/wake target lock
+    /// so it can't be unregistered while this pin is acquired
+    pub unsafe fn acquire_protected(thread: *mut Thread) -> Self {
+        assert!(!thread.is_null());
+
+        unsafe {
+            (*thread)
+                .reap_pins
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| { count.checked_add(1) })
+                .expect("thread pin count overflow");
+        }
+
+        Self(thread)
+    }
+
+    pub fn as_ptr(&self) -> *mut Thread {
+        self.0
+    }
+}
+
+impl Drop for ThreadPin {
+    fn drop(&mut self) {
+        let previous = unsafe { (*self.0).reap_pins.fetch_sub(1, Ordering::Release) };
+        assert_ne!(previous, 0, "thread pin count underflow");
+    }
+}

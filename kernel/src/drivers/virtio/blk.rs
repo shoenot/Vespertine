@@ -47,9 +47,7 @@ use crate::drivers::virtio::mmio::{
 };
 use crate::interrupts::alloc::MsiHandle;
 use crate::memory::{
-    ALLOCATOR,
-    BlockSize,
-    DIRECT_MAP_OFFSET,
+    ALLOCATOR, DIRECT_MAP_OFFSET, PageSize, PhysBuffer,
 };
 use crate::storage::blockdev::{
     AsyncBlockDevice,
@@ -152,7 +150,7 @@ pub struct BlockRequest {
     d0: u16,
     d1: u16,
     d2: u16,
-    page_phys: usize,
+    header: PhysBuffer,
     dma_buffer: Arc<DmaBuffer>,
 
     completed: AtomicBool,
@@ -369,12 +367,12 @@ impl Virtqueue {
 }
 
 impl BlockRequest {
-    fn new(d0: u16, d1: u16, d2: u16, page_phys: usize, dma_buffer: Arc<DmaBuffer>) -> Arc<Self> {
+    fn new(d0: u16, d1: u16, d2: u16, header: PhysBuffer, dma_buffer: Arc<DmaBuffer>) -> Arc<Self> {
         Arc::new(Self {
             d0,
             d1,
             d2,
-            page_phys,
+            header,
             dma_buffer,
             completed: AtomicBool::new(false),
             result: AtomicU8::new(RESULT_PENDING),
@@ -383,32 +381,21 @@ impl BlockRequest {
     }
 }
 
-fn free_submission_resources(vq: &mut Virtqueue, page_phys: usize, descs: &[u16]) {
-    for &desc in descs.iter().rev() {
-        vq.free_desc(desc);
-    }
-    crate::memory::ALLOCATOR.free(page_phys, BlockSize::Normal);
-}
+fn alloc_request_descs(vq: &mut Virtqueue) -> Result<(u16, u16, u16), ()> {
+    let d0 = vq.alloc_desc()? as u16;
 
-fn alloc_request_descs(vq: &mut Virtqueue, page_phys: usize) -> Result<(u16, u16, u16), ()> {
-    let d0 = match vq.alloc_desc() {
-        Ok(d) => d as u16,
-        Err(_) => {
-            crate::memory::ALLOCATOR.free(page_phys, BlockSize::Normal);
-            return Err(());
-        }
-    };
     let d1 = match vq.alloc_desc() {
         Ok(d) => d as u16,
         Err(_) => {
-            free_submission_resources(vq, page_phys, &[d0]);
+            vq.free_desc(d0);
             return Err(());
         }
     };
     let d2 = match vq.alloc_desc() {
         Ok(d) => d as u16,
         Err(_) => {
-            free_submission_resources(vq, page_phys, &[d0, d1]);
+            vq.free_desc(d1);
+            vq.free_desc(d0);
             return Err(());
         }
     };
@@ -444,8 +431,6 @@ fn complete_request(vq: &mut Virtqueue, request: &Arc<BlockRequest>, status: u8)
     vq.free_desc(request.d0);
     vq.free_desc(request.d1);
     vq.free_desc(request.d2);
-
-    crate::memory::ALLOCATOR.free(request.page_phys, BlockSize::Normal);
 }
 
 pub const VIRTIO_BLK_T_IN: u32 = 0; // READ
@@ -567,33 +552,29 @@ impl VirtioBlockDevice {
         let vq_state = &self.queues[vq_idx];
 
         unsafe {
-            let page_phys = crate::memory::ALLOCATOR.alloc(BlockSize::Normal);
-            if page_phys == 0 {
-                return Err(());
-            };
-            let page_virt = page_phys + *DIRECT_MAP_OFFSET;
+            let buffer = PhysBuffer::new().ok_or(())?;
             let dma_len = sectors_count as usize * 512;
             let dma_buffer = if is_write { DmaBuffer::from_phys(buf_phys as usize, dma_len)? } else { DmaBuffer::new(dma_len)? };
 
-            write_bytes(page_virt as *mut u8, 0, 4096);
+            write_bytes(buffer.virt() as *mut u8, 0, 4096);
 
             let req_hdr = VirtioBlkReqHeader { req_type: if is_write { VIRTIO_BLK_T_OUT } else { VIRTIO_BLK_T_IN }, reserved: 0, sector };
-            let hdr_ptr = page_virt as *mut VirtioBlkReqHeader;
+            let hdr_ptr = buffer.virt() as *mut VirtioBlkReqHeader;
             write_volatile(hdr_ptr, req_hdr);
 
-            let status_ptr = (page_virt + 512) as *mut u8;
+            let status_ptr = (buffer.virt() + 512) as *mut u8;
             write_volatile(status_ptr, 0xFF);
 
             let request = {
                 let mut vq = vq_state.vq.lock();
-                let (d0, d1, d2) = alloc_request_descs(&mut vq, page_phys)?;
+                let (d0, d1, d2) = alloc_request_descs(&mut vq)?;
 
                 // chain desc 0 - header
                 let desc0 = vq.desc.add(d0 as usize);
                 write_volatile(
                     desc0,
                     VqDescriptor {
-                        addr: page_phys as u64,
+                        addr: buffer.phys() as u64,
                         len: 16,
                         flags: 1, // next flag
                         next: d1,
@@ -614,14 +595,14 @@ impl VirtioBlockDevice {
 
                 // chain desc 2 - status byte
                 let desc2 = vq.desc.add(d2 as usize);
-                write_volatile(desc2, VqDescriptor { addr: (page_phys + 512) as u64, len: 1, flags: 2, next: 0xFFFF });
+                write_volatile(desc2, VqDescriptor { addr: (buffer.phys() + 512) as u64, len: 1, flags: 2, next: 0xFFFF });
 
                 let avail_idx_ptr = vq.available.idx;
                 let idx = read_volatile(avail_idx_ptr);
                 let slot = (idx as usize) % (vq.queue_size as usize);
                 let ring_slot_ptr = vq.available.ring.add(slot);
                 write_volatile(ring_slot_ptr, d0);
-                let request = BlockRequest::new(d0, d1, d2, page_phys, dma_buffer.clone());
+                let request = BlockRequest::new(d0, d1, d2, buffer, dma_buffer);
                 store_request(&vq, &request);
 
                 // if the device supports virtio_ring_f_event_idx, update used_event so the device
@@ -747,7 +728,7 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
                     };
 
                     if let Some(request) = request {
-                        let status_ptr = (request.page_phys + 512 + *DIRECT_MAP_OFFSET) as *const u8;
+                        let status_ptr = (request.header.phys() + 512 + *DIRECT_MAP_OFFSET) as *const u8;
                         let status = read_volatile(status_ptr);
 
                         let mut vq = (*vq_state).vq.lock();
@@ -796,7 +777,9 @@ pub extern "C" fn virtio_blk_worker_thread(arg: usize) -> ! {
     }
 }
 
+#[cfg(feature = "diagnostics")]
 #[path = "blk_tests.rs"]
 mod tests;
 
+#[cfg(feature = "diagnostics")]
 pub(crate) fn run_diagnostic_tests() { tests::run(); }

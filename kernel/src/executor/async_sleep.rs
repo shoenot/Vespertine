@@ -63,7 +63,9 @@ impl AsyncSleep {
     pub(crate) fn registration(&self) -> Arc<TimerRegistration> { self.registration.clone() }
 }
 
+#[cfg(feature = "diagnostics")]
 #[path = "async_sleep_tests.rs"]
 mod tests;
 
+#[cfg(feature = "diagnostics")]
 pub(super) fn run_diagnostic_tests() { tests::run(); }

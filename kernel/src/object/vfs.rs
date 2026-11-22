@@ -16,6 +16,7 @@ use vespertine_abi::{
     Invocation,
 };
 
+use crate::memory::vmo::AnonymousVmo;
 use crate::object::invoke::InvocationError;
 use crate::object::mount::mount;
 use crate::object::namespace::DirLocation;
@@ -171,4 +172,8 @@ impl KernelObject for FileDescription {
     }
 
     fn permissions(&self) -> Option<FilePermissions> { self.inner.permissions() }
+
+    async fn copy_file_into_vmo(&self, offset: usize, bytes: usize, backing: &AnonymousVmo) -> Result<(), InvocationError> {
+        self.inner.copy_file_into_vmo(offset, bytes, backing).await
+    }
 }

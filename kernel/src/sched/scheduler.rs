@@ -3,8 +3,7 @@
 use alloc::sync::Arc;
 use core::mem::size_of;
 use core::ptr::{
-    null_mut,
-    write_bytes,
+    addr_of_mut, null_mut, write_bytes,
 };
 use core::sync::atomic::{
     AtomicUsize,
@@ -147,7 +146,6 @@ impl SchedulerState {
         }
 
         kernel_proc.register_thread(tcb_ptr);
-        kernel_proc.active_threads.fetch_add(1, Ordering::SeqCst);
 
         self.current_thread = tcb_ptr;
     }
@@ -159,17 +157,20 @@ impl SchedulerState {
 
         let now = get_time();
         let prev_thread = self.current_thread;
-        let mut prev_retired = false;
 
-        if !prev_thread.is_null() {
+        let prev_retired = if prev_thread.is_null() { false } else {
             unsafe {
                 account_running_thread(&mut *prev_thread, reason, now);
 
-                if (*prev_thread).state() == ThreadState::Running && thread_should_exit(prev_thread) {
-                    prev_retired = retire_current_thread(prev_thread, 0)
+                if (*prev_thread).state() == ThreadState::Running
+                    && thread_should_exit(prev_thread)
+                {
+                    retire_current_thread(prev_thread, 0);
                 }
+
+                (*prev_thread).state() == ThreadState::Terminated
             }
-        }
+        };
 
         loop {
             let item = { self.mailbox.lock().pop() };
@@ -237,11 +238,8 @@ impl SchedulerState {
         unsafe { set_kernel_stack(next_stack_top); }
         update_hardware_timer();
 
-        if prev_retired {
-            GRAVEYARD.lock().push(prev_thread);
-        }
-
         if prev_thread == next_thread {
+            assert!(!prev_retired, "selected a retired thread");
             return;
         }
 
@@ -251,7 +249,7 @@ impl SchedulerState {
             };
 
             if should_switch_addr_space {
-                load_cr3((&*next_thread).process.pml4_addr as u64);
+                load_cr3((&*next_thread).process.root_addr as u64);
             }
 
             let base_target = (*next_thread).fs_base;
@@ -259,12 +257,15 @@ impl SchedulerState {
         }
 
         if !prev_thread.is_null() {
+            let tail = prev_retired.then_some(publish_retired_thread as extern "sysv64" fn(*mut ()));
             unsafe {
                 switch_threads(
-                    &mut (*prev_thread).stack_ptr as *mut usize,
+                    addr_of_mut!((*prev_thread).stack_ptr),
                     (*next_thread).stack_ptr,
                     (*prev_thread).extended_context,
                     (*next_thread).extended_context,
+                    tail,
+                    prev_thread.cast::<()>(),
                 );
             }
         } else {
@@ -495,4 +496,8 @@ fn retire_current_thread(thread: *mut Thread, exit_code: u32) -> bool {
 
         true
     }
+}
+
+extern "sysv64" fn publish_retired_thread(arg: *mut ()) {
+    GRAVEYARD.lock().push(arg.cast::<Thread>());
 }
