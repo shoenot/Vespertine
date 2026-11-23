@@ -51,13 +51,13 @@ pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
     for (name, process) in run.processes {
         match process.wait() {
             Ok(exit) => final_result = ShellResult::Launched(exit),
-            Err(error) => return ShellResult::FailedToLaunch(name, error),
+            Err(error) => return ShellResult::FailedToWait(name, error),
         }
     }
     let _ = unset_raw_mode();
     match render_result {
         Ok(()) => final_result,
-        Err(error) => ShellResult::FailedToRender("pipeline".into(), error),
+        Err(error) => ShellResult::from_render_error("pipeline", error),
     }
 }
 

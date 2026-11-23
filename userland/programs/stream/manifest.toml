@@ -7,3 +7,6 @@ binary = "stream"
 input = "any"
 modes = ["typed"]
 default = "typed"
+
+[permissions]
+filesystem = "mutable"

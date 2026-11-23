@@ -14,8 +14,7 @@ use vespertine_abi::{
 use vrt::syscall::sys_invoke;
 
 use crate::{
-    Error,
-    env,
+    Error, ErrorKind, env,
 };
 
 pub fn resolve(path: &Path<'_>, rights: AccessRights) -> Result<HandleID, Error> {
@@ -29,7 +28,10 @@ pub fn resolve_from(path: &Path<'_>, root: HandleID, cwd: HandleID, rights: Acce
     sys_invoke(root, &Invocation::Directory(op)).map(HandleID).map_err(|e| {
         let mut err = Error::from(e);
         if err.message.is_empty() {
-            err.message = format!("failed to resolve '{}'", path.as_str());
+            err.message = match err.kind {
+                ErrorKind::AccessDenied => format!("permission denied resolving '{}'", path.as_str()),
+                _ => format!("failed to resolve '{}'", path.as_str()),
+            };
         }
         err
     })
@@ -38,7 +40,7 @@ pub fn resolve_from(path: &Path<'_>, root: HandleID, cwd: HandleID, rights: Acce
 pub fn stat(path: &Path<'_>) -> Result<FileStat, Error> {
     let handle = resolve(path, AccessRights::new())?;
     let file = File::from_handle(handle);
-    file.stat()
+    file.stat().map_err(|error| error.context(format_args!("cannot stat '{}'", path.as_str())))
 }
 
 pub fn link_object(parent: HandleID, name: &str, object: HandleID) -> Result<(), Error> {

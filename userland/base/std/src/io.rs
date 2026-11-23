@@ -1,7 +1,4 @@
-use crate::{
-    Error,
-    ErrorKind,
-};
+use crate::Error;
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -30,20 +27,38 @@ pub trait Read {
 
     fn read_to_string(&self) -> Result<String, Error> {
         let bytes = self.read_to_end()?;
-        String::from_utf8(bytes).map_err(|_| Error { kind: ErrorKind::InvalidArgument, message: "Stream contains invalid UTF-8".into() })
+        String::from_utf8(bytes).map_err(|error| {
+            Error::invalid_encoding(alloc::format!(
+                "invalid UTF-8 at byte {}",
+                error.utf8_error().valid_up_to()
+            ))
+        })
     }
 
-    fn read_exact(&self, mut buf: &mut [u8]) -> Result<(), Error> {
+    fn read_exact(&self, buf: &mut [u8]) -> Result<(), Error> {
+        if self.read_exact_or_eof(buf)? {
+            Ok(())
+        } else {
+            Err(Error::end_of_stream("unexpected end of stream during read".into()))
+        }
+    }
+
+    /// Returns false at EOF before reading any bytes. EOF during a partial read is an error.
+    fn read_exact_or_eof(&self, mut buf: &mut [u8]) -> Result<bool, Error> {
+        let expected = buf.len();
         while !buf.is_empty() {
-            match self.read(buf) {
-                Ok(0) => {
-                    return Err(Error::end_of_stream("Unexpected end of stream during read".into()));
+            match self.read(buf)? {
+                0 if buf.len() == expected => return Ok(false),
+                0 => {
+                    let received = expected - buf.len();
+                    return Err(Error::end_of_stream(alloc::format!(
+                        "truncated read: received {received} of {expected} bytes"
+                    )));
                 }
-                Ok(n) => buf = &mut buf[n..],
-                Err(e) => return Err(e),
+                count => buf = &mut buf[count..],
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -55,7 +70,10 @@ pub trait Write {
         while total < buf.len() {
             match self.write(&buf[total..]) {
                 Ok(0) => {
-                    return Err(Error { kind: ErrorKind::OutOfMemory, message: "Write failed".into() });
+                    return Err(Error::write_zero(alloc::format!(
+                        "write stopped after {total} of {} bytes",
+                        buf.len()
+                    )));
                 }
                 Ok(n) => total += n,
                 Err(e) => return Err(e),

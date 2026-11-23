@@ -79,59 +79,46 @@ impl Display for EntryKind {
 
 pub struct ReadDir {
     read_end: Socket,
+    expects_entry: bool,
     finished: bool,
 }
 
-impl Iterator for ReadDir {
-    type Item = DirEntry;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
+impl ReadDir {
+    fn read_entry(&mut self) -> Result<Option<DirEntry>, Error> {
+        let mut header = PacketHeader::default();
+        let header_bytes = unsafe {
+            slice::from_raw_parts_mut((&mut header as *mut PacketHeader).cast::<u8>(), size_of::<PacketHeader>())
         };
 
-        let mut header = PacketHeader::default();
-        let header_bytes = unsafe { slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>()) };
-
-        if self.read_end.read_exact(header_bytes).is_err() {
-            self.finished = true;
-            return None;
+        if !self.read_end.read_exact_or_eof(header_bytes)
+            .map_err(|error| error.context("reading directory entry header"))?
+        {
+            if self.expects_entry {
+                return Err(Error::end_of_stream("directory listing ended before the next entry".into()));
+            }
+            return Ok(None);
         }
 
-        if header.magic != VESPER_MAGIC ||
-            header.version != 1 ||
-            header.packet_type != PacketType::DirEntry as u32 ||
-            header.payload_len as usize != size_of::<AbiDirEntry>()
+        if header.magic != VESPER_MAGIC
+            || header.version != 1
+            || header.packet_type != PacketType::DirEntry as u32
+            || header.payload_len as usize != size_of::<AbiDirEntry>()
         {
-            self.finished = true;
-            return None;
+            return Err(Error::invalid_encoding("invalid directory entry header".into()));
         }
 
         let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0; 254] };
-        let entry_bytes = unsafe { slice::from_raw_parts_mut(&mut entry as *mut AbiDirEntry as *mut u8, size_of::<AbiDirEntry>()) };
-
-        if self.read_end.read_exact(entry_bytes).is_err() {
-            self.finished = true;
-            return None;
-        }
-
-        if !header.packet_flags.contains(PacketFlags::HAS_NEXT) {
-            self.finished = true;
-        }
-
-        let name_len = entry.name_len as usize;
-        if name_len > entry.name.len() {
-            self.finished = true;
-            return None;
-        }
-
-        let name = match core::str::from_utf8(&entry.name[..name_len]) {
-            Ok(name) => name.into(),
-            Err(_) => {
-                self.finished = true;
-                return None;
-            }
+        let entry_bytes = unsafe {
+            slice::from_raw_parts_mut((&mut entry as *mut AbiDirEntry).cast::<u8>(), size_of::<AbiDirEntry>())
         };
+        self.read_end.read_exact(entry_bytes)
+            .map_err(|error| error.context("reading directory entry payload"))?;
+
+        let name_bytes = entry.name.get(..entry.name_len as usize)
+            .ok_or_else(|| Error::invalid_encoding("invalid directory entry name length".into()))?;
+        let name = core::str::from_utf8(name_bytes)
+            .map_err(|_| Error::invalid_encoding("directory entry name is not UTF-8".into()))?
+            .into();
 
         let kind = match entry.entry_type {
             1 => EntryKind::Directory,
@@ -139,14 +126,36 @@ impl Iterator for ReadDir {
             _ => EntryKind::Object,
         };
 
-        Some(DirEntry { name, kind })
+        self.expects_entry = header.packet_flags.contains(PacketFlags::HAS_NEXT);
+        self.finished = !self.expects_entry;
+        Ok(Some(DirEntry { name, kind }))
+    }
+}
+
+impl Iterator for ReadDir {
+    type Item = Result<DirEntry, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        let result = self.read_entry();
+        if !matches!(&result, Ok(Some(_))) {
+            self.finished = true;
+        }
+        result.transpose()
     }
 }
 
 impl Dir {
     pub fn open(path: &Path<'_>) -> Result<Self, Error> { Self::open_with_rights(path, AccessRights::LIST | AccessRights::TRAVERSE) }
 
-    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> { resolve(path, rights).map(Dir) }
+    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> { 
+        resolve(path, rights)
+            .map(Dir)
+            .map_err(|error| error.context(format_args!("cannot open directory '{}'", path.as_str())))
+    }
 
     pub fn handle(&self) -> HandleID { self.0 }
 
@@ -161,7 +170,7 @@ impl Dir {
 
         write_end.close();
 
-        Ok(ReadDir { read_end, finished: false })
+        Ok(ReadDir { read_end, expects_entry: false, finished: false })
     }
 
     pub fn subdir(&self, name: &str) -> Result<Dir, Error> {
@@ -177,19 +186,35 @@ impl Dir {
     }
 
     pub fn create_dir(path: &Path<'_>) -> Result<Self, Error> {
-        let (parent_path, dir_name) = split_parent_name(path).map_err(Error::from)?;
-        let parent = resolve(&parent_path.as_path(), AccessRights::CREATE)?;
+        let context = |error: Error| {
+            error.context(format_args!("cannot create directory '{}'", path.as_str()))
+        };
+
+        let (parent_path, dir_name) = split_parent_name(path)
+            .map_err(|error| context(error.into()))?;
+        let parent = resolve(&parent_path.as_path(), AccessRights::CREATE)
+            .map_err(context)?;
+
         let res = sys_create_dir(parent, dir_name).map(Dir::from_handle);
         let _ = sys_close(parent);
-        res.map_err(Error::from)
+
+        res.map_err(|error| context(error.into()))
     }
 
     pub fn remove(path: &Path<'_>) -> Result<(), Error> {
-        let (parent_path, name) = split_parent_name(path).map_err(Error::from)?;
-        let parent = resolve(&parent_path.as_path(), AccessRights::REMOVE)?;
+        let context = |error: Error| {
+            error.context(format_args!("cannot delete '{}'", path.as_str()))
+        };
+
+        let (parent_path, name) = split_parent_name(path)
+            .map_err(|error| context(error.into()))?;
+        let parent = resolve(&parent_path.as_path(), AccessRights::REMOVE)
+            .map_err(context)?;
+
         let res = sys_unlink(parent, name);
         let _ = sys_close(parent);
-        res.map_err(Error::from)
+
+        res.map_err(|error| context(error.into()))
     }
 
     pub fn stat(&self) -> Result<FileStat, Error> {

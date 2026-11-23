@@ -39,7 +39,8 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), ShellError> {
 
         match res {
             Ok(res) => match res {
-                ShellResult::None | ShellResult::Launched(_) => {}
+                ShellResult::None | ShellResult::Launched(_) => {},
+                error @ ShellResult::CommandError(..) => println!("{error}"),
                 other => println!("EVAL: {}", other),
             },
             Err(e) => println!("{}", e),

@@ -1,0 +1,10 @@
+version = 1
+
+[user]
+id = 1000
+name = "development"
+display-name = "Development"
+first-name = "Vespertine"
+last-name = "Development"
+home = "/Users/Dev"
+roles = ["admin"]

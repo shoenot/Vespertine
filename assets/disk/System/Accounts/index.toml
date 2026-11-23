@@ -1,8 +1,8 @@
 version = 1
 
-default = "shurjo"
+default = "development"
 
 users = [
     "system",
-    "shurjo"
+    "development"
 ]

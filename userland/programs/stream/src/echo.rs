@@ -10,8 +10,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("echo").options(ECHO_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: stream echo [-n/--no-newline] [text..]");
-        return Ok(());
+        return vstd::typed::write_help("usage: stream echo [text...]");
     }
 
     let mut s = String::new();

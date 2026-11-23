@@ -11,8 +11,7 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     let matches = Command::new("write").options(WRITE_OPTIONS).parse(args).map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: stream write -o [file] [text..]");
-        return Ok(());
+        return vstd::typed::write_help("usage: stream write -o <file> [text...]");
     }
 
     let Some(path_str) = matches.value("output-file") else {
@@ -20,9 +19,18 @@ pub fn run(args: &[String]) -> Result<(), Error> {
     };
 
     let pathbuf = PathBuf::from_str(path_str);
-    let outfile = match File::open_with_rights(&pathbuf.as_path(), AccessRights::WRITE) {
+    let path = pathbuf.as_path();
+
+    let outfile = match File::open_with_rights(&path, AccessRights::WRITE) {
         Ok(file) => file,
-        Err(_) => File::create(&pathbuf.as_path())?,
+        Err(e) if e.kind == ErrorKind::NotFound => File::create(&path)?,
+        Err(e) => return Err(e),
+    };
+
+    let write_output = |bytes: &[u8]| {
+        outfile.write_all(bytes).map_err(|error| {
+            error.context(format_args!("cannot write '{}'", path.as_str()))
+        })
     };
 
     if matches.positional_count() != 0 {
@@ -34,25 +42,28 @@ pub fn run(args: &[String]) -> Result<(), Error> {
 
             s.push_str(word);
         }
-        outfile.write_all(s.as_bytes())?;
+        write_output(s.as_bytes())?;
     } else {
         let reader = TypedReader::new(HandleReader::new(env::source()));
         let mut wrote_value = false;
 
-        while let Some(value) = reader.next_value()? {
+        while let Some(value) = reader
+            .next_value()
+            .map_err(|error| error.context("cannot read typed input"))?
+        {
             match value {
                 ShellValue::Value(v) => {
                     if wrote_value {
-                        outfile.write_all(b"\n")?;
+                        write_output(b"\n")?;
                     }
 
                     let rendered = v.display_with(Default::default());
-                    outfile.write_all(rendered.as_bytes())?;
+                    write_output(rendered.as_bytes())?;
                     wrote_value = true;
                 }
                 ShellValue::StreamEnd => break,
                 ShellValue::RecordSchema { .. } | ShellValue::RecordPresentation { .. } => {}
-                ShellValue::Error(message) => return Err(Error::invalid_argument(message)),
+                ShellValue::Error(message) => return Err(Error::application(message)),
                 ShellValue::StreamIntent { .. } => {}
             }
         }

@@ -29,7 +29,9 @@ pub fn procs(args: &[String]) -> Result<(), Error> {
         return Err(Error::invalid_argument("usage: sys procs".into()));
     }
 
-    let entries = list_processes()?.collect::<Vec<_>>();
+    let entries = list_processes()?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.context("cannot read process listing"))?;
     let users = resolve_users(&entries)?;
 
     let mut out = RecordStream::typed_default_out(

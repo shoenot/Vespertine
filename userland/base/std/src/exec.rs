@@ -107,8 +107,9 @@ impl Process {
     }
 
     pub fn wait(&self) -> Result<ProcInfo, Error> {
-        sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED))).map_err(Error::from)?;
-        self.info()
+        sys_invoke(self.handle, &Invocation::Wait(WaitOp::One(Signal::TERMINATED)))
+            .map_err(|error| Error::from(error).context("waiting for termination"))?;
+        self.info().map_err(|error| error.context("reading exit status"))
     }
 
     pub fn resume(&self) -> Result<(), Error> {
@@ -147,12 +148,8 @@ impl Exec {
     pub fn from_handle(exec_handle: HandleID, argv0: String) -> Self { Self::build(exec_handle, false, argv0) }
 
     pub fn open(path: &Path<'_>, argv0: String) -> Result<Self, Error> {
-        let exec_handle = resolve(path, AccessRights::READ | AccessRights::EXECUTE).map_err(|mut e| {
-            if e.message.is_empty() {
-                e.message = format!("failed to open executable '{}'", path.as_str());
-            }
-            e
-        })?;
+        let exec_handle = resolve(path, AccessRights::READ | AccessRights::EXECUTE)
+            .map_err(|error| error.context(format_args!("cannot open executable '{}'", path.as_str())))?;
         Ok(Self::build(exec_handle, true, argv0))
     }
 
@@ -262,7 +259,10 @@ impl Exec {
             start_suspended: self.start_suspended,
         };
 
-        let handle = process_manager()?.spawn(op)?;
+        let manager = process_manager()
+            .map_err(|error| error.context("cannot acquire the process manager"))?;
+        let handle = manager.spawn(op)
+            .map_err(|error| error.context(format_args!("cannot spawn '{}'", self.name)))?;
         Ok(Process { handle })
     }
 
@@ -317,47 +317,51 @@ pub struct ReadProcesses {
     finished: bool,
 }
 
+impl ReadProcesses {
+    fn read_entry(&self) -> Result<Option<ProcInfo>, Error> {
+        let mut header = PacketHeader::default();
+        let header_bytes = unsafe {
+            slice::from_raw_parts_mut((&mut header as *mut PacketHeader).cast::<u8>(), size_of::<PacketHeader>())
+        };
+        self.read_end.read_exact(header_bytes)
+            .map_err(|error| error.context("reading process list header or end marker"))?;
+
+        if header.magic != VESPER_MAGIC || header.version != 1 || header.packet_type != PacketType::ProcessInfo as u32 {
+            return Err(Error::invalid_encoding("invalid process list header".into()));
+        }
+
+        if header.payload_len == 0 {
+            return Ok(None);
+        }
+
+        if header.payload_len as usize != size_of::<ProcInfo>() {
+            return Err(Error::invalid_encoding("invalid process entry size".into()));
+        }
+
+        let mut info = ProcInfo::zeroed();
+        let info_bytes = unsafe {
+            slice::from_raw_parts_mut((&mut info as *mut ProcInfo).cast::<u8>(), size_of::<ProcInfo>())
+        };
+        self.read_end.read_exact(info_bytes)
+            .map_err(|error| error.context("reading process entry payload"))?;
+
+        Ok(Some(info))
+    }
+}
+
 impl Iterator for ReadProcesses {
-    type Item = ProcInfo;
+    type Item = Result<ProcInfo, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             return None;
         }
 
-        let mut header = PacketHeader::default();
-        let header_bytes = unsafe { slice::from_raw_parts_mut(&mut header as *mut PacketHeader as *mut u8, size_of::<PacketHeader>()) };
-
-        if self.read_end.read_exact(header_bytes).is_err() {
+        let result = self.read_entry();
+        if !matches!(&result, Ok(Some(_))) {
             self.finished = true;
-            return None;
         }
-
-        if header.magic != VESPER_MAGIC || header.version != 1 || header.packet_type != PacketType::ProcessInfo as u32 {
-            self.finished = true;
-            return None;
-        }
-
-        if header.payload_len == 0 {
-            self.finished = true;
-            return None;
-        }
-
-        if header.payload_len as usize != size_of::<ProcInfo>() {
-            self.finished = true;
-            return None;
-        }
-
-        let mut info = ProcInfo::zeroed();
-
-        let info_bytes = unsafe { slice::from_raw_parts_mut(&mut info as *mut ProcInfo as *mut u8, size_of::<ProcInfo>()) };
-
-        if self.read_end.read_exact(info_bytes).is_err() {
-            self.finished = true;
-            return None;
-        }
-
-        Some(info)
+        result.transpose()
     }
 }
 

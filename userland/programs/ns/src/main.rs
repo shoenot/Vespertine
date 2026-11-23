@@ -5,12 +5,15 @@ mod command;
 extern crate alloc;
 use vstd::prelude::*;
 
-static HELP_TEXT: &'static str = "usage: ns [command] [flags] [args]\n
-                                  commands:
-                                  \tlist\n
-                                  \tmkdir\n
-                                  \ttouch\n
-                                  \tdelete\n";
+const HELP_TEXT: &str = concat!(
+    "usage: ns [command] [flags] [args]\n", 
+    "commands:\n",
+    "  help\n",
+    "  list\n",
+    "  mkdir\n",
+    "  touch\n",
+    "  delete\n",
+);
 
 #[vapp::main]
 fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
@@ -26,6 +29,7 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
         "mkdir" => command::mkdir(command_args)?,
         "touch" => command::touch(command_args)?,
         "delete" => command::delete(command_args)?,
+        "help" | "--help" | "-h" => return vstd::typed::write_help(HELP_TEXT),
         _ => return Err(Error::invalid_argument(HELP_TEXT.into())),
     }
     Ok(())

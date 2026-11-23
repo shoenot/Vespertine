@@ -2,6 +2,7 @@ use vespertine_abi::app::hesper::{
     AppIoMode,
     AppIoModes,
     HESPER_STATUS_INVALID_REQUEST,
+    HESPER_STATUS_LAUNCH_FAILED,
     HESPER_STATUS_NOT_FOUND,
     HESPER_STATUS_OK,
 };
@@ -43,6 +44,10 @@ pub(super) fn load_program_metadata(name: &str) -> Result<ProgramMetadata, Shell
         HESPER_STATUS_INVALID_REQUEST => {
             Err(ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application bundle contains an invalid manifest".into())))
         }
+        HESPER_STATUS_LAUNCH_FAILED => Err(ShellResult::FailedToLaunch(
+            name.into(),
+            Error::unknown("Hesper could not resolve application metadata through VReg".into()),
+        )),
         _ => Err(ShellResult::FailedToLaunch(name.into(), Error::unknown("Hesper failed to return application metadata".into()))),
     }
 }

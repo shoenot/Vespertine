@@ -3,6 +3,7 @@ use core::fmt::Display;
 use vrt::syscall::SysError;
 extern crate alloc;
 use alloc::string::String;
+use alloc::format;
 
 use crate::fs::PathError;
 
@@ -32,6 +33,8 @@ pub enum ErrorKind {
     PathContainsNull,
     Unknown,
     EndOfStream,
+    Application,
+    WriteZero,
 }
 
 impl From<SysError> for Error {
@@ -69,11 +72,22 @@ impl From<PathError> for Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { write!(f, "{}", self.message) }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { 
+        if self.message.is_empty() {
+            write!(f, "{:?}", self.kind)
+        } else {
+            f.write_str(&self.message)
+        }
+    }
 }
 
 impl Error {
     pub fn new(kind: ErrorKind, message: String) -> Self { Self { kind, message } }
+
+    pub fn context(mut self, context: impl Display) -> Self {
+        self.message = format!("{context}: {self}");
+        self
+    }
 }
 
 macro_rules! error_constructors {
@@ -112,5 +126,7 @@ error_constructors! {
     path_empty => PathEmpty,
     path_contains_null => PathContainsNull,
     end_of_stream => EndOfStream,
+    application => Application,
+    write_zero => WriteZero,
     unknown => Unknown,
 }

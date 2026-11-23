@@ -89,8 +89,8 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
 
             match (render_result, wait_result) {
                 (Ok(()), Ok(exit)) => ShellResult::Launched(exit),
-                (_, Err(error)) => ShellResult::FailedToLaunch(name.into(), error),
-                (Err(error), _) => ShellResult::FailedToRender(name.into(), error),
+                (_, Err(error)) => ShellResult::FailedToWait(name.into(), error),
+                (Err(error), _) => ShellResult::from_render_error(name, error),
             }
         }
         AppIoMode::Any => {
@@ -129,7 +129,7 @@ pub(super) fn spawn_command(
 fn wait_process(name: &str, proc: Process) -> ShellResult {
     let res = match proc.wait() {
         Ok(exit) => ShellResult::Launched(exit),
-        Err(e) => ShellResult::FailedToLaunch(name.into(), e),
+        Err(error) => ShellResult::FailedToWait(name.into(), error),
     };
 
     let _ = unset_raw_mode();

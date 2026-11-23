@@ -63,18 +63,21 @@ struct AcceptedCapability {
 }
 
 fn connect_registry() -> Result<VRegistryClient, Error> {
+    let context = |error: Error| error.context("cannot connect to VReg");
     for _ in 0..100 {
         match VRegistryClient::connect() {
             Ok(client) => return Ok(client),
-            Err(_) => sys_yield(),
+            Err(error) if error.kind == ErrorKind::NotFound => sys_yield(),
+            Err(error) => return Err(context(error)),
         }
     }
-    VRegistryClient::connect()
+    Err(Error::unknown("VReg service did not appear".into()))
 }
 
 fn resolve_request(name: &str) -> Result<ResolvedApplication, Error> {
     let mut registry = connect_registry()?;
     registry.resolve(name)
+        .map_err(|error| error.context(format_args!("cannot resolve application '{name}' through VReg")))
 }
 
 pub fn handle_request(
@@ -93,8 +96,12 @@ pub fn handle_request(
                 &app.display_name,
             ),
             Err(error) => {
-                log.write_string(format!("metadata lookup failed for {}: {:?}", request.app_name, error))?;
-                send_launcher_not_found(socket, request_id);
+                let status = if error.kind == ErrorKind::NotFound {
+                    HESPER_STATUS_NOT_FOUND
+                } else {
+                    HESPER_STATUS_LAUNCH_FAILED
+                };
+                send_app_metadata_response(socket, request_id, status, AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "")?;
                 return Err(error);
             }
         },
@@ -111,7 +118,12 @@ fn handle_execute(
     let app = match resolve_request(&request.app_name) {
         Ok(app) => app,
         Err(error) => {
-            let _ = send_execute_response(socket, request_id, HESPER_STATUS_NOT_FOUND, None, "application was not found");
+            let status = if error.kind == ErrorKind::NotFound {
+                HESPER_STATUS_NOT_FOUND
+            } else {
+                HESPER_STATUS_LAUNCH_FAILED
+            };
+            send_execute_response(socket, request_id, status, None, &error.to_string())?;
             return Err(error);
         }
     };
@@ -143,7 +155,7 @@ fn handle_execute(
                 request_id,
                 HESPER_STATUS_INVALID_REQUEST,
                 None,
-                "application launch policy denied the request",
+                &error.to_string(),
             );
             return Err(error);
         }
@@ -162,16 +174,19 @@ fn handle_execute(
 
     let session = socket.handle();
     let accepted = (|| {
-        let source = AcceptedHandle::accept(session, request.source_offer, AccessRights::READ)?;
-        let sink = AcceptedHandle::accept(session, request.sink_offer, AccessRights::WRITE)?;
-        let cwd = AcceptedHandle::accept(session, request.cwd_offer, policy.cwd_rights)?;
+        let source = AcceptedHandle::accept(session, request.source_offer, AccessRights::READ)
+            .map_err(|error| error.context("cannot accept standard-input offer"))?;
+        let sink = AcceptedHandle::accept(session, request.sink_offer, AccessRights::WRITE)
+            .map_err(|error| error.context("cannot accept standard-output offer"))?;
+        let cwd = AcceptedHandle::accept(session, request.cwd_offer, policy.cwd_rights)
+            .map_err(|error| error.context("cannot accept working-directory offer"))?;
         Ok::<_, Error>((source, sink, cwd))
     })();
 
     let (source, sink, cwd) = match accepted {
         Ok(handles) => handles,
         Err(error) => {
-            let _ = send_execute_response(socket, request_id, HESPER_STATUS_INVALID_REQUEST, None, "invalid launch object offer");
+            send_execute_response(socket, request_id, HESPER_STATUS_INVALID_REQUEST, None, &error.to_string())?;
             return Err(error);
         }
     };
@@ -230,7 +245,8 @@ fn handle_execute(
             .user(caller_user);
 
         for capability in &accepted_capabilities {
-            exec = exec.grant_new(capability.handle.handle(), capability.policy.capability, capability.policy.rights)?;
+            exec = exec.grant_new(capability.handle.handle(), capability.policy.capability, capability.policy.rights)
+                .map_err(|error| error.context(format_args!("cannot install capability {:?}", capability.policy.capability)))?;
         }
 
         exec.spawn()
@@ -240,7 +256,7 @@ fn handle_execute(
         Ok(process) => process,
 
         Err(error) => {
-            let _ = send_execute_response(socket, request_id, HESPER_STATUS_LAUNCH_FAILED, None, "failed to spawn application");
+            send_execute_response(socket, request_id, HESPER_STATUS_LAUNCH_FAILED, None, &error.to_string())?;
             return Err(error);
         }
     };
@@ -259,10 +275,6 @@ fn handle_execute(
         return Err(error);
     }
     Ok(())
-}
-
-fn send_launcher_not_found(sock: &Socket, id: u32) {
-    let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_NOT_FOUND, AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
 }
 
 fn send_launcher_invalid_request(sock: &Socket, id: u32) {

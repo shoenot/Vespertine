@@ -39,7 +39,11 @@ pub struct CapabilityPolicy {
     pub rights: AccessRights,
 }
 
-fn read_text(path: &str) -> Result<String, Error> { File::open(&Path::new(path))?.read_to_string() }
+fn read_text(path: &str) -> Result<String, Error> {
+    File::open(&Path::new(path))?
+        .read_to_string()
+        .map_err(|error| error.context(format_args!("cannot read configuration '{path}'")))
+}
 
 fn config_error(error: ConfigError) -> Error {
     match error {
@@ -62,7 +66,9 @@ impl PolicyStore {
         let grants_dir = Dir::open(&Path::new(GRANTS_PATH))?;
         let mut applications = BTreeMap::new();
 
-        for entry in grants_dir.list()? {
+        let context = |error: Error| error.context(format_args!("listing grants in '{GRANTS_PATH}'"));
+        for entry in grants_dir.list().map_err(context)? {
+            let entry = entry.map_err(context)?;
             if !matches!(entry.kind, EntryKind::File) {
                 continue;
             }

@@ -12,9 +12,18 @@ use vrt::syscall::{
     sys_write,
 };
 
-pub enum Input {
-    File(File),
+pub enum Input<'a> {
+    File { file: File, path: &'a str },
     Source(Source),
+}
+
+impl Input<'_> {
+    fn name(&self) -> &str {
+        match self {
+            Self::File { path, .. } => path,
+            Self::Source(_) => "standard input",
+        }
+    }
 }
 
 pub struct Source {
@@ -35,19 +44,20 @@ impl Write for Sink {
     fn write(&self, buf: &[u8]) -> Result<usize, Error> { sys_write(self.handle, buf.as_ptr(), buf.len(), usize::MAX).map_err(Error::from) }
 }
 
-impl Read for Input {
+impl Read for Input<'_> {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        match self {
-            Input::File(file) => file.read(buf),
-            Input::Source(source) => source.read(buf),
-        }
+        let result = match self {
+            Self::File { file, .. } => file.read(buf),
+            Self::Source(source) => source.read(buf),
+        };
+        result.map_err(|error| error.context(format_args!("cannot read '{}'", self.name())))
     }
 }
 
-pub fn input_from_path(path: Option<&str>) -> Result<Input, Error> {
+pub fn input_from_path(path: Option<&str>) -> Result<Input<'_>, Error> {
     match path {
         None | Some("-") => Ok(Input::Source(Source { handle: env::source() })),
-        Some(path) => File::open(&Path::new(path)).map(Input::File),
+        Some(path) => File::open(&Path::new(path)).map(|file| Input::File { file, path }),
     }
 }
 

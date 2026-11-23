@@ -44,7 +44,11 @@ fn config_error(error: ConfigError) -> Error {
     }
 }
 
-fn read_text(path: &str) -> Result<String, Error> { File::open(&Path::new(path))?.read_to_string() }
+fn read_text(path: &str) -> Result<String, Error> {
+    File::open(&Path::new(path))?
+        .read_to_string()
+        .map_err(|error| error.context(format_args!("cannot read configuration '{path}'")))
+}
 
 fn validate_name(name: &str) -> Result<(), Error> {
     if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.as_bytes().contains(&0) {

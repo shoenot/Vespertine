@@ -107,8 +107,9 @@ fn prune_old_boots() -> Result<(), Error> {
     let dir = Dir::open(&Path::new(LOG_BOOT_ROOT))?;
     let mut boots = alloc::vec::Vec::new();
 
-    for entry in dir.list()? {
-        boots.push(entry.name);
+    let context = |error: Error| error.context(format_args!("listing log directories in '{LOG_BOOT_ROOT}'"));
+    for entry in dir.list().map_err(context)? {
+        boots.push(entry.map_err(context)?.name);
     }
 
     boots.sort();
@@ -131,8 +132,9 @@ fn remove_tree(path: &str) -> Result<(), Error> {
     };
 
     let mut children = alloc::vec::Vec::new();
-    for child in dir.list()? {
-        children.push(child.name);
+    let context = |error: Error| error.context(format_args!("listing children of '{path}'"));
+    for child in dir.list().map_err(context)? {
+        children.push(child.map_err(context)?.name);
     }
     drop(dir);
 

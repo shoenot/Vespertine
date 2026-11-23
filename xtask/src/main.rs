@@ -32,6 +32,9 @@ const BUNDLE_APPS: &[&str] = &[
 	"terminal",
 ];
 
+const DEV_HOME_PATH: &str = "Users/Dev";
+const DEV_HOME_OWNER: &str = "1000:1000";
+
 static ASM_FILES: &[(&str, &str)] = &[
     ("lib/vk-hal/src/x86_64/fpu/fpu.asm", "fpu.o"),
     ("lib/vk-hal/src/x86_64/cpu/gdt.asm", "gdt.o"),
@@ -266,11 +269,10 @@ fn build_userland(root: &Path, specific_package: Option<&str>) {
             let dst_bin = bin_dir.join(app);
             fs::copy(&src_bin, &dst_bin).unwrap();
 
-            let src_manifest = root.join("userland/app").join(app).join("manifest.toml");
-            if src_manifest.exists() {
-                let dst_manifest = bundle_dir.join("manifest.toml");
-                fs::copy(&src_manifest, &dst_manifest).unwrap();
-            }
+            let src_manifest = root.join("userland/programs").join(app).join("manifest.toml");
+            let dst_manifest = bundle_dir.join("manifest.toml");
+            fs::copy(&src_manifest, &dst_manifest)
+                .unwrap_or_else(|err| panic!("copying manifest for {app}: {err}"));
         }
     }
 }
@@ -286,9 +288,14 @@ fn stage_disk(root: &Path) -> Result<(), String> {
     cp.arg("-a").arg(format!("{}/.", assets.display())).arg(&stage);
     run_cmd(cp, "mirroring assets/disk to staging tree")?;
 
-    fs::create_dir_all(stage.join("Devices")).unwrap();
-    fs::create_dir_all(stage.join("System/Services")).unwrap();
-    fs::create_dir_all(stage.join("System/Logs")).unwrap();
+    fs::create_dir_all(stage.join("Devices"))
+        .map_err(|err| format!("creating devices directory: {err}"))?;
+    fs::create_dir_all(stage.join("System/Services"))
+        .map_err(|err| format!("creating system services directory: {err}"))?;
+    fs::create_dir_all(stage.join("System/Logs"))
+        .map_err(|err| format!("creating system logs directory: {err}"))?;
+    fs::create_dir_all(stage.join(DEV_HOME_PATH))
+        .map_err(|err| format!("creating staged home directory: {err}"))?;
     Ok(())
 }
 
@@ -308,14 +315,23 @@ fn update_disk_image(root: &Path) -> Result<(), String> {
         .arg(format!("of={}", partition_img.display()));
     run_cmd(dd_zero, "Zeroing partition image")?;
 
-    let mke2fs_cmd = format!(
-        "chown -R 0:0 \"{}\" && mke2fs -q -F -t ext2 -d \"{}\" \"{}\"",
-        stage.display(),
-        stage.display(),
-        partition_img.display()
-    );
+    let home = stage.join(DEV_HOME_PATH);
+    let mke2fs_script = r#"
+        chown -R 0:0 "$1"
+        chmod 0755 "$1/Users"
+        chmod 0700 "$3"
+        chown "$4" "$3"
+        mke2fs -q -F -t ext2 -d "$1" "$2"
+    "#;
+
     let mut fakeroot = Command::new("fakeroot");
-    fakeroot.args(["sh", "-c", &mke2fs_cmd]);
+    fakeroot
+        .args(["sh", "-ec", mke2fs_script, "build-ext2"])
+        .arg(&stage)
+        .arg(&partition_img)
+        .arg(&home)
+        .arg(DEV_HOME_OWNER);
+
     run_cmd(fakeroot, "building ext2 partition with fakeroot mke2fs")?;
 
     let mut dd_splice = Command::new("dd");

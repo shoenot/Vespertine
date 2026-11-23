@@ -162,6 +162,12 @@ impl TypedWriter<HandleWriter> {
     pub fn out() -> Self { Self::new(HandleWriter::new(env::sink())) }
 }
 
+pub fn write_help(text: &str) -> Result<(), Error> {
+    let out = TypedWriter::out();
+    out.value(&TypedValue::String(text.into()))?;
+    out.stream_end()
+}
+
 pub struct RecordStream<W> {
     writer: TypedWriter<W>,
     schema_id: u64,
@@ -598,7 +604,7 @@ impl BufferedRecordStream {
             }
             ShellValue::Value(value) => Ok(BufferedPush::Scalar(value)),
             ShellValue::StreamEnd => Ok(BufferedPush::End),
-            ShellValue::Error(message) => Err(Error::invalid_argument(message)),
+            ShellValue::Error(message) => Err(Error::application(message)),
         }
     }
 

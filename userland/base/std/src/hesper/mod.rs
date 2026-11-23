@@ -464,7 +464,7 @@ impl Launcher {
 
         if response.status != HESPER_STATUS_OK {
             return Err(match response.status {
-                HESPER_STATUS_NOT_FOUND => Error::not_found("application was not found".into()),
+                HESPER_STATUS_NOT_FOUND => Error::not_found(response.message),
 
                 HESPER_STATUS_INVALID_REQUEST => Error::invalid_argument(response.message),
 

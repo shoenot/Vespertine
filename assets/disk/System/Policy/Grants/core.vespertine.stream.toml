@@ -1,0 +1,9 @@
+[application]
+id = "core.vespertine.stream"
+bundle = "stream"
+archetype = "mutable-coreutil"
+
+[grants]
+root-rights = []
+cwd-rights = []
+capabilities = []

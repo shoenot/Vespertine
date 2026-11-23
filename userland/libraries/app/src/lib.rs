@@ -51,8 +51,10 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
             quote! {
                 if let Err(error) = #call {
                     let out = vstd::typed::TypedWriter::out();
-                    let _ = out.error(&*alloc::format!("{:?}", error));
+                    let _ = out.error(&alloc::format!("{}", error));
                     let _ = out.stream_end();
+                    let _ = vrt::syscall::sys_close(vstd::env::sink());
+                    vrt::syscall::sys_terminate(1);
                 }
             }
         }

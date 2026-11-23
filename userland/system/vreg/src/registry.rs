@@ -56,7 +56,11 @@ fn config_error(error: ConfigError) -> Error {
     }
 }
 
-fn read_text(path: &str) -> Result<String, Error> { File::open(&Path::new(path))?.read_to_string() }
+fn read_text(path: &str) -> Result<String, Error> {
+    File::open(&Path::new(path))?
+        .read_to_string()
+        .map_err(|error| error.context(format_args!("cannot read configuration '{path}'")))
+}
 
 fn validate_component(value: &str, desc: &str) -> Result<(), Error> {
     if value.is_empty() || value == "." || value == ".." || value.contains('/') || value.as_bytes().contains(&0) {
@@ -243,7 +247,8 @@ impl AppRegistry {
     pub fn resolve_target(&self, name: &str) -> Result<LaunchTarget, Error> {
         match self.resolve_alias(name) {
             Ok(target) => Ok(target),
-            Err(_) => self.resolve_app(name),
+            Err(error) if error.kind == ErrorKind::NotFound => self.resolve_app(name),
+            Err(error) => Err(error),
         }
     }
 

@@ -42,7 +42,11 @@ pub struct File {
 impl File {
     pub fn open(path: &Path<'_>) -> Result<Self, Error> { Self::open_with_rights(path, AccessRights::READ) }
 
-    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> { resolve(path, rights).map(File::from_handle) }
+    pub fn open_with_rights(path: &Path<'_>, rights: AccessRights) -> Result<Self, Error> { 
+        resolve(path, rights)
+            .map(File::from_handle)
+            .map_err(|error| error.context(format_args!("cannot open file '{}'", path.as_str())))
+    }
 
     pub fn handle(&self) -> HandleID { self.handle }
 
@@ -67,11 +71,19 @@ impl File {
     }
 
     pub fn create(path: &Path<'_>) -> Result<Self, Error> {
-        let (parent_path, dir_name) = split_parent_name(path).map_err(Error::from)?;
-        let parent = resolve(&parent_path.as_path(), AccessRights::CREATE)?;
+        let context = |error: Error| {
+            error.context(format_args!("cannot create file '{}'", path.as_str()))
+        };
+
+        let (parent_path, dir_name) = split_parent_name(path)
+            .map_err(|error| context(error.into()))?;
+        let parent = resolve(&parent_path.as_path(), AccessRights::CREATE)
+            .map_err(context)?;
+
         let res = sys_create_file(parent, dir_name).map(File::from_handle);
         let _ = sys_close(parent);
-        res.map_err(Error::from)
+
+        res.map_err(|error| context(error.into()))
     }
 
     pub fn read_at(&self, buf: &mut [u8], offset: usize) -> Result<usize, Error> {

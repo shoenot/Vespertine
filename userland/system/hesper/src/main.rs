@@ -6,7 +6,7 @@ mod launcher;
 mod meta;
 mod policy;
 
-use vespertine_abi::UserID;
+use vespertine_abi::{ProcState, UserID};
 use vespertine_abi::tag::{
     CAP_LAUNCHER_CONNECT,
     CAP_LOGGER,
@@ -96,7 +96,7 @@ fn launch_vlog(log: &SystemLog) -> Result<(), Error> {
     Ok(())
 }
 
-fn launch_vreg(log: &SystemLog) -> Result<(), Error> {
+fn launch_vreg(log: &SystemLog) -> Result<Process, Error> {
     log.write_string("Launching vreg".into())?;
 
     Exec::open(&Path::new("/System/Core/vreg"), "vreg".into())?
@@ -105,30 +105,10 @@ fn launch_vreg(log: &SystemLog) -> Result<(), Error> {
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
         .grant(CAP_LOGGER, AccessRights::WRITE)?
-        .spawn()?;
-
-    Ok(())
+        .spawn()
 }
 
-fn wait_for_vreg(log: &SystemLog) -> Result<(), Error> {
-    println!("[INFO] Waiting for vreg service...");
-    let _ = log.write_string("waiting for vreg service".into());
-    loop {
-        match resolve(&Path::new("/System/Services/VRegistry"), AccessRights::READ) {
-            Ok(handle) => {
-                sys_close(handle).map_err(Error::from)?;
-                println!("[INFO] vreg service online");
-                log.write_string("vreg service online".into())?;
-                return Ok(());
-            }
-            Err(_) => {
-                sys_yield();
-            }
-        }
-    }
-}
-
-fn launch_auth(log: &SystemLog) -> Result<(), Error> {
+fn launch_auth(log: &SystemLog) -> Result<Process, Error> {
     log.write_string("Launching auth".into())?;
 
     Exec::open(&Path::new("/System/Core/auth"), "auth".into())?
@@ -137,39 +117,47 @@ fn launch_auth(log: &SystemLog) -> Result<(), Error> {
         .cwd(env::cwd(), AccessRights::all())
         .root_rights(AccessRights::all())
         .grant(CAP_LOGGER, AccessRights::WRITE)?
-        .spawn()?;
-
-    Ok(())
+        .spawn()
 }
 
-fn wait_for_auth(log: &SystemLog) -> Result<(), Error> {
-    println!("[INFO] Waiting for auth service...");
-    let _ = log.write_string("waiting for auth service".into());
-
+fn wait_for_service(name: &str, path: &Path<'_>, process: &Process, log: &SystemLog) -> Result<(), Error> {
+    println!("[INFO] Waiting for {name} service...");
+    let _ = log.write_string(format!("waiting for {name} service"));
     loop {
-        match resolve(&Path::new("/System/Services/Auth"), AccessRights::READ) {
+        match resolve(path, AccessRights::READ) {
             Ok(handle) => {
                 sys_close(handle).map_err(Error::from)?;
-                println!("[INFO] auth service online");
-                log.write_string("auth service online".into())?;
+                println!("[INFO] {name} service online");
+                log.write_string(format!("{name} service online"))?;
                 return Ok(());
             }
-            Err(_) => {
+            Err(error) if error.kind == ErrorKind::NotFound => {
+                let info = process.info()
+                    .map_err(|error| error.context(format_args!("cannot check {name} service status")))?;
+                if info.state == ProcState::Terminated {
+                    return Err(Error::unknown(format!(
+                        "{name} service {} with status {} before publishing '{}'",
+                        info.short_status(), info.status_code(), path.as_str()
+                    )));
+                }
                 sys_yield();
             }
+            Err(error) => return Err(error.context(format_args!("waiting for {name} service"))),
         }
     }
 }
 
 fn connect_auth() -> Result<AuthClient, Error> {
+    let context = |error: Error| error.context("cannot connect to Auth");
     for _ in 0..100 {
         match AuthClient::connect() {
             Ok(client) => return Ok(client),
-            Err(_) => sys_yield(),
+            Err(error) if error.kind == ErrorKind::NotFound => sys_yield(),
+            Err(error) => return Err(context(error)),
         }
     }
 
-    AuthClient::connect()
+    AuthClient::connect().map_err(context)
 }
 
 #[vapp::main]
@@ -181,11 +169,13 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
 
     launch_vlog(&log)?;
 
-    launch_auth(&log)?;
-    wait_for_auth(&log)?;
+    let auth = launch_auth(&log)?;
+    wait_for_service("auth", &Path::new("/System/Services/Auth"), &auth, &log)?;
+    drop(auth);
 
-    launch_vreg(&log)?;
-    wait_for_vreg(&log)?;
+    let vreg = launch_vreg(&log)?;
+    wait_for_service("vreg", &Path::new("/System/Services/VRegistry"), &vreg, &log)?;
+    drop(vreg);
 
     let portal_factory = PortalFactory::request()?;
     let (launcher_portal, launcher_accept) = portal_factory.create(CAP_LAUNCHER_CONNECT, AccessRights::READ | AccessRights::WRITE)?;

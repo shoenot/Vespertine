@@ -13,22 +13,28 @@ use vstd::fs::{
     stat,
 };
 use vstd::prelude::*;
-use vstd::typed::RecordStream;
+use vstd::typed::{RecordStream, write_help};
 
-static LIST_OPTIONS: &[Opt] = &[Opt::flag("all", Some('a'), None), Opt::flag("help", Some('h'), Some("help"))];
 
 const NS_DIR_ENTRY_SCHEMA: u64 = 1;
 
 pub fn list(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("list").options(LIST_OPTIONS).parse(args).map_err(Error::from)?;
+    const USAGE: &str = "usage: ns list [flags] <path>";
+    const LIST_OPTIONS: &[Opt] = &[
+        Opt::flag("all", Some('a'), None), 
+        Opt::flag("help", Some('h'), Some("help"))
+    ];
+    let matches = Command::new("list")
+        .options(LIST_OPTIONS)
+        .parse(args)
+        .map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: ns list [flags] [dir]");
-        return Ok(());
+        return write_help(USAGE);
     }
 
     if matches.positional_count() > 1 {
-        return Err(Error::invalid_argument("usage: ns list [flags] [dir]".into()));
+        return Err(Error::invalid_argument(USAGE.into()));
     }
 
     let dir_path = if let Some(path) = matches.positional(0) { Path::new(path) } else { Path::new(".") };
@@ -51,9 +57,14 @@ pub fn list(args: &[String]) -> Result<(), Error> {
     out.list_intent()?;
     out.table(&["name", "kind", "size", "owner", "mode", "created", "modified"])?;
 
-    let mut dir_iter = dir.list()?;
+    let dir_iter = dir.list()
+        .map_err(|e| e.context(format_args!("cannot list '{}'", dir_path.as_str())))?;
 
-    while let Some(entry) = dir_iter.next() {
+    for entry in dir_iter {
+        let entry = entry.map_err(|error| {
+            error.context(format_args!("listing '{}'", dir_path.as_str()))
+        })?;
+
         if entry.name == "lost+found" {
             continue;
         }
@@ -109,17 +120,24 @@ pub fn list(args: &[String]) -> Result<(), Error> {
 }
 
 pub fn ns_stat(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("stat").parse(args).map_err(Error::from)?;
+    const USAGE: &str = "usage: ns stat [flags] <path>";
+    const STAT_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
+
+    let matches = Command::new("stat")
+        .options(STAT_OPTIONS)
+        .parse(args)
+        .map_err(Error::from)?;
+
     if matches.flag("help") {
-        println!("usage: ns stat [path]");
+        return write_help(USAGE);
     }
 
     if matches.positional_count() == 0 {
-        println!("usage: ns stat [path]");
+        return Err(Error::invalid_argument(USAGE.into()));
     }
 
     if matches.positional_count() > 1 {
-        println!("usage: ns stat [path]");
+        return write_help(USAGE);
     }
 
     let stat_path = Path::new(matches.positionals()[0]);
@@ -183,14 +201,20 @@ pub fn ns_stat(args: &[String]) -> Result<(), Error> {
 }
 
 pub fn mkdir(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("mkdir").parse(args).map_err(Error::from)?;
+    const USAGE: &str = "usage: ns mkdir [flags] <path>";
+    const MKDIR_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
+
+    let matches = Command::new("mkdir")
+        .options(MKDIR_OPTIONS)
+        .parse(args)
+        .map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: ns mkdir [flags] [dir]");
+        return write_help(USAGE);
     }
 
     if matches.positional_count() == 0 {
-        println!("usage: ns mkdir [flags] [dir]");
+        return Err(Error::invalid_argument(USAGE.into()));
     }
 
     for name in matches.positionals().iter() {
@@ -201,14 +225,20 @@ pub fn mkdir(args: &[String]) -> Result<(), Error> {
 }
 
 pub fn touch(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("touch").parse(args).map_err(Error::from)?;
+    const USAGE: &str = "usage: ns touch [--help] <file>";
+    const HELP_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
+
+    let matches = Command::new("touch")
+        .options(HELP_OPTIONS)
+        .parse(args)
+        .map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: ns touch [flags] [dir]");
+        return write_help(USAGE);
     }
 
     if matches.positional_count() == 0 {
-        println!("usage: ns touch [flags] [dir]");
+        return Err(Error::invalid_argument(USAGE.into()));
     }
 
     for name in matches.positionals().iter() {
@@ -219,14 +249,20 @@ pub fn touch(args: &[String]) -> Result<(), Error> {
 }
 
 pub fn delete(args: &[String]) -> Result<(), Error> {
-    let matches = Command::new("delete").parse(args).map_err(Error::from)?;
+    const USAGE: &str = "usage: ns touch [flags] <path>";
+    const DELETE_OPTIONS: &[Opt] = &[Opt::flag("help", Some('h'), Some("help"))];
+
+    let matches = Command::new("delete")
+        .options(DELETE_OPTIONS)
+        .parse(args)
+        .map_err(Error::from)?;
 
     if matches.flag("help") {
-        println!("usage: ns delete [flags] [dir]");
+        return write_help(USAGE);
     }
 
     if matches.positional_count() == 0 {
-        println!("usage: ns delete [flags] [dir]");
+        return Err(Error::invalid_argument(USAGE.into()));
     }
 
     for name in matches.positionals().iter() {

@@ -18,7 +18,8 @@ fn config_error(error: ConfigError) -> Error {
 pub fn load_manifest(bundle: &str) -> Result<AppManifest, Error> {
     let manifest_path = format!("{}/manifest.toml", bundle);
     let manifest_file = File::open(&Path::new(manifest_path.as_str()))?;
-    let manifest_str = manifest_file.read_to_string()?;
+    let manifest_str = manifest_file.read_to_string()
+        .map_err(|error| error.context(format_args!("cannot read manifest '{manifest_path}'")))?;
 
     parse_manifest(manifest_str.as_str(), manifest_path.as_str()).map_err(config_error)
 }

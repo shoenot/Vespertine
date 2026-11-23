@@ -13,9 +13,11 @@ pub enum ShellResult {
     Launched(ProcInfo),
     ChangeDirFail(String, Error),
     FailedToLaunch(String, Error),
+    FailedToWait(String, Error),
     FailedToRender(String, Error),
     _AccessDenied(String),
     NotFound(String),
+    CommandError(String, Error),
 }
 
 impl Display for ShellResult {
@@ -23,12 +25,23 @@ impl Display for ShellResult {
         match self {
             ShellResult::None => Ok(()),
             ShellResult::Launched(info) => format_process_result(info, f),
-            ShellResult::InternalError(e) => write!(f, "internal error: {:?}", e),
-            ShellResult::ChangeDirFail(path, err) => write!(f, "couldn't change dir to {}: {:?}", path, err),
-            ShellResult::FailedToLaunch(name, err) => write!(f, "failed to launch {}: {:?}", name, err),
-            ShellResult::FailedToRender(name, err) => write!(f, "failed to render {}: {:?}", name, err),
+            ShellResult::InternalError(error) => write!(f, "internal error: {error}"),
+            ShellResult::ChangeDirFail(path, error) => write!(f, "cannot change directory to '{path}': {error}"),
+            ShellResult::FailedToLaunch(name, error) => write!(f, "cannot launch '{name}': {error}"),
+            ShellResult::FailedToWait(name, error) => write!(f, "cannot wait for '{name}': {error}"),
+            ShellResult::FailedToRender(name, error) => write!(f, "cannot render '{name}': {error}"),
             ShellResult::_AccessDenied(name) => write!(f, "access denied: {}", name),
             ShellResult::NotFound(name) => write!(f, "not found: {}", name),
+            ShellResult::CommandError(name, err) => write!(f, "{name}: {err}"),
+        }
+    }
+}
+
+impl ShellResult {
+    pub fn from_render_error(name: &str, error: Error) -> Self {
+        match error.kind {
+            ErrorKind::Application => Self::CommandError(name.into(), error),
+            _ => Self::FailedToRender(name.into(), error),
         }
     }
 }

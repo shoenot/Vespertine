@@ -34,7 +34,6 @@ use vespertine_abi::typed::{
 use crate::typed::TypedValue;
 use crate::{
     Error,
-    ErrorKind,
     Read,
     Write,
 };
@@ -288,16 +287,24 @@ impl<R: Read> TypedReader<R> {
     pub fn next_value(&self) -> Result<Option<ShellValue>, Error> {
         let mut header = PacketHeader::default();
 
-        match self.read_struct(&mut header) {
-            Ok(()) => {}
-            Err(error) if error.kind == ErrorKind::EndOfStream => return Ok(None),
-            Err(error) => return Err(error),
+        let bytes = unsafe {
+            slice::from_raw_parts_mut((&mut header as *mut PacketHeader).cast::<u8>(), size_of::<PacketHeader>())
+        };
+        let has_header = self.source.read_exact_or_eof(bytes)
+            .map_err(|error| error.context("reading typed packet header"))?;
+        if !has_header {
+            return Ok(None);
         }
 
         if header.magic != VESPER_MAGIC {
             return Err(Error::invalid_argument("invalid typed packet magic".into()));
         }
 
+        self.read_packet(&header)
+            .map_err(|error| error.context(format_args!("reading typed packet type {}", header.packet_type)))
+    }
+
+    fn read_packet(&self, header: &PacketHeader) -> Result<Option<ShellValue>, Error> {
         match header.packet_type {
             x if x == PacketType::RecordSchema as u32 => Ok(Some(self.read_record_schema()?)),
             x if x == PacketType::RecordPresentation as u32 => Ok(Some(self.read_record_presentation()?)),
