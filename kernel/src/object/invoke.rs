@@ -20,6 +20,9 @@ pub enum InvocationError {
     InvalidEncoding,
     NotMapped,
     ThreadSpawnFail,
+    NotFound,
+    Io,
+    NoSpace,
 }
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -38,6 +41,9 @@ impl fmt::Display for InvocationError {
             Self::InvalidEncoding => write!(f, "INVOCATION ERROR: Invalid encoding."),
             Self::NotMapped => write!(f, "INVOCATION ERROR: Not mapped."),
             Self::ThreadSpawnFail => write!(f, "INVOCATION ERROR: Failed to spawn thread."),
+            Self::NotFound => write!(f, "INVOCATION ERROR: Not found."),
+            Self::Io => write!(f, "INVOCATION ERROR: I/O error."),
+            Self::NoSpace => write!(f, "INVOCATION ERROR: No space."),
         }
     }
 }

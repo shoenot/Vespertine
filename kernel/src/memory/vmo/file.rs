@@ -2,7 +2,7 @@ use alloc::{boxed::Box, collections::BTreeMap, sync::{Arc, Weak}, vec::Vec};
 
 use crate::{executor::async_mutex::AsyncMutex, memory::{Frame4K, PAGE_SIZE_4K, vmo::MappingPage}, sync::TicketLock};
 
-use crate::{executor::syscall_bridge::block_on, memory::vmo::PagedBackingStore, storage::fs::VfsNode};
+use crate::{executor::syscall_bridge::block_on, memory::vmo::PagedBackingStore, storage::fs::{VfsNode, VfsReadError}};
 
 #[derive(Debug)]
 struct CachedPage {
@@ -26,18 +26,21 @@ impl FileVmo {
         self.pages.lock().get(&offset).map(|page| Arc::clone(&page.frame))
     }
 
-    pub async fn get_frame_locked(&self, offset: usize, file_size: usize) -> Result<Arc<Frame4K>, ()> {
-        if offset % PAGE_SIZE_4K != 0 { return Err(()) };
-        
+    pub async fn get_frame_locked(&self, offset: usize, file_size: usize) -> Result<Arc<Frame4K>, VfsReadError> {
+        if offset % PAGE_SIZE_4K != 0 {
+            return Err(VfsReadError::InvalidArgument);
+        }
         if let Some(frame) = self.cached_frame(offset) { return Ok(frame) };
 
-        let frame = Arc::new(Frame4K::allocate_zeroed().ok_or(())?);
+        let frame = Arc::new(Frame4K::allocate_zeroed().ok_or(VfsReadError::OutOfMemory)?);
         let count = file_size.saturating_sub(offset).min(PAGE_SIZE_4K);
 
         if count != 0 {
-            let node = self.node.upgrade().ok_or(())?;
+            let node = self.node.upgrade().ok_or(VfsReadError::Io)?;
             let read = node.read_at_phys(offset, frame.phys(), count).await?;
-            if read != count { return Err(()) };
+            if read != count {
+                return Err(VfsReadError::Io);
+            }
 
             unsafe {
                 (frame.virt() as *mut u8).add(count).write_bytes(0, PAGE_SIZE_4K - count);
@@ -88,7 +91,7 @@ impl PagedBackingStore for FileVmo {
             if offset >= size { return Err(()) };
 
             let page_offset = offset - offset % PAGE_SIZE_4K;
-            Ok(self.get_frame_locked(page_offset, size).await?.phys())
+            Ok(self.get_frame_locked(page_offset, size).await.map_err(|_| ())?.phys())
         }))
     }
 

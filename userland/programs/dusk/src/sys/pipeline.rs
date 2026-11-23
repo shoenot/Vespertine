@@ -1,4 +1,6 @@
 use vespertine_abi::app::hesper::AppIoMode;
+use vrt::mutex::Mutex;
+use vrt::syscall::sys_yield;
 use vrt::thread as rt_thread;
 use vstd::prelude::*;
 use vstd::term::unset_raw_mode;
@@ -27,8 +29,31 @@ use crate::sys::mode::{
 struct PipelineRun {
     processes: Vec<(String, Process)>,
     output: SpawnedOutput,
-    adapter_sockets: Vec<Socket>,
-    adapter_threads: Vec<rt_thread::JoinHandle>,
+    adapter_threads: Vec<Adapter>,
+}
+
+struct Adapter {
+    producer: String,
+    thread: rt_thread::JoinHandle,
+    result: Arc<Mutex<Option<Result<(), Error>>>>,
+}
+
+fn start_adapter(producer: String, source: Socket, sink: Socket) -> Result<Adapter, ShellResult> {
+    let result = Arc::new(Mutex::new(None));
+    let worker_result = Arc::clone(&result);
+
+    let thread = rt_thread::spawn(move || {
+        let outcome = render_typed_stream(source, HandleWriter::new(sink.handle()));
+        // close the write end so the consumer can see EOF
+        drop(sink);
+        *worker_result.lock() = Some(outcome);
+    })
+    .map_err(|e| ShellResult::FailedToLaunch(
+            producer.clone(), 
+            Error::from(e).context("cannot start typed-to-text adapter"),
+    ))?;
+
+    Ok(Adapter { producer, thread, result })
 }
 
 pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
@@ -54,10 +79,28 @@ pub fn launch_base(base: BaseNode, context: &ShellContext) -> ShellResult {
             Err(error) => return ShellResult::FailedToWait(name, error),
         }
     }
+    let mut adapter_failure = None;
+    for adapter in run.adapter_threads {
+        while !adapter.thread.is_done() {
+            sys_yield();
+        }
+
+        let outcome = adapter.result.lock().take().unwrap_or_else(|| {
+            Err(Error::unknown("pipeline adapter completed without a result".into()))
+        });
+
+        if let Err(e) = outcome {
+            if adapter_failure.is_none() {
+                adapter_failure = Some(ShellResult::from_render_error(&adapter.producer, e));
+            }
+        }
+    }
+
     let _ = unset_raw_mode();
+
     match render_result {
-        Ok(()) => final_result,
-        Err(error) => ShellResult::from_render_error("pipeline", error),
+        Ok(()) => adapter_failure.unwrap_or(final_result),
+        Err(e) => ShellResult::from_render_error("pipeline", e),
     }
 }
 
@@ -77,43 +120,41 @@ fn spawn_base(base: &BaseNode, context: &ShellContext, source: HandleID, sink: C
             let right_input = first_input_mode(right)?;
             check_pipe_compat(left_kind, right_input)?;
 
-            let mut adapter_sockets = left_run.adapter_sockets;
             let mut adapter_threads = left_run.adapter_threads;
 
-            let right_source = if left_kind == AppIoMode::Typed && right_input == Some(AppIoMode::Text) {
-                let (text_rx, text_tx) = Socket::new_pair().map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), e))?;
+            let right_run = if left_kind == AppIoMode::Typed && right_input == Some(AppIoMode::Text) {
+                let producer = left_run.processes.last()
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_else(|| "pipeline".into());
 
-                let source_socket = pipe_source;
-                let thread = rt_thread::spawn(move || {
-                    let _ = render_typed_stream(source_socket, HandleWriter::new(text_tx.handle()));
-                })
-                .map_err(|e| ShellResult::FailedToLaunch("pipeline".into(), Error::from(e)))?;
+                let (text_rx, text_tx) = Socket::new_pair().map_err(|e| {
+                    ShellResult::FailedToLaunch(producer.clone(), e.context("cannot created typed-to-text adapter pipe"))
+                })?;
 
-                let handle = text_rx.handle();
-                adapter_sockets.push(text_rx);
-                adapter_threads.push(thread);
-                handle
+                let right_run = spawn_base(right, context, text_rx.handle(), sink)?;
+                drop(text_rx);
+
+                match start_adapter(producer, pipe_source, text_tx) {
+                    Ok(adapter) => adapter_threads.push(adapter),
+                    Err(e) => {
+                        for (_, proc) in left_run.processes.iter().chain(&right_run.processes) {
+                            let _ = proc.terminate();
+                        }
+                        return Err(e);
+                    }
+                }
+                right_run
             } else {
-                let handle = pipe_source.handle();
-                let right_run = spawn_base(right, context, handle, sink)?;
+                let right_run = spawn_base(right, context, pipe_source.handle(), sink)?;
                 drop(pipe_source);
-
-                let mut processes = left_run.processes;
-                processes.extend(right_run.processes);
-                adapter_sockets.extend(right_run.adapter_sockets);
-                adapter_threads.extend(right_run.adapter_threads);
-
-                return Ok(PipelineRun { processes, output: right_run.output, adapter_sockets, adapter_threads });
+                right_run
             };
-
-            let right_run = spawn_base(right, context, right_source, sink)?;
 
             let mut processes = left_run.processes;
             processes.extend(right_run.processes);
-            adapter_sockets.extend(right_run.adapter_sockets);
             adapter_threads.extend(right_run.adapter_threads);
 
-            Ok(PipelineRun { processes, output: right_run.output, adapter_sockets, adapter_threads })
+            Ok(PipelineRun { processes, output: right_run.output, adapter_threads })
         }
     }
 }
@@ -140,7 +181,6 @@ fn spawn_command_node(cmd: &CommandNode, context: &ShellContext, source: HandleI
     Ok(PipelineRun {
         processes: vec![(exec.clone(), spawned.process)],
         output: spawned.output,
-        adapter_sockets: Vec::new(),
         adapter_threads: Vec::new(),
     })
 }

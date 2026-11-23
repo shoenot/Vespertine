@@ -1,5 +1,7 @@
 use core::arch::asm;
 
+pub use vespertine_abi::SysError;
+
 use vespertine_abi::{
     ClockOp,
     DirectoryOp,
@@ -14,57 +16,6 @@ use vespertine_abi::{
     VmoOp,
     WaitOp,
 };
-
-#[derive(Debug)]
-pub enum SysError {
-    Success = 0,
-
-    // Memory and pointer Errors
-    InvalidPointer = 1,
-    BadAddress = 2,
-    OutOfMemory = 3,
-
-    // Handle and Capability Errors
-    InvalidHandle = 21,
-    AccessDenied = 22,
-    InvalidArgument = 23,
-    UnsupportedOperation = 24,
-    BufferFull = 25,
-    WouldBlock = 26,
-    PoolExhausted = 27,
-    NameTooLong = 28,
-    InvalidEncoding = 29,
-    NotMapped = 30,
-
-    // System Errors
-    UnknownSyscall = 41,
-
-    // Thread Errors
-    ThreadSpawnFail = 50,
-}
-
-impl SysError {
-    pub fn from(errnum: usize) -> SysError {
-        match errnum {
-            0 => SysError::Success,
-            1 => SysError::InvalidPointer,
-            2 => SysError::BadAddress,
-            3 => SysError::OutOfMemory,
-            21 => SysError::InvalidHandle,
-            22 => SysError::AccessDenied,
-            23 => SysError::InvalidArgument,
-            24 => SysError::UnsupportedOperation,
-            25 => SysError::BufferFull,
-            26 => SysError::WouldBlock,
-            27 => SysError::PoolExhausted,
-            28 => SysError::NameTooLong,
-            29 => SysError::InvalidEncoding,
-            30 => SysError::NotMapped,
-            50 => SysError::ThreadSpawnFail,
-            _ => SysError::UnknownSyscall,
-        }
-    }
-}
 
 //----------------------------------------------------------//
 //------------------ RAW SYSTEM CALLS ----------------------//
@@ -89,7 +40,7 @@ pub fn sys_invoke(handle: HandleID, op: &Invocation) -> Result<usize, SysError> 
         );
     }
 
-    if ret == 0 { Ok(payload) } else { Err(SysError::from(ret)) }
+    if ret == 0 { Ok(payload) } else { Err(SysError::from_raw(ret)) }
 }
 
 /// Top level system call function. Closes the handle.
@@ -106,7 +57,7 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
             out("r11") _,   // clobbered
         );
     }
-    if ret == 0 { Ok(()) } else { Err(SysError::from(ret)) }
+    if ret == 0 { Ok(()) } else { Err(SysError::from_raw(ret)) }
 }
 
 pub fn sys_terminate(exit_code: u32) -> ! {

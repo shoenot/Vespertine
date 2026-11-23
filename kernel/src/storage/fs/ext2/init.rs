@@ -23,10 +23,14 @@ async fn ext2_writeback_daemon(fs: Arc<Ext2FileSystem>) {
         };
 
         for file in dirty {
-            let _ = file.flush_dirty_pages().await;
+            if let Err(error) = file.flush_dirty_pages().await {
+                crate::klogln!("[EXT2] writeback failed for inode {}: {:?}", file.inode_num, error);
+            }
         }
 
-        let _ = fs.cache.flush().await;
+        if fs.cache.flush().await.is_err() {
+            crate::klogln!("[EXT2] metadata cache flush failed");
+        }
     }
 }
 

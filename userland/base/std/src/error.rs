@@ -35,14 +35,17 @@ pub enum ErrorKind {
     EndOfStream,
     Application,
     WriteZero,
+    Io,
+    NoSpace,
 }
 
 impl From<SysError> for Error {
     fn from(e: SysError) -> Self {
         let kind = match e {
-            SysError::InvalidPointer => ErrorKind::InvalidPointer,
-            SysError::BadAddress => ErrorKind::NotFound,
-            SysError::InvalidHandle => ErrorKind::NotFound,
+            SysError::InvalidPointer | SysError::BadAddress => ErrorKind::InvalidPointer,
+            SysError::InvalidHandle => ErrorKind::InvalidHandle,
+            SysError::NotFound => ErrorKind::NotFound,
+            SysError::Io => ErrorKind::Io,
             SysError::AccessDenied => ErrorKind::AccessDenied,
             SysError::InvalidArgument => ErrorKind::InvalidArgument,
             SysError::OutOfMemory => ErrorKind::OutOfMemory,
@@ -53,6 +56,7 @@ impl From<SysError> for Error {
             SysError::NameTooLong => ErrorKind::NameTooLong,
             SysError::InvalidEncoding => ErrorKind::InvalidEncoding,
             SysError::NotMapped => ErrorKind::NotMapped,
+            SysError::NoSpace => return Error::no_space("no space left on filesystem".into()),
             _ => ErrorKind::Unknown,
         };
         Error { kind, message: "".into() }
@@ -129,4 +133,6 @@ error_constructors! {
     application => Application,
     write_zero => WriteZero,
     unknown => Unknown,
+    no_space => NoSpace,
+    io => Io,
 }

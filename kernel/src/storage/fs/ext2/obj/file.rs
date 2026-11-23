@@ -27,12 +27,13 @@ use crate::memory::vmo::{
 use crate::memory::{
     ALLOCATOR, DIRECT_MAP_OFFSET, PAGE_SIZE_4K, PageSize, PhysBuffer,
 };
-use crate::storage::fs::ext2::Ext2FileSystem;
+use crate::storage::fs::ext2::{Ext2Error, Ext2FileSystem};
 use crate::storage::fs::ext2::permissions::file_permissions;
 use crate::storage::fs::ext2::structs::DiskInode;
 use crate::storage::fs::{
     VfsNode,
     VfsNodeType,
+    VfsReadError,
 };
 
 #[derive(Debug)]
@@ -158,10 +159,7 @@ impl Ext2File {
             let page_offset = (current_file_offset / 4096) * 4096;
             let block_internal_offset = current_file_offset % 4096;
 
-            let frame = self.file_vmo
-                .get_frame_locked(page_offset, file_size)
-                .await
-                .map_err(|_| InvocationError::InvalidPointer)?;
+            let frame = self.file_vmo.get_frame_locked(page_offset, file_size).await?;
 
             let page_virt = frame.virt();
             let chunk_size = core::cmp::min(4096 - block_internal_offset, read_len - bytes_copied);
@@ -210,11 +208,8 @@ impl Ext2File {
                 let copied = safe_copy_from(staging.virt() as *mut u8, (buffer_ptr + written) as *const u8, count);
                 if !copied { return Err(InvocationError::InvalidPointer) };
 
-                let frame = self.file_vmo.get_frame_locked(page_offset, old_size).await
-                    .map_err(|_| InvocationError::UnsupportedOperation)?;
-
-                self.file_vmo.mark_dirty(page_offset)
-                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+                let frame = self.file_vmo.get_frame_locked(page_offset, old_size).await?;
+                self.file_vmo.mark_dirty(page_offset).map_err(|_| InvocationError::Io)?;
 
                 unsafe {
                     core::ptr::copy_nonoverlapping(
@@ -246,8 +241,7 @@ impl Ext2File {
         }
 
         let inode = *self.inode_data.read();
-        self.fs.write_inode(self.inode_num, &inode).await
-            .map_err(|_| InvocationError::UnsupportedOperation)?;
+        self.fs.write_inode(self.inode_num, &inode).await?;
 
         Ok(written)
     }
@@ -264,7 +258,7 @@ impl Ext2File {
             return Ok(());
         }
 
-        let block_size = self.fs.block_size as usize;
+        let block_size = self.fs.metadata_block_size()? as usize;
 
         if new_size < old_size {
             // Zero bytes after the new EOF in the final retained block.
@@ -273,7 +267,7 @@ impl Ext2File {
                 let block_offset = new_size % block_size;
 
                 let inode = *self.inode_data.read();
-                let block_id = self.fs.resolve_file_block(&inode, block_index).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+                let block_id = self.fs.resolve_file_block(&inode, block_index).await?;
 
                 if block_id != 0 {
                     let page = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
@@ -281,18 +275,18 @@ impl Ext2File {
                     let sector = u64::from(block_id) * u64::from(sectors);
 
                     self.fs.partition.read_sectors(sector, sectors, page.phys() as u64)
-                        .map_err(|_| InvocationError::UnsupportedOperation)?
+                        .map_err(|_| Ext2Error::BlockRead)?
                         .await
-                        .map_err(|_| InvocationError::UnsupportedOperation)?;
+                        .map_err(|_| Ext2Error::BlockRead)?;
 
                     unsafe {
                         (page.virt() as *mut u8).add(block_offset).write_bytes(0, block_size - block_offset);
                     }
 
                     self.fs.partition.write_sectors(sector, sectors, page.phys() as u64)
-                        .map_err(|_| InvocationError::UnsupportedOperation)?
+                        .map_err(|_| Ext2Error::BlockWrite)?
                         .await
-                        .map_err(|_| InvocationError::UnsupportedOperation)?;
+                        .map_err(|_| Ext2Error::BlockWrite)?;
                 }
             }
 
@@ -302,18 +296,18 @@ impl Ext2File {
             let mut inode = *self.inode_data.read();
 
             for block_index in new_blocks..old_blocks {
-                self.fs.clear_file_block(&mut inode, block_index).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+                self.fs.clear_file_block(&mut inode, block_index).await?;
             }
 
             inode.size = new_size as u32;
 
-            self.fs.write_inode(self.inode_num, &inode).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+            self.fs.write_inode(self.inode_num, &inode).await?;
             *self.inode_data.write() = inode;
         } else {
             let mut inode = *self.inode_data.read();
             inode.size = new_size as u32;
 
-            self.fs.write_inode(self.inode_num, &inode).await.map_err(|_| InvocationError::UnsupportedOperation)?;
+            self.fs.write_inode(self.inode_num, &inode).await?;
             *self.inode_data.write() = inode;
         }
 
@@ -337,10 +331,9 @@ impl Ext2File {
                     core::ptr::copy_nonoverlapping(src_frame.virt() as *const u8, dst_virt as *mut u8, count);
                 }
             } else {
-                let read = self.read_at_phys(src_offset, frame.phys(), count).await
-                    .map_err(|_| InvocationError::UnsupportedOperation)?;
+                let read = self.read_at_phys(src_offset, frame.phys(), count).await?;
                 if read != count {
-                    return Err(InvocationError::UnsupportedOperation);
+                    return Err(InvocationError::Io);
                 }
             }
 
@@ -352,15 +345,16 @@ impl Ext2File {
         Ok(())
     }
 
-    pub async fn flush_dirty_pages(&self) -> Result<(), ()> {
+    pub async fn flush_dirty_pages(&self) -> Result<(), Ext2Error> {
         let _guard = self.file_vmo.io_lock.lock().await;
         let size = self.inode_data.read().size as usize;
 
         for (offset, frame) in self.file_vmo.dirty_frames() {
-            let bytes = size.checked_sub(offset).ok_or(())?.min(PAGE_SIZE_4K);
-            if bytes == 0 { return Err(()) };
+            let remaining = size.checked_sub(offset)
+                .filter(|&bytes| bytes != 0)
+                .ok_or(Ext2Error::InvalidMetadata)?;
 
-            self.write_page_locked(offset, frame.phys(), bytes).await?;
+            self.write_page_locked(offset, frame.phys(), remaining.min(PAGE_SIZE_4K)).await?;
             self.file_vmo.clear_dirty(offset);
         }
 
@@ -368,8 +362,8 @@ impl Ext2File {
         Ok(())
     }
 
-    async fn write_page_locked(&self, offset: usize, src_phys: usize, bytes: usize) -> Result<(), ()> {
-        let block_size = self.fs.block_size as usize;
+    async fn write_page_locked(&self, offset: usize, src_phys: usize, bytes: usize) -> Result<(), Ext2Error> {
+        let block_size = self.fs.metadata_block_size()? as usize;
         let first_block = offset / block_size;
         let block_count = bytes.div_ceil(block_size);
         let sectors = self.fs.sectors_per_block;
@@ -387,8 +381,10 @@ impl Ext2File {
             let sector = u64::from(disk_block) * u64::from(sectors);
             let block_phys = src_phys + index * block_size;
             self.fs.partition
-                .write_sectors(sector, sectors, block_phys as u64)?
-                .await?;
+                .write_sectors(sector, sectors, block_phys as u64)
+                .map_err(|_| Ext2Error::BlockWrite)?
+                .await
+                .map_err(|_| Ext2Error::BlockWrite)?;
         }
 
         let inode = *self.inode_data.read();
@@ -398,7 +394,11 @@ impl Ext2File {
 
 #[async_trait]
 impl VfsNode for Ext2File {
-    async fn read_at_phys(&self, offset: usize, dest_phys: usize, len: usize) -> Result<usize, ()> {
+    async fn read_at_phys(&self, offset: usize, dest_phys: usize, len: usize) -> Result<usize, VfsReadError> {
+        if offset % PAGE_SIZE_4K != 0 || len > PAGE_SIZE_4K {
+            return Err(VfsReadError::InvalidArgument);
+        }
+
         let file_size = self.inode_data.read().size as usize;
         if offset >= file_size {
             return Ok(0);
@@ -410,43 +410,46 @@ impl VfsNode for Ext2File {
             return Ok(0);
         }
 
-        let block_size = self.fs.block_size as usize;
-        let blocks_per_page = 4096 / block_size;
+        let block_size = self.fs.metadata_block_size().map_err(|_| VfsReadError::Io)? as usize;
+        let block_count = read_len.div_ceil(block_size);
         let start_file_block = offset / block_size;
 
-        let mut block_ids = [0u32; 4];
-        {
-            let inode = *self.inode_data.read();
-            for i in 0..blocks_per_page {
-                let file_block_idx = start_file_block + i;
-                block_ids[i] = self.fs.resolve_file_block(&inode, file_block_idx).await.map_err(|_| ())?;
-            }
+        let mut block_ids = [0u32; PAGE_SIZE_4K / 1024];
+        let inode = *self.inode_data.read();
+        let blocks = &mut block_ids[..block_count];
+        for (index, block) in blocks.iter_mut().enumerate() {
+            *block = self.fs.resolve_file_block(&inode, start_file_block + index).await
+                .map_err(|error| match error {
+                    Ext2Error::OutOfMemory => VfsReadError::OutOfMemory,
+                    _ => VfsReadError::Io,
+                })?;
         }
 
-        // block fusion
-        let is_contiguous =
-            (1..blocks_per_page).all(|i| block_ids[i] != 0 && block_ids[i] == (block_ids[0] + i as u32)) && block_ids[0] != 0;
+        let sectors = self.fs.sectors_per_block;
+        let is_contiguous = blocks[0] != 0 && blocks.windows(2)
+            .all(|pair| pair[0].checked_add(1) == Some(pair[1]));
 
         if is_contiguous {
-            let sectors_to_read = blocks_per_page as u32 * self.fs.sectors_per_block;
-            let start_sector = block_ids[0] as u64 * self.fs.sectors_per_block as u64;
-
-            let read_fut = self.fs.partition.read_sectors(start_sector, sectors_to_read, dest_phys as u64).map_err(|_| ())?;
-            read_fut.await.map_err(|_| ())?;
+            let first_sector = u64::from(blocks[0]) * u64::from(sectors);
+            let count = block_count as u32 * sectors;
+            self.fs.partition.read_sectors(first_sector, count, dest_phys as u64)
+                .map_err(|_| VfsReadError::Io)?
+                .await
+                .map_err(|_| VfsReadError::Io)?;
         } else {
-            for i in 0..blocks_per_page {
-                let dest_blocks_phys = dest_phys + (i * block_size);
-                if block_ids[i] == 0 {
+            for (index, &block) in blocks.iter().enumerate() {
+                let phys = dest_phys + index * block_size;
+                if block == 0 {
                     unsafe {
-                        let dest_virt = dest_blocks_phys + *DIRECT_MAP_OFFSET;
-                        core::ptr::write_bytes(dest_virt as *mut u8, 0, block_size);
+                        let virt = phys + *DIRECT_MAP_OFFSET;
+                        core::ptr::write_bytes(virt as *mut u8, 0, block_size);
                     }
                 } else {
-                    let sector = block_ids[i] as u64 * self.fs.sectors_per_block as u64;
-                    let read_fut =
-                        self.fs.partition.read_sectors(sector, self.fs.sectors_per_block, dest_blocks_phys as u64).map_err(|_| ())?;
-
-                    read_fut.await.map_err(|_| ())?;
+                    let sector = u64::from(block) * u64::from(sectors);
+                    self.fs.partition.read_sectors(sector, sectors, phys as u64)
+                        .map_err(|_| VfsReadError::Io)?
+                        .await
+                        .map_err(|_| VfsReadError::Io)?;
                 }
             }
         }

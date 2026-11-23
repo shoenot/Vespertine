@@ -11,6 +11,7 @@ use core::{
 };
 
 use crate::executor::async_mutex::AsyncMutex;
+use crate::object::invoke::InvocationError;
 use crate::sync::{
     Mutex,
     TicketLock,
@@ -54,6 +55,27 @@ pub struct Ext2FileSystem {
     pub active_files: Mutex<BTreeMap<u32, Weak<Ext2File>>>,
     pub active_dirs: Mutex<BTreeMap<u32, Weak<Ext2Directory>>>,
     pub dirty_files: Mutex<BTreeMap<u32, Arc<Ext2File>>>,
+}
+
+#[derive(Debug)]
+pub enum Ext2Error {
+    OutOfMemory,
+    BlockRead,
+    BlockWrite,
+    InvalidMetadata,
+    UnsupportedDirectoryLayout,
+    NoSpace,
+}
+
+impl From<Ext2Error> for InvocationError {
+    fn from(value: Ext2Error) -> Self {
+        match value {
+            Ext2Error::OutOfMemory => InvocationError::OutOfMemory,
+            Ext2Error::BlockRead | Ext2Error::BlockWrite | Ext2Error::InvalidMetadata => InvocationError::Io,
+            Ext2Error::UnsupportedDirectoryLayout => InvocationError::UnsupportedOperation,
+            Ext2Error::NoSpace => InvocationError::NoSpace,
+        }
+    }
 }
 
 impl Ext2FileSystem {
@@ -120,188 +142,142 @@ impl Ext2FileSystem {
         })
     }
 
-    pub async fn read_block(&self, block_id: u32, dest_phys: u64) -> Result<(), ()> {
-        if block_id == 0 {
-            unsafe {
-                let dest_virt = dest_phys + *DIRECT_MAP_OFFSET as u64;
-                ptr::write_bytes(dest_virt as *mut u8, 0, self.block_size as usize);
-            }
-            return Ok(());
+    fn metadata_block_size(&self) -> Result<u32, Ext2Error> {
+        let block_size = self.block_size;
+        if !matches!(block_size, 1024 | 2048 | 4096) {
+            return Err(Ext2Error::InvalidMetadata);
         }
-
-        self.cache.read_block(block_id as usize, dest_phys).await
+        Ok(block_size)
     }
 
-    pub async fn read_inode(&self, inode_num: u32) -> Result<DiskInode, ()> {
-        if inode_num == 0 {
-            return Err(());
-        };
-        let bg_index = (inode_num - 1) / self.inodes_per_group;
-        let local_inode_idx = (inode_num - 1) % self.inodes_per_group;
+    fn inode_location(&self, inode_num: u32) -> Result<(u32, usize), Ext2Error> {
+        let block_size = self.metadata_block_size()?;
 
-        // unpack beginning block addr of target inode table from the bgdt
-        let inode_table_start_block = {
-            let bgdt = self.bgdt.lock();
-            if bg_index as usize >= bgdt.len() {
-                return Err(());
-            };
-            bgdt[bg_index as usize].inode_table
+        if inode_num == 0 || self.inodes_per_group == 0 
+            || (self.inode_size as usize) < size_of::<DiskInode>() {
+            return Err(Ext2Error::InvalidMetadata);
         };
 
-        let byte_offset = local_inode_idx * self.inode_size;
-        let target_logical_block = inode_table_start_block + (byte_offset / self.block_size);
-        let block_internal_offset = byte_offset % self.block_size;
+        let idx = inode_num - 1;
+        let group_idx = (idx / self.inodes_per_group) as usize;
+        let local_idx = idx % self.inodes_per_group;
 
-        let buffer = PhysBuffer::new().ok_or(())?;
+        let inode_table = {
+            let groups = self.bgdt.lock();
+            let group = groups.get(group_idx).ok_or(Ext2Error::InvalidMetadata)?;
+            group.inode_table
+        };
 
-        if self.read_block(target_logical_block, buffer.phys() as u64).await.is_err() { return Err(()); }
+        if inode_table == 0 {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+
+        let byte_offset = local_idx
+            .checked_mul(self.inode_size)
+            .ok_or(Ext2Error::InvalidMetadata)?;
+        let block = inode_table
+            .checked_add(byte_offset / block_size)
+            .ok_or(Ext2Error::InvalidMetadata)?;
+        let offset = (byte_offset % block_size) as usize;
+
+        if offset + size_of::<DiskInode>() > block_size as usize {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+        Ok((block, offset))
+    }
+
+    pub async fn read_inode(&self, inode_num: u32) -> Result<DiskInode, Ext2Error> {
+        let (block, offset) = self.inode_location(inode_num)?;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        self.read_metadata_block(block, &buffer).await?;
 
         let inode = unsafe {
-            let src_ptr = (buffer.virt() as *const u8).add(block_internal_offset as usize) as *const DiskInode;
+            let src_ptr = (buffer.virt() as *const u8).add(offset).cast::<DiskInode>();
             ptr::read(src_ptr)
         };
-
         Ok(inode)
     }
 
-    pub async fn lookup_in_dir(&self, inode: &DiskInode, name: &str) -> Result<Option<u32>, ()> {
-        let buffer = PhysBuffer::new().ok_or(())?;
+    fn read_dir_header(bytes: &[u8]) -> Result<DiskDirHeader, Ext2Error> {
+        let header_size = size_of::<DiskDirHeader>();
+        if bytes.len() < header_size {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+
+        let entry = unsafe { ptr::read(bytes.as_ptr().cast::<DiskDirHeader>()) };
+        let rec_len = entry.record_length as usize;
+        if rec_len < header_size
+            || rec_len % 4 != 0
+            || rec_len > bytes.len()
+            || entry.name_length as usize > rec_len - header_size
+        {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+
+        Ok(entry)
+    }
+
+    pub async fn lookup_in_dir(&self, inode: &DiskInode, name: &str) -> Result<Option<u32>, Ext2Error> {
+        const DIRECT_BLOCKS: u32 = 12;
+        const HEADER_SIZE: usize = size_of::<DiskDirHeader>();
+
+        let block_size = self.metadata_block_size()?;
+        let dir_size = inode.size;
+        if dir_size % block_size != 0 {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+
+        let block_count = dir_size / block_size;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
 
         // walk thru 12 direct blk pointers
-        for direct_idx in 0..12 {
-            let block_id = unsafe { inode.data.blocks.direct[direct_idx] };
-            if block_id == 0 {
-                continue;
+        for idx in 0..block_count.min(DIRECT_BLOCKS) as usize {
+            let block = unsafe { inode.data.blocks.direct[idx] };
+            if block == 0 {
+                return Err(Ext2Error::InvalidMetadata);
+            }
+
+            self.read_metadata_block(block, &buffer).await?;
+
+            let mut bytes = unsafe {
+                slice::from_raw_parts(buffer.virt() as *const u8, block_size as usize)
             };
 
-            if self.read_block(block_id, buffer.phys() as u64).await.is_err() { return Err(()); }
+            while !bytes.is_empty() {
+                let entry = Self::read_dir_header(bytes)?;
+                let rec_len = entry.record_length as usize;
+                let name_len = entry.name_length as usize;
 
-            let mut offset = 0;
-            while offset < self.block_size as usize {
-                unsafe {
-                    let entry_ptr = (buffer.virt() as *const u8).add(offset) as *const DiskDirHeader;
-                    let inode_id = (*entry_ptr).inode;
-                    let rec_len = (*entry_ptr).record_length as usize;
-                    let name_len = (*entry_ptr).name_length as usize;
-
-                    if rec_len == 0 {
-                        break;
-                    }
-
-                    if inode_id != 0 && name_len > 0 && offset + 8 + name_len <= self.block_size as usize {
-                        let name_ptr = (entry_ptr as *const u8).add(8);
-                        let name_slice = slice::from_raw_parts(name_ptr, name_len);
-
-                        if let Ok(entry_name) = str::from_utf8(name_slice) {
-                            if entry_name == name {
-                                return Ok(Some(inode_id));
-                            }
-                        }
-                    }
-                    offset += rec_len;
+                if entry.inode != 0 && &bytes[HEADER_SIZE..HEADER_SIZE + name_len] == name.as_bytes() {
+                    return Ok(Some(entry.inode));
                 }
+
+                bytes = &bytes[rec_len..];
             }
         }
+        
+        if block_count > DIRECT_BLOCKS {
+            return Err(Ext2Error::UnsupportedDirectoryLayout);
+        }
+
         Ok(None)
     }
 
-    pub async fn resolve_file_block(&self, inode: &DiskInode, file_block_idx: usize) -> Result<u32, ()> {
-        let pointers_per_block = (self.block_size / 4) as usize;
+    pub async fn resolve_file_block(&self, inode: &DiskInode, file_block_idx: usize) -> Result<u32, Ext2Error> {
+        let (depth, indices) = self.indirect_path(file_block_idx)?;
 
-        // tier 1: direct blocks (indices 0 to 11)
-        if file_block_idx < 12 {
-            unsafe {
-                return Ok(inode.data.blocks.direct[file_block_idx]);
-            }
+        if depth == 0 {
+            return Ok(unsafe { inode.data.blocks.direct[file_block_idx] });
         }
 
-        let mut remaining_idx = file_block_idx - 12;
-
-        // tier 2: singly indirect blocks
-        if remaining_idx < pointers_per_block {
-            let single_indirect_id = unsafe { inode.data.blocks.single_indirect };
-            if single_indirect_id == 0 {
+        let mut block = Self::get_indirect_root(inode, depth);
+        for &index in &indices[..depth] {
+            if block == 0 {
                 return Ok(0);
-            } // data block hole configuration
-
-            let buffer = PhysBuffer::new().ok_or(())?;
-            self.read_block(single_indirect_id, buffer.phys() as u64).await?;
-
-            let physical_block_id = unsafe {
-                let table_ptr = buffer.virt() as *const u32;
-                ptr::read(table_ptr.add(remaining_idx))
-            };
-
-            return Ok(physical_block_id);
+            }
+            block = self.read_pointer(block, index).await?;
         }
-
-        remaining_idx -= pointers_per_block;
-
-        // tier 3: doubly indirect blocks
-        let blocks_per_double = pointers_per_block * pointers_per_block;
-        if remaining_idx < blocks_per_double {
-            let double_indirect_id = unsafe { inode.data.blocks.double_indirect }; //
-            if double_indirect_id == 0 {
-                return Ok(0);
-            }
-
-            let buffer = PhysBuffer::new().ok_or(())?;
-
-            let level1_idx = remaining_idx / pointers_per_block;
-            let level2_idx = remaining_idx % pointers_per_block;
-
-            // load level 1 pointer map block
-            self.read_block(double_indirect_id, buffer.phys() as u64).await?;
-            let single_indirect_id = unsafe { ptr::read((buffer.virt() as *const u32).add(level1_idx)) };
-
-            if single_indirect_id == 0 {
-                return Ok(0);
-            }
-
-            // load level 2 ultimate target block location pointer
-            self.read_block(single_indirect_id, buffer.phys() as u64).await?;
-            let physical_block_id = unsafe { ptr::read((buffer.virt() as *const u32).add(level2_idx)) };
-
-            return Ok(physical_block_id);
-        }
-
-        remaining_idx -= blocks_per_double;
-
-        // tier 4: triply indirect blocks (will it end plz)
-        let blocks_per_triple = blocks_per_double * pointers_per_block;
-        if remaining_idx < blocks_per_triple {
-            let triple_indirect_id = unsafe { inode.data.blocks.triple_indirect };
-            if triple_indirect_id == 0 {
-                return Ok(0);
-            }
-
-            let buffer = PhysBuffer::new().ok_or(())?;
-
-            let level1_idx = remaining_idx / blocks_per_double;
-            let level2_idx = (remaining_idx % blocks_per_double) / pointers_per_block;
-            let level3_idx = (remaining_idx % blocks_per_double) % pointers_per_block;
-
-            // read the triple indirect block
-            self.read_block(triple_indirect_id, buffer.phys() as u64).await?;
-            let double_indirect_id = unsafe { core::ptr::read((buffer.virt() as *const u32).add(level1_idx)) };
-            if double_indirect_id == 0 {
-                return Ok(0);
-            }
-
-            // read the doubly indirect block
-            self.read_block(double_indirect_id, buffer.phys() as u64).await?;
-            let single_indirect_id = unsafe { core::ptr::read((buffer.virt() as *const u32).add(level2_idx)) };
-            if single_indirect_id == 0 {
-                return Ok(0);
-            }
-
-            // read the singly indirect block
-            self.read_block(single_indirect_id, buffer.phys() as u64).await?;
-            let physical_block_id = unsafe { core::ptr::read((buffer.virt() as *const u32).add(level3_idx)) };
-
-            return Ok(physical_block_id);
-        }
-        Err(())
+        Ok(block)
     }
 
     fn add_inode_block(&self, inode: &mut DiskInode) {
@@ -314,65 +290,63 @@ impl Ext2FileSystem {
         inode.blocks = blocks.saturating_sub(self.sectors_per_block);
     }
 
-    async fn allocate_zeroed_block(&self) -> Result<u32, ()> {
+    async fn allocate_zeroed_block(&self) -> Result<u32, Ext2Error> {
+        let block_size = self.metadata_block_size()? as usize;
+        let page = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
         let block = self.allocate_block().await?;
-        let page = PhysBuffer::new().ok_or(())?;
+
         unsafe {
-            ptr::write_bytes(page.virt() as *mut u8, 0, self.block_size as usize);
+            ptr::write_bytes(page.virt() as *mut u8, 0, block_size);
         }
-        let result = self.cache.write_block(block as usize, page.phys() as u64).await;
-        if result.is_err() {
-            self.free_block(block).await?;
-            return Err(());
+
+        if let Err(error) = self.write_metadata_block(block, &page).await {
+            self.release_unlinked_block(block).await;
+            return Err(error);
         }
         Ok(block)
     }
 
-    async fn read_pointer(&self, table_block: u32, index: usize) -> Result<u32, ()> {
-        let pointers = (self.block_size / 4) as usize;
-        if table_block == 0 || index >= pointers {
-            return Err(());
+    async fn release_unlinked_block(&self, block: u32) {
+        if let Err(error) = self.free_block(block).await {
+            crate::klogln!("[EXT2] could not release unlinked block {}: {:?}", block, error);
         }
-        let page = PhysBuffer::new().ok_or(())?;
-        if self.read_block(table_block, page.phys() as u64).await.is_err() {
-            return Err(());
-        }
-        let value = unsafe { ptr::read((page.virt() as *const u32).add(index)) };
-        Ok(value)
     }
 
-    async fn write_pointer(&self, table_block: u32, index: usize, value: u32) -> Result<bool, ()> {
-        let pointers = (self.block_size / 4) as usize;
-
-        if table_block == 0 || index >= pointers {
-            return Err(());
+    async fn read_pointer(&self, block: u32, index: usize) -> Result<u32, Ext2Error> {
+        let pointers = self.metadata_block_size()? as usize / size_of::<u32>();
+        if block == 0 || index >= pointers {
+            return Err(Ext2Error::InvalidMetadata);
         }
 
-        let page = PhysBuffer::new().ok_or(())?;
+        let page = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        self.read_metadata_block(block, &page).await?;
 
-        if self.read_block(table_block, page.phys() as u64).await.is_err() {
-            return Err(());
+        Ok(unsafe { ptr::read((page.virt() as *const u32).add(index)) })
+    }
+
+    async fn write_pointer(&self, block: u32, index: usize, value: u32) -> Result<bool, Ext2Error> {
+        let pointers = self.metadata_block_size()? as usize / size_of::<u32>();
+        if block == 0 || index >= pointers {
+            return Err(Ext2Error::InvalidMetadata);
         }
 
-        // Keep raw pointers scoped before the await.
-        let empty = {
+        let page = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        self.read_metadata_block(block, &page).await?;
+
+        let empty = unsafe {
             let table = page.virt() as *mut u32;
-
-            unsafe {
-                ptr::write(table.add(index), value);
-                (0..pointers).all(|i| ptr::read(table.add(i)) == 0)
-            }
+            ptr::write(table.add(index), value);
+            (0..pointers).all(|index| ptr::read(table.add(index)) == 0)
         };
 
-        let result = self.cache.write_block(table_block as usize, page.phys() as u64).await;
-
-        result.map(|_| empty)
+        self.write_metadata_block(block, &page).await?;
+        Ok(empty)
     }
 
-    fn indirect_path(&self, file_block_idx: usize) -> Result<(usize, [usize; 3]), ()> {
-        let pointers = (self.block_size / 4) as usize;
-        let double = pointers.checked_mul(pointers).ok_or(())?;
-        let triple = double.checked_mul(pointers).ok_or(())?;
+    fn indirect_path(&self, file_block_idx: usize) -> Result<(usize, [usize; 3]), Ext2Error> {
+        let pointers = self.metadata_block_size()? as usize / size_of::<u32>();
+        let double = pointers.checked_mul(pointers).ok_or(Ext2Error::InvalidMetadata)?;
+        let triple = double.checked_mul(pointers).ok_or(Ext2Error::InvalidMetadata)?;
         if file_block_idx < 12 {
             return Ok((0, [file_block_idx, 0, 0]));
         }
@@ -388,7 +362,7 @@ impl Ext2FileSystem {
         if remaining < triple {
             return Ok((3, [remaining / double, (remaining % double) / pointers, remaining % pointers]));
         }
-        Err(())
+        Err(Ext2Error::InvalidMetadata)
     }
 
     fn get_indirect_root(inode: &DiskInode, depth: usize) -> u32 {
@@ -411,13 +385,15 @@ impl Ext2FileSystem {
         }
     }
 
-    pub async fn allocate_file_block(&self, inode: &mut DiskInode, file_block_idx: usize) -> Result<u32, ()> {
+    pub async fn allocate_file_block(&self, inode: &mut DiskInode, file_block_idx: usize) -> Result<u32, Ext2Error> {
         let (depth, indices) = self.indirect_path(file_block_idx)?;
+
         if depth == 0 {
             let existing = unsafe { inode.data.blocks.direct[file_block_idx] };
             if existing != 0 {
                 return Ok(existing);
             }
+
             let data = self.allocate_block().await?;
             unsafe {
                 inode.data.blocks.direct[file_block_idx] = data;
@@ -425,40 +401,64 @@ impl Ext2FileSystem {
             self.add_inode_block(inode);
             return Ok(data);
         }
-        let mut root = Self::get_indirect_root(inode, depth);
-        if root == 0 {
-            root = self.allocate_zeroed_block().await?;
-            Self::set_indirect_root(inode, depth, root);
-            self.add_inode_block(inode);
-        }
-        let mut table = root;
-        for level in 0..depth - 1 {
-            let mut child = self.read_pointer(table, indices[level]).await?;
-            if child == 0 {
-                child = self.allocate_zeroed_block().await?;
-                if self.write_pointer(table, indices[level], child).await.is_err() {
-                    self.free_block(child).await?;
-                    return Err(());
+
+        let mut table = Self::get_indirect_root(inode, depth);
+        let mut parent = None;
+        let mut missing_tables = &indices[..depth];
+        if table != 0 {
+            for (level, &index) in indices[..depth].iter().enumerate() {
+                let child = self.read_pointer(table, index).await?;
+                if child == 0 {
+                    parent = Some((table, index));
+                    missing_tables = &indices[level + 1..depth];
+                    break;
                 }
+
+                if level + 1 == depth {
+                    return Ok(child);
+                }
+                table = child;
+            }
+        }
+
+        // Stage the data block and any missing tables before publishing their first link.
+        let mut staged = [0; 4];
+        let mut count = 0;
+        let result = async {
+            let data = self.allocate_block().await?;
+            staged[count] = data;
+            count += 1;
+
+            let mut child = data;
+            for &index in missing_tables.iter().rev() {
+                let table = self.allocate_zeroed_block().await?;
+                staged[count] = table;
+                count += 1;
+                self.write_pointer(table, index, child).await?;
+                child = table;
+            }
+
+            if let Some((table, index)) = parent {
+                self.write_pointer(table, index, child).await?;
+            } else {
+                Self::set_indirect_root(inode, depth, child);
+            }
+
+            for _ in 0..count {
                 self.add_inode_block(inode);
             }
-            table = child;
+            Ok(data)
+        }.await;
+
+        if result.is_err() {
+            for &block in staged[..count].iter().rev() {
+                self.release_unlinked_block(block).await;
+            }
         }
-        let leaf = indices[depth - 1];
-        let existing = self.read_pointer(table, leaf).await?;
-        if existing != 0 {
-            return Ok(existing);
-        }
-        let data = self.allocate_block().await?;
-        if self.write_pointer(table, leaf, data).await.is_err() {
-            self.free_block(data).await?;
-            return Err(());
-        }
-        self.add_inode_block(inode);
-        Ok(data)
+        result
     }
 
-    pub async fn clear_file_block(&self, inode: &mut DiskInode, file_block_idx: usize) -> Result<(), ()> {
+    pub async fn clear_file_block(&self, inode: &mut DiskInode, file_block_idx: usize) -> Result<(), Ext2Error> {
         let (depth, indices) = self.indirect_path(file_block_idx)?;
         if depth == 0 {
             let data = unsafe { inode.data.blocks.direct[file_block_idx] };
@@ -506,345 +506,234 @@ impl Ext2FileSystem {
         Ok(())
     }
 
-    pub async fn write_inode(&self, inode_num: u32, inode: &DiskInode) -> Result<(), ()> {
-        if inode_num == 0 {
-            return Err(());
-        };
-        let bg_index = ((inode_num - 1) / self.inodes_per_group) as usize;
-        let local_inode_idx = (inode_num - 1) % self.inodes_per_group;
+    pub async fn write_inode(&self, inode_num: u32, inode: &DiskInode) -> Result<(), Ext2Error> {
+        let (block, offset) = self.inode_location(inode_num)?;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
 
-        let inode_table_start_block = {
-            let bgdt = self.bgdt.lock();
-            if bg_index >= bgdt.len() {
-                return Err(());
-            };
-            bgdt[bg_index].inode_table
-        };
-
-        let byte_offset = local_inode_idx * self.inode_size;
-        let target_logical_block = inode_table_start_block + (byte_offset / self.block_size);
-        let block_internal_offset = byte_offset % self.block_size;
-
-        let buffer = PhysBuffer::new().ok_or(())?;
-
-        self.read_block(target_logical_block, buffer.phys() as u64).await?;
+        self.read_metadata_block(block, &buffer).await?;
 
         unsafe {
-            let dest_ptr = (buffer.virt() as *mut u8).add(block_internal_offset as usize) as *mut DiskInode;
-            ptr::write(dest_ptr, *inode);
+            let dest = (buffer.virt() as *mut u8).add(offset).cast::<DiskInode>();
+            ptr::write(dest, *inode);
         }
 
-        self.cache.write_block(target_logical_block as usize, buffer.phys() as u64).await?;
-        Ok(())
+        self.write_metadata_block(block, &buffer).await
     }
 
-    pub async fn allocate_block(&self) -> Result<u32, ()> {
-        let _guard = self.allocation_lock.lock().await;
-
-        let buffer = PhysBuffer::new().ok_or(())?;
-
-        let num_groups = self.bgdt.lock().len();
-
-        for group in 0..num_groups {
-            let mut bg = self.bgdt.lock()[group];
-            if bg.free_blocks_count > 0 {
-                self.read_block(bg.block_bitmap, buffer.phys() as u64).await?;
-                let bitmap_ptr = buffer.virt() as *mut u8;
-                let mut allocated_block_idx = None;
-
-                // find first free block bit
-                for byte_idx in 0..self.block_size as usize {
-                    unsafe {
-                        let val = *bitmap_ptr.add(byte_idx);
-                        if val != 0xFF {
-                            for bit in 0..8 {
-                                if (val & (1 << bit)) == 0 {
-                                    *bitmap_ptr.add(byte_idx) = val | (1 << bit);
-                                    allocated_block_idx = Some(byte_idx * 8 + bit);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if allocated_block_idx.is_some() {
-                        break;
-                    }
-                }
-
-                if let Some(bit_idx) = allocated_block_idx {
-                    // write bitmap block back
-                    self.cache.write_block(bg.block_bitmap as usize, buffer.phys() as u64).await?;
-
-                    let first_data_block = if self.block_size == 1024 { 1 } else { 0 };
-                    let block_id = group as u32 * self.blocks_per_group + bit_idx as u32 + first_data_block;
-
-                    bg.free_blocks_count -= 1;
-                    self.bgdt.lock()[group] = bg;
-
-                    // write modified gd back to cache
-                    let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
-                    let descriptor_offset = group * size_of::<DiskGroupDesc>();
-                    let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
-                    let block_internal_offset = descriptor_offset % self.block_size as usize;
-
-                    self.read_block(target_logical_block, buffer.phys() as u64).await?;
-                    unsafe {
-                        let dest_ptr = (buffer.virt() as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
-                        ptr::write(dest_ptr, bg);
-                    }
-                    self.cache.write_block(target_logical_block as usize, buffer.phys() as u64).await?;
-
-                    // update sb count
-                    let sb_block = if self.block_size == 1024 { 1 } else { 0 };
-                    let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
-
-                    self.read_block(sb_block, buffer.phys() as u64).await?;
-                    unsafe {
-                        let sb_ptr = (buffer.virt() as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
-                        if (*sb_ptr).free_blocks_count > 0 {
-                            (*sb_ptr).free_blocks_count -= 1;
-                        }
-                    }
-                    self.cache.write_block(sb_block as usize, buffer.phys() as u64).await?;
-
-                    return Ok(block_id);
-                }
-            }
-        }
-        Err(())
+    async fn read_metadata_block(&self, block: u32, buffer: &PhysBuffer) -> Result<(), Ext2Error> {
+        self.cache.read_block(block as usize, buffer.phys() as u64).await
+            .map_err(|_| Ext2Error::BlockRead)
     }
 
-    pub async fn allocate_inode(&self, is_dir: bool) -> Result<u32, ()> {
-        let _guard = self.allocation_lock.lock().await;
-
-        let buffer = PhysBuffer::new().ok_or(())?;
-
-        let num_groups = self.bgdt.lock().len();
-
-        for group in 0..num_groups {
-            let mut bg = self.bgdt.lock()[group];
-            if bg.free_inodes_count > 0 {
-                self.read_block(bg.inode_bitmap, buffer.phys() as u64).await?;
-                let bitmap_ptr = buffer.virt() as *mut u8;
-                let mut allocated_inode_idx = None;
-
-                for byte_idx in 0..self.block_size as usize {
-                    unsafe {
-                        let val = *bitmap_ptr.add(byte_idx);
-                        if val != 0xFF {
-                            for bit in 0..8 {
-                                if (val & (1 << bit)) == 0 {
-                                    *bitmap_ptr.add(byte_idx) = val | (1 << bit);
-                                    allocated_inode_idx = Some(byte_idx * 8 + bit);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if allocated_inode_idx.is_some() {
-                        break;
-                    }
-                }
-
-                if let Some(bit_idx) = allocated_inode_idx {
-                    self.cache.write_block(bg.inode_bitmap as usize, buffer.phys() as u64).await?;
-
-                    let inode_num = group as u32 * self.inodes_per_group + bit_idx as u32 + 1;
-
-                    bg.free_inodes_count -= 1;
-                    if is_dir {
-                        bg.used_dirs_count += 1;
-                    }
-                    self.bgdt.lock()[group] = bg;
-
-                    let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
-                    let descriptor_offset = group * size_of::<DiskGroupDesc>();
-                    let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
-                    let block_internal_offset = descriptor_offset % self.block_size as usize;
-
-                    self.read_block(target_logical_block, buffer.phys() as u64).await?;
-                    unsafe {
-                        let dest_ptr = (buffer.virt() as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
-                        ptr::write(dest_ptr, bg);
-                    }
-                    self.cache.write_block(target_logical_block as usize, buffer.phys() as u64).await?;
-
-                    let sb_block = if self.block_size == 1024 { 1 } else { 0 };
-                    let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
-
-                    self.read_block(sb_block, buffer.phys() as u64).await?;
-                    unsafe {
-                        let sb_ptr = (buffer.virt() as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
-                        if (*sb_ptr).free_inodes_count > 0 {
-                            (*sb_ptr).free_inodes_count -= 1;
-                        }
-                    }
-                    self.cache.write_block(sb_block as usize, buffer.phys() as u64).await?;
-
-                    return Ok(inode_num);
-                }
-            }
-        }
-
-        Err(())
+    async fn write_metadata_block(&self, block: u32, buffer: &PhysBuffer) -> Result<(), Ext2Error> {
+        self.cache.write_block(block as usize, buffer.phys() as u64).await
+            .map_err(|_| Ext2Error::BlockWrite)
     }
 
-    pub async fn free_inode(&self, inode_num: u32, is_dir: bool) -> Result<(), ()> {
-        if inode_num == 0 {
-            return Err(());
+    async fn claim_group_bit(&self, bitmap_block: u32, entries_per_group: u32, buffer: &PhysBuffer) -> Result<u32, Ext2Error> {
+        let block_size = self.metadata_block_size()?;
+        if bitmap_block == 0 || entries_per_group == 0 || entries_per_group > block_size * 8 {
+            return Err(Ext2Error::InvalidMetadata);
         }
 
-        let _guard = self.allocation_lock.lock().await;
+        self.read_metadata_block(bitmap_block, buffer).await?;
 
-        let buffer = PhysBuffer::new().ok_or(())?;
-
-        let group = ((inode_num - 1) / self.inodes_per_group) as usize;
-        let local_idx = (inode_num - 1) % self.inodes_per_group;
-
-        let mut bg = {
-            let bgdt = self.bgdt.lock();
-            if group >= bgdt.len() {
-                return Err(());
-            }
-            bgdt[group]
+        let bitmap = unsafe {
+            slice::from_raw_parts_mut(buffer.virt() as *mut u8, block_size as usize)
         };
 
-        if self.read_block(bg.inode_bitmap, buffer.phys() as u64).await.is_err() {
-            return Err(());
+        for (byte_index, byte) in bitmap.iter_mut().enumerate() {
+            if *byte == u8::MAX { continue };
+
+            let bit = byte.trailing_ones();
+            let index = byte_index as u32 * 8 + bit;
+            if index >= entries_per_group { break };
+
+            *byte |= 1u8 << bit;
+            return Ok(index);
         }
 
-        let bitmap_ptr = buffer.virt() as *mut u8;
-        let byte_idx = (local_idx / 8) as usize;
-        let bit_idx = (local_idx % 8) as usize;
+        // the caller picked a group whose descriptor advertised free entries.
+        Err(Ext2Error::InvalidMetadata)
+    }
 
-        unsafe {
-            let val = *bitmap_ptr.add(byte_idx);
-            if (val & (1 << bit_idx)) == 0 {
-                // prevent double freeing if alr free
-                return Err(());
-            }
-            *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
-        }
-
-        if self.cache.write_block(bg.inode_bitmap as usize, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-
-        bg.free_inodes_count += 1;
-        if is_dir && bg.used_dirs_count > 0 {
-            bg.used_dirs_count -= 1;
-        }
-        self.bgdt.lock()[group] = bg;
-
-        let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
+    async fn write_allocation_counts(
+        &self,
+        group: usize,
+        descriptor: DiskGroupDesc,
+        buffer: &PhysBuffer,
+        update_superblock: impl FnOnce(&mut DiskSuperblock) + Send,
+    ) -> Result<(), Ext2Error> {
+        let block_size = self.metadata_block_size()? as usize;
+        let bgdt_start = if block_size == 1024 { 2 } else { 1 };
         let descriptor_offset = group * size_of::<DiskGroupDesc>();
-        let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
-        let block_internal_offset = descriptor_offset % self.block_size as usize;
+        let block = bgdt_start + (descriptor_offset / block_size) as u32;
+        let offset = descriptor_offset % block_size;
 
-        if self.read_block(target_logical_block, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
+        self.read_metadata_block(block, buffer).await?;
         unsafe {
-            let dest_ptr = (buffer.virt() as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
-            ptr::write(dest_ptr, bg);
+            let dest = (buffer.virt() as *mut u8).add(offset).cast::<DiskGroupDesc>();
+            ptr::write(dest, descriptor);
         }
-        if self.cache.write_block(target_logical_block as usize, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
+        self.write_metadata_block(block, buffer).await?;
 
-        let sb_block = if self.block_size == 1024 { 1 } else { 0 };
-        let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
-
-        if self.read_block(sb_block, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
+        let sb_block = (1024 / block_size) as u32;
+        let sb_offset = 1024 % block_size;
+        self.read_metadata_block(sb_block, buffer).await?;
         unsafe {
-            let sb_ptr = (buffer.virt() as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
-            (*sb_ptr).free_inodes_count += 1;
+            let sb = (buffer.virt() as *mut u8).add(sb_offset).cast::<DiskSuperblock>();
+            update_superblock(&mut *sb);
         }
-        if self.cache.write_block(sb_block as usize, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-
-        Ok(())
+        self.write_metadata_block(sb_block, buffer).await
     }
 
-    pub async fn free_block(&self, block_id: u32) -> Result<(), ()> {
-        if block_id == 0 {
-            return Ok(()); // block hole, nothing to free
+    pub async fn allocate_block(&self) -> Result<u32, Ext2Error> {
+        let _guard = self.allocation_lock.lock().await;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        let group_count = self.bgdt.lock().len();
+
+        for group in 0..group_count {
+            let mut descriptor = self.bgdt.lock()[group];
+            if descriptor.free_blocks_count == 0 {
+                continue;
+            }
+
+            let bitmap = descriptor.block_bitmap;
+            let index = self.claim_group_bit(bitmap, self.blocks_per_group, &buffer).await?;
+
+            let first_data_block = if self.block_size == 1024 { 1 } else { 0 };
+            let block = (group as u32)
+                .checked_mul(self.blocks_per_group)
+                .and_then(|base| base.checked_add(index))
+                .and_then(|block| block.checked_add(first_data_block))
+                .filter(|&block| block != 0)
+                .ok_or(Ext2Error::InvalidMetadata)?;
+
+            self.write_metadata_block(bitmap, &buffer).await?;
+
+            descriptor.free_blocks_count -= 1;
+            self.bgdt.lock()[group] = descriptor;
+            self.write_allocation_counts(group, descriptor, &buffer, |sb| {
+                sb.free_blocks_count = sb.free_blocks_count.saturating_sub(1);
+            }).await?;
+
+            return Ok(block);
+        }
+
+        Err(Ext2Error::NoSpace)
+    }
+
+    pub async fn allocate_inode(&self, is_dir: bool) -> Result<u32, Ext2Error> {
+        let _guard = self.allocation_lock.lock().await;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        let group_count = self.bgdt.lock().len();
+
+        for group in 0..group_count {
+            let mut descriptor = self.bgdt.lock()[group];
+            if descriptor.free_inodes_count == 0 {
+                continue;
+            }
+
+            let bitmap = descriptor.inode_bitmap;
+            let index = self.claim_group_bit(bitmap, self.inodes_per_group, &buffer).await?;
+
+            let inode = (group as u32)
+                .checked_mul(self.inodes_per_group)
+                .and_then(|base| base.checked_add(index))
+                .and_then(|index| index.checked_add(1))
+                .ok_or(Ext2Error::InvalidMetadata)?;
+
+            if is_dir {
+                descriptor.used_dirs_count = descriptor.used_dirs_count
+                    .checked_add(1)
+                    .ok_or(Ext2Error::InvalidMetadata)?;
+            }
+
+            self.write_metadata_block(bitmap, &buffer).await?;
+
+            descriptor.free_inodes_count -= 1;
+            self.bgdt.lock()[group] = descriptor;
+            self.write_allocation_counts(group, descriptor, &buffer, |sb| {
+                sb.free_inodes_count = sb.free_inodes_count.saturating_sub(1);
+            }).await?;
+
+            return Ok(inode);
+        }
+
+        Err(Ext2Error::NoSpace)
+    }
+
+    async fn release_group_bit(
+        &self,
+        bitmap_block: u32,
+        index: u32,
+        buffer: &PhysBuffer,
+    ) -> Result<(), Ext2Error> {
+        if bitmap_block == 0 || index >= self.metadata_block_size()? * 8 {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+
+        self.read_metadata_block(bitmap_block, buffer).await?;
+
+        let byte = unsafe { &mut *(buffer.virt() as *mut u8).add((index / 8) as usize) };
+        let mask = 1 << (index % 8);
+        if *byte & mask == 0 {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+        *byte &= !mask;
+
+        self.write_metadata_block(bitmap_block, buffer).await
+    }
+
+    pub async fn free_inode(&self, inode_num: u32, is_dir: bool) -> Result<(), Ext2Error> {
+        if inode_num == 0 || self.inodes_per_group == 0 {
+            return Err(Ext2Error::InvalidMetadata);
         }
 
         let _guard = self.allocation_lock.lock().await;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        let group = ((inode_num - 1) / self.inodes_per_group) as usize;
+        let index = (inode_num - 1) % self.inodes_per_group;
 
-        let buffer = PhysBuffer::new().ok_or(())?;
+        let mut descriptor = *self.bgdt.lock().get(group).ok_or(Ext2Error::InvalidMetadata)?;
+        descriptor.free_inodes_count = descriptor.free_inodes_count
+            .checked_add(1)
+            .ok_or(Ext2Error::InvalidMetadata)?;
+        if is_dir {
+            descriptor.used_dirs_count = descriptor.used_dirs_count.saturating_sub(1);
+        }
+        self.release_group_bit(descriptor.inode_bitmap, index, &buffer).await?;
+        self.bgdt.lock()[group] = descriptor;
 
-        let first_data_block = if self.block_size == 1024 { 1 } else { 0 };
-        if block_id < first_data_block { return Err(()); }
+        self.write_allocation_counts(group, descriptor, &buffer, |sb| {
+            sb.free_inodes_count = sb.free_inodes_count.saturating_add(1);
+        }).await
+    }
 
+    pub async fn free_block(&self, block_id: u32) -> Result<(), Ext2Error> {
+        if block_id == 0 {
+            return Ok(());
+        }
+        if self.blocks_per_group == 0 {
+            return Err(Ext2Error::InvalidMetadata);
+        }
+
+        let _guard = self.allocation_lock.lock().await;
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        let first_data_block = u32::from(self.block_size == 1024);
         let relative_block = block_id - first_data_block;
         let group = (relative_block / self.blocks_per_group) as usize;
-        let local_idx = relative_block % self.blocks_per_group;
+        let index = relative_block % self.blocks_per_group;
 
-        let mut bg = {
-            let bgdt = self.bgdt.lock();
-            if group >= bgdt.len() { return Err(()); }
-            bgdt[group]
-        };
+        let mut descriptor = *self.bgdt.lock().get(group).ok_or(Ext2Error::InvalidMetadata)?;
+        descriptor.free_blocks_count = descriptor.free_blocks_count
+            .checked_add(1)
+            .ok_or(Ext2Error::InvalidMetadata)?;
+        self.release_group_bit(descriptor.block_bitmap, index, &buffer).await?;
+        self.bgdt.lock()[group] = descriptor;
 
-        if self.read_block(bg.block_bitmap, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-
-        let bitmap_ptr = buffer.virt() as *mut u8;
-        let byte_idx = (local_idx / 8) as usize;
-        let bit_idx = (local_idx % 8) as usize;
-
-        unsafe {
-            let val = *bitmap_ptr.add(byte_idx);
-            if (val & (1 << bit_idx)) == 0 {
-                // double free prevention like above
-                return Err(());
-            }
-            *bitmap_ptr.add(byte_idx) = val & !(1 << bit_idx);
-        }
-
-        if self.cache.write_block(bg.block_bitmap as usize, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-
-        bg.free_blocks_count += 1;
-        self.bgdt.lock()[group] = bg;
-
-        let bgdt_start_block = if self.block_size == 1024 { 2 } else { 1 };
-        let descriptor_offset = group * size_of::<DiskGroupDesc>();
-        let target_logical_block = bgdt_start_block + (descriptor_offset as u32 / self.block_size);
-        let block_internal_offset = descriptor_offset % self.block_size as usize;
-
-        if self.read_block(target_logical_block, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-        unsafe {
-            let dest_ptr = (buffer.virt() as *mut u8).add(block_internal_offset) as *mut DiskGroupDesc;
-            ptr::write(dest_ptr, bg);
-        }
-        if self.cache.write_block(target_logical_block as usize, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-
-        let sb_block = if self.block_size == 1024 { 1 } else { 0 };
-        let sb_internal_offset = if self.block_size == 1024 { 0 } else { 1024 };
-
-        if self.read_block(sb_block, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-        unsafe {
-            let sb_ptr = (buffer.virt() as *mut u8).add(sb_internal_offset) as *mut DiskSuperblock;
-            (*sb_ptr).free_blocks_count += 1;
-        }
-        if self.cache.write_block(sb_block as usize, buffer.phys() as u64).await.is_err() {
-            return Err(());
-        }
-
-        Ok(())
+        self.write_allocation_counts(group, descriptor, &buffer, |sb| {
+            sb.free_blocks_count = sb.free_blocks_count.saturating_add(1);
+        }).await
     }
 }

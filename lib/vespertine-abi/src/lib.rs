@@ -31,6 +31,9 @@ pub use user::*;
 mod stat;
 pub use stat::*;
 
+mod syscall;
+pub use syscall::SysError;
+
 pub mod key;
 
 #[repr(transparent)]
