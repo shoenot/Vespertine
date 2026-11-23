@@ -44,6 +44,7 @@ use crate::object::obj::{
     KernelDirectory,
     KernelObject,
 };
+use crate::object::vfs::write_all_to_object;
 use crate::sync::RwLock;
 use crate::process::current_process;
 use crate::memory::PAGE_SIZE_4K;
@@ -248,10 +249,10 @@ impl Directory {
                     copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
                 }
 
-                let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
-                if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
+                if write_all_to_object(sink_obj.as_ref(), AccessRights::WRITE, &buffer).await.is_err() {
                     break;
                 }
+
             }
         });
 

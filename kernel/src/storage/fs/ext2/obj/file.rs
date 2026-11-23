@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 
 use async_trait::async_trait;
 use hal::usercopy::{
@@ -14,18 +14,19 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::executor::async_mutex::AsyncMutex;
 use crate::object::invoke::InvocationError;
 use crate::object::vmo::{VmoObject, install_private_file_vmo, new_private_file_vmo};
 use crate::object::obj::KernelObject;
 use crate::security::permissions::FilePermissions;
+use crate::storage::blockdev::BlockFlushError;
 use crate::sync::RwLock;
+use crate::time::get_realtime;
 use crate::process::current_process;
 use crate::memory::vmo::{
-    AnonymousVmo, FileVmo, PagedBackingStore,
+    AnonymousVmo, FilePageWriteback, FileVmo, MappingPage, PagedBackingStore,
 };
 use crate::memory::{
-    ALLOCATOR, DIRECT_MAP_OFFSET, PAGE_SIZE_4K, PageSize, PhysBuffer,
+    DIRECT_MAP_OFFSET, PAGE_SIZE_4K, PageSize, PhysBuffer,
 };
 use crate::storage::fs::ext2::{Ext2Error, Ext2FileSystem};
 use crate::storage::fs::ext2::permissions::file_permissions;
@@ -42,6 +43,7 @@ pub struct Ext2File {
     pub inode_num: u32,
     pub inode_data: RwLock<DiskInode>,
     pub file_vmo: Arc<FileVmo>,
+    self_ref: Weak<Self>,
 }
 
 unsafe impl Send for Ext2File {}
@@ -88,7 +90,7 @@ impl KernelObject for Ext2File {
                 Ok(0)
             },
             Invocation::File(FileOp::GetVmo) => {
-                let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
+                let vmo_obj = Arc::new(VmoObject::new(self.arc()));
                 let current_proc = current_process().ok_or(InvocationError::UnsupportedOperation)?;
                 let rights = calling_rights & AccessRights::READ;
                 let handle_id = current_proc.handles.write().insert(vmo_obj, rights);
@@ -116,6 +118,13 @@ impl KernelObject for Ext2File {
                 self.copy_pages_into_vmo_locked(offset, bytes, &backing).await?;
                 install_private_file_vmo(backing, calling_rights)
             },
+            Invocation::File(FileOp::Sync) => {
+                if !calling_rights.contains(AccessRights::WRITE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+                self.sync().await?;
+                Ok(0)
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -139,6 +148,34 @@ impl KernelObject for Ext2File {
 }
 
 impl Ext2File {
+    pub(super) fn active(fs: &Ext2FileSystem, inode_num: u32) -> Option<Arc<Self>> {
+        fs.active_files.lock().get(&inode_num).and_then(Weak::upgrade)
+    }
+
+    pub(super) fn get_or_open(fs: &Arc<Ext2FileSystem>, inode_num: u32, inode: DiskInode) -> Arc<Self> {
+        let mut active = fs.active_files.lock();
+        if let Some(file) = active.get(&inode_num).and_then(Weak::upgrade) {
+            return file;
+        }
+
+        let file = Arc::new_cyclic(|me: &Weak<Self>| {
+            let node = me.clone() as Weak<dyn VfsNode>;
+            Self {
+                fs: Arc::clone(fs),
+                inode_num,
+                inode_data: RwLock::new(inode),
+                file_vmo: FileVmo::new(node),
+                self_ref: me.clone(),
+            }
+        });
+        active.insert(inode_num, Arc::downgrade(&file));
+        file
+    }
+
+    fn arc(&self) -> Arc<Self> {
+        self.self_ref.upgrade().expect("live ext2 file lost its owning Arc")
+    }
+
     async fn read_bytes_async(&self, offset: usize, buffer_ptr: usize, req_len: usize) -> Result<usize, InvocationError> {
         let _guard = self.file_vmo.io_lock.lock().await;
         let file_size = self.inode_data.read().size as usize;
@@ -188,14 +225,10 @@ impl Ext2File {
         }
 
         let _guard = self.file_vmo.io_lock.lock().await;
-        let old_size = self.inode_data.read().size as usize;
+        let inode = *self.inode_data.read();
+        let old_size = inode.size as usize;
+        let linked = inode.links_count != 0;
         let staging = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
-
-        let file = {
-            let active = self.fs.active_files.lock();
-            active.get(&self.inode_num).and_then(|weak| weak.upgrade())
-        }
-        .ok_or(InvocationError::InvalidHandle)?;
 
         let mut written = 0;
         while written < req_len {
@@ -235,84 +268,61 @@ impl Ext2File {
                 inode.size = inode.size.max((offset + written) as u32);
             }
 
-            if first_chunk {
-                self.fs.dirty_files.lock().insert(self.inode_num, Arc::clone(&file));
+            if first_chunk && linked {
+                self.fs.dirty_files.lock().insert(self.inode_num, self.arc());
             }
         }
 
-        let inode = *self.inode_data.read();
-        self.fs.write_inode(self.inode_num, &inode).await?;
+        if linked {
+            let inode = *self.inode_data.read();
+            self.fs.write_inode(self.inode_num, &inode).await?;
+        }
 
         Ok(written)
     }
 
     async fn truncate(&self, new_size: usize) -> Result<(), InvocationError> {
-        if new_size > u32::MAX as usize {
-            return Err(InvocationError::InvalidArgument);
-        }
-
+        let size = u32::try_from(new_size).map_err(|_| InvocationError::InvalidArgument)?;
         let _guard = self.file_vmo.io_lock.lock().await;
-
-        let old_size = self.inode_data.read().size as usize;
-        if new_size == old_size {
+        let mut inode = *self.inode_data.read();
+        if inode.mode & 0xf000 != 0x8000 || inode.dir_acl != 0 {
+            return Err(InvocationError::UnsupportedOperation);
+        }
+        if size == inode.size {
             return Ok(());
         }
 
-        let block_size = self.fs.metadata_block_size()? as usize;
+        let now = get_realtime().0 as u32;
+        inode.mtime = now;
+        inode.ctime = now;
 
-        if new_size < old_size {
-            // Zero bytes after the new EOF in the final retained block.
-            if new_size % block_size != 0 {
-                let block_index = new_size / block_size;
-                let block_offset = new_size % block_size;
-
-                let inode = *self.inode_data.read();
-                let block_id = self.fs.resolve_file_block(&inode, block_index).await?;
-
-                if block_id != 0 {
-                    let page = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
-                    let sectors = self.fs.sectors_per_block;
-                    let sector = u64::from(block_id) * u64::from(sectors);
-
-                    self.fs.partition.read_sectors(sector, sectors, page.phys() as u64)
-                        .map_err(|_| Ext2Error::BlockRead)?
-                        .await
-                        .map_err(|_| Ext2Error::BlockRead)?;
-
-                    unsafe {
-                        (page.virt() as *mut u8).add(block_offset).write_bytes(0, block_size - block_offset);
-                    }
-
-                    self.fs.partition.write_sectors(sector, sectors, page.phys() as u64)
-                        .map_err(|_| Ext2Error::BlockWrite)?
-                        .await
-                        .map_err(|_| Ext2Error::BlockWrite)?;
-                }
-            }
-
-            let old_blocks = old_size.div_ceil(block_size);
-            let new_blocks = new_size.div_ceil(block_size);
-
-            let mut inode = *self.inode_data.read();
-
-            for block_index in new_blocks..old_blocks {
-                self.fs.clear_file_block(&mut inode, block_index).await?;
-            }
-
-            inode.size = new_size as u32;
-
+        if size > inode.size {
+            inode.size = size;
             self.fs.write_inode(self.inode_num, &inode).await?;
             *self.inode_data.write() = inode;
-        } else {
-            let mut inode = *self.inode_data.read();
-            inode.size = new_size as u32;
-
-            self.fs.write_inode(self.inode_num, &inode).await?;
-            *self.inode_data.write() = inode;
+            return Ok(());
         }
 
-        if new_size < old_size { self.file_vmo.truncate_cached_locked(new_size) };
+        let plan = self.fs.plan_shrink(inode, size).await?;
+        let block_size = self.fs.metadata_block_size()? as usize;
+        let dirty_tail = if new_size % block_size != 0
+            && self.fs.resolve_file_block(&inode, new_size / block_size).await? != 0
+        {
+            let page_offset = new_size - new_size % PAGE_SIZE_4K;
+            self.file_vmo.get_frame_locked(page_offset, inode.size as usize).await?;
+            Some(new_size - page_offset - new_size % block_size)
+        } else {
+            None
+        };
 
+        // Reserve all edited metadata blocks before publishing any pointer change.
+        self.fs.write_inode_and_tables(self.inode_num, &plan.inode, &plan.edits).await?;
+        *self.inode_data.write() = plan.inode;
+        self.file_vmo.truncate_cached_locked(new_size, dirty_tail);
+        if dirty_tail.is_some() && plan.inode.links_count != 0 {
+            self.fs.dirty_files.lock().insert(self.inode_num, self.arc());
+        }
+        self.fs.queue_retired_blocks(plan.retired);
         Ok(())
     }
 
@@ -347,17 +357,55 @@ impl Ext2File {
 
     pub async fn flush_dirty_pages(&self) -> Result<(), Ext2Error> {
         let _guard = self.file_vmo.io_lock.lock().await;
-        let size = self.inode_data.read().size as usize;
+        self.flush_dirty_pages_locked().await
+    }
 
-        for (offset, frame) in self.file_vmo.dirty_frames() {
+    async fn sync(&self) -> Result<(), InvocationError> {
+        let _guard = self.file_vmo.io_lock.lock().await;
+        let inode = *self.inode_data.read();
+
+        if inode.mode & 0xf000 != 0x8000 || inode.links_count == 0 {
+            return Err(InvocationError::UnsupportedOperation);
+        }
+
+        self.flush_dirty_pages_locked().await?;
+        self.fs.cache.flush().await.map_err(|_| InvocationError::Io)?;
+
+        let flush = self.fs.partition.flush().map_err(|error| match error {
+            BlockFlushError::Unsupported => InvocationError::UnsupportedOperation,
+            BlockFlushError::Io => InvocationError::Io,
+        })?;
+
+        flush.await.map_err(|_| InvocationError::Io)
+    }
+
+    async fn flush_dirty_pages_locked(&self) -> Result<(), Ext2Error> {
+        let inode = *self.inode_data.read();
+        if inode.links_count == 0 {
+            return Ok(());
+        }
+        let size = inode.size as usize;
+
+        for (offset, frame, writeback) in self.file_vmo.dirty_frames() {
             let remaining = size.checked_sub(offset)
                 .filter(|&bytes| bytes != 0)
                 .ok_or(Ext2Error::InvalidMetadata)?;
 
-            self.write_page_locked(offset, frame.phys(), remaining.min(PAGE_SIZE_4K)).await?;
+            match writeback {
+                FilePageWriteback::Page => {
+                    self.write_page_locked(offset, frame.phys(), remaining.min(PAGE_SIZE_4K)).await?;
+                }
+                FilePageWriteback::TailBlock { offset: within_page } => {
+                    let block_size = self.fs.metadata_block_size()? as usize;
+                    self.write_page_locked(offset + within_page, frame.phys() + within_page, block_size).await?;
+                }
+            }
             self.file_vmo.clear_dirty(offset);
         }
 
+        // Unlink can enqueue a link-count change without any dirty pages.
+        let inode = *self.inode_data.read();
+        self.fs.write_inode(self.inode_num, &inode).await?;
         self.fs.dirty_files.lock().remove(&self.inode_num);
         Ok(())
     }
@@ -389,6 +437,25 @@ impl Ext2File {
 
         let inode = *self.inode_data.read();
         self.fs.write_inode(self.inode_num, &inode).await
+    }
+}
+
+impl Drop for Ext2File {
+    fn drop(&mut self) {
+        let inode = *self.inode_data.read();
+        if inode.links_count == 0 {
+            self.fs.queue_orphan(self.inode_num, inode);
+        }
+    }
+}
+
+impl PagedBackingStore for Ext2File {
+    fn request_page(&self, offset: usize) -> Result<usize, ()> {
+        self.file_vmo.request_page(offset)
+    }
+
+    fn page_for_mapping(&self, offset: usize) -> Result<MappingPage, ()> {
+        self.file_vmo.page_for_mapping(offset)
     }
 }
 

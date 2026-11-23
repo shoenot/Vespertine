@@ -1,12 +1,9 @@
 use alloc::boxed::Box;
-use alloc::sync::{
-    Arc,
-    Weak,
-};
-use core::ptr::{
-    self,
-    copy_nonoverlapping,
-};
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::{ptr, slice, str};
+use core::ptr::copy_nonoverlapping;
 
 use async_trait::async_trait;
 use hal::usercopy::safe_copy_to;
@@ -28,7 +25,6 @@ use vespertine_abi::{
 };
 
 use super::file::Ext2File;
-use crate::executor::async_mutex::AsyncMutex;
 use crate::klogln;
 use crate::object::invoke::InvocationError;
 use crate::object::fs::directory::{
@@ -40,7 +36,7 @@ use crate::object::obj::{
     KernelDirectory,
     KernelObject,
 };
-use crate::object::vfs::FileDescription;
+use crate::object::vfs::{FileDescription, write_all_to_object};
 use crate::security::permissions::{
     FilePermissions,
     allowed_rights,
@@ -48,11 +44,7 @@ use crate::security::permissions::{
 use crate::sync::RwLock;
 use crate::process::current_process;
 use crate::time::get_realtime;
-use crate::memory::vmo::FileVmo;
-use crate::memory::{
-    ALLOCATOR, DIRECT_MAP_OFFSET, PageSize, PhysBuffer
-};
-use crate::storage::fs::VfsNode;
+use crate::memory::PhysBuffer;
 use crate::storage::fs::ext2::{Ext2Error, Ext2FileSystem};
 use crate::storage::fs::ext2::permissions::directory_permissions;
 use crate::storage::fs::ext2::structs::{
@@ -115,44 +107,7 @@ impl KernelObject for Ext2Directory {
                 Ok(0)
             }
             Invocation::Directory(DirectoryOp::List { offset: _, sink }) => {
-                let mut entries = alloc::vec::Vec::new();
-
-                let buffer = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
-
-                for direct_idx in 0..12 {
-                    let block_id = unsafe { self.inode_data.read().data.blocks.direct[direct_idx] };
-                    if block_id == 0 {
-                        continue;
-                    };
-
-                    self.fs.read_metadata_block(block_id, &buffer).await?;
-
-                    let mut offset = 0;
-                    while offset < self.fs.block_size as usize {
-                        unsafe {
-                            let entry_ptr = (buffer.virt() as *const u8).add(offset) as *const DiskDirHeader;
-                            let inode_id = (*entry_ptr).inode;
-                            let rec_len = (*entry_ptr).record_length as usize;
-                            let name_len = (*entry_ptr).name_length as usize;
-
-                            if rec_len == 0 {
-                                break;
-                            }
-
-                            if inode_id != 0 && name_len > 0 && offset + 8 + name_len <= self.fs.block_size as usize {
-                                let name_ptr = (entry_ptr as *const u8).add(8);
-                                let name_slice = core::slice::from_raw_parts(name_ptr, name_len);
-
-                                if let Ok(entry_name) = core::str::from_utf8(name_slice) {
-                                    if entry_name != "." && entry_name != ".." {
-                                        entries.push((alloc::string::ToString::to_string(entry_name), (*entry_ptr).file_type));
-                                    }
-                                }
-                            }
-                            offset += rec_len;
-                        }
-                    }
-                }
+                let entries = self.list_entries().await?;
 
                 // resolve sink socket
                 let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
@@ -197,8 +152,7 @@ impl KernelObject for Ext2Directory {
                             copy_nonoverlapping(entry_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
                         }
 
-                        let op = FileOp::Write { offset: 0, buffer_ptr: buffer.as_mut_ptr() as usize, len: buffer.len() };
-                        if sink_obj.invoke(Invocation::File(op), AccessRights::WRITE).await.is_err() {
+                        if write_all_to_object(sink_obj.as_ref(), AccessRights::WRITE, &buffer).await.is_err() {
                             break;
                         }
                     }
@@ -244,11 +198,14 @@ impl KernelDirectory for Ext2Directory {
             return Err(InvocationError::NameTooLong);
         }
 
-        let child_inode_id = self
-            .fs
-            .lookup_in_dir(&self.inode_data.read(), name)
-            .await?
+        let _namespace = self.fs.namespace_lock.lock().await;
+        let parent = *self.inode_data.read();
+        let child_inode_id = self.fs.lookup_in_dir(&parent, name).await?
             .ok_or(InvocationError::PathNotFound)?;
+
+        if let Some(file) = Ext2File::active(&self.fs, child_inode_id) {
+            return Ok(Arc::new(FileDescription::new(file)));
+        }
 
         let child_inode_data = self.fs.read_inode(child_inode_id).await?;
 
@@ -272,31 +229,11 @@ impl KernelDirectory for Ext2Directory {
                 new_dir
             }
         } else {
-            let mut files = self.fs.active_files.lock();
-            let mut cached = None;
-            if let Some(weak_file) = files.get(&child_inode_id) {
-                cached = weak_file.upgrade();
+            if child_inode_data.links_count == 0 {
+                return Err(Ext2Error::InvalidMetadata.into());
             }
-
-            let base_file = if let Some(arc_file) = cached {
-                arc_file
-            } else {
-                // new_cyclic passes a weak ptr to the ext2file being built
-                let new_file = Arc::new_cyclic(|me| {
-                    let weak_node = me.clone() as Weak<dyn VfsNode>;
-
-                    Ext2File {
-                        fs: Arc::clone(&self.fs),
-                        inode_num: child_inode_id,
-                        inode_data: RwLock::new(child_inode_data.clone()),
-                        file_vmo: FileVmo::new(weak_node),
-                    }
-                });
-                files.insert(child_inode_id, Arc::downgrade(&new_file));
-                new_file
-            };
-
-            Arc::new(FileDescription::new(base_file as Arc<dyn KernelObject>)) as Arc<dyn KernelObject>
+            let file = Ext2File::get_or_open(&self.fs, child_inode_id, child_inode_data);
+            Arc::new(FileDescription::new(file))
         };
 
         Ok(target_object)
@@ -305,69 +242,39 @@ impl KernelDirectory for Ext2Directory {
     async fn unlink_child(&self, name: &str) -> Result<(), InvocationError> {
         validate_child_name(name)?;
 
-        let child_inode_num = self
-            .fs
-            .lookup_in_dir(&self.inode_data.read(), name)
-            .await?
+        let _namespace = self.fs.namespace_lock.lock().await;
+        let parent = *self.inode_data.read();
+        let inode_num = self.fs.lookup_in_dir(&parent, name).await?
             .ok_or(InvocationError::PathNotFound)?;
 
-        let mut child_inode = self.fs.read_inode(child_inode_num).await?;
-        let is_dir = (child_inode.mode & 0xF000) == 0x4000;
+        let file = if let Some(file) = Ext2File::active(&self.fs, inode_num) {
+            file
+        } else {
+            let inode = self.fs.read_inode(inode_num).await?;
+            if inode.mode & 0xf000 != 0x8000 {
+                return Err(InvocationError::UnsupportedOperation);
+            }
+            if inode.links_count == 0 {
+                return Err(Ext2Error::InvalidMetadata.into());
+            }
+            Ext2File::get_or_open(&self.fs, inode_num, inode)
+        };
+        let _io = file.file_vmo.io_lock.lock().await;
+        let mut inode = *file.inode_data.read();
+        if inode.mode & 0xf000 != 0x8000 || (inode.links_count == 1 && inode.file_acl != 0) {
+            return Err(InvocationError::UnsupportedOperation);
+        }
+        inode.links_count = inode.links_count.checked_sub(1).ok_or(Ext2Error::InvalidMetadata)?;
+        inode.ctime = get_realtime().0 as u32;
 
         self.remove_dir_entry(name).await?;
+        *file.inode_data.write() = inode;
 
-        if child_inode.links_count > 0 {
-            child_inode.links_count -= 1;
-        }
-
-        if child_inode.links_count == 0 {
-            let block_size = self.fs.metadata_block_size()? as usize;
-            let total_blocks = child_inode.size as usize / block_size;
-            for block_idx in 0..total_blocks {
-                let block_id = self.fs.resolve_file_block(&child_inode, block_idx).await?;
-                self.fs.free_block(block_id).await?;
-            }
-
-            let single_indirect = unsafe { child_inode.data.blocks.single_indirect };
-            self.fs.free_block(single_indirect).await?;
-
-            let pointers_per_block = block_size / size_of::<u32>();
-            let double_indirect = unsafe { child_inode.data.blocks.double_indirect };
-            if double_indirect != 0 {
-                let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
-                self.fs.read_metadata_block(double_indirect, &buffer).await?;
-                for index in 0..pointers_per_block {
-                    let sub_block = unsafe { ptr::read((buffer.virt() as *const u32).add(index)) };
-                    self.fs.free_block(sub_block).await?;
-                }
-                self.fs.free_block(double_indirect).await?;
-            }
-
-            let triple_indirect = unsafe { child_inode.data.blocks.triple_indirect };
-            if triple_indirect != 0 {
-                let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
-                let sub_buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
-                self.fs.read_metadata_block(triple_indirect, &buffer).await?;
-
-                for index in 0..pointers_per_block {
-                    let double_table = unsafe { ptr::read((buffer.virt() as *const u32).add(index)) };
-                    if double_table == 0 {
-                        continue;
-                    }
-
-                    self.fs.read_metadata_block(double_table, &sub_buffer).await?;
-                    for sub_index in 0..pointers_per_block {
-                        let single_table = unsafe { ptr::read((sub_buffer.virt() as *const u32).add(sub_index)) };
-                        self.fs.free_block(single_table).await?;
-                    }
-                    self.fs.free_block(double_table).await?;
-                }
-                self.fs.free_block(triple_indirect).await?;
-            }
-
-            self.fs.free_inode(child_inode_num, is_dir).await?;
+        let mut dirty = self.fs.dirty_files.lock();
+        if inode.links_count == 0 {
+            dirty.remove(&inode_num);
         } else {
-            self.fs.write_inode(child_inode_num, &child_inode).await?;
+            dirty.insert(inode_num, Arc::clone(&file));
         }
 
         Ok(())
@@ -377,7 +284,10 @@ impl KernelDirectory for Ext2Directory {
         validate_child_name(name)?;
         let creator_uid = u16::try_from(owner.0).map_err(|_| InvocationError::InvalidArgument)?;
 
-        if self.fs.lookup_in_dir(&self.inode_data.read(), name).await?.is_some() {
+        let _namespace = self.fs.namespace_lock.lock().await;
+        let parent = *self.inode_data.read();
+        self.fs.check_directory_writable(&parent)?;
+        if self.fs.lookup_in_dir(&parent, name).await?.is_some() {
             return Err(InvocationError::InvalidArgument);
         }
 
@@ -414,37 +324,24 @@ impl KernelDirectory for Ext2Directory {
             osd2: [0; 12],
         };
 
-        self.fs.write_inode(new_inode_num, &child_inode).await?;
+        self.publish_child(&parent, name, new_inode_num, child_inode, None).await?;
 
-        // link child inode under name in the parent directory
-        self.add_dir_entry(name, new_inode_num, 1u8).await?;
-
-        let new_file = Arc::new_cyclic(|me| {
-            let weak_node = me.clone() as Weak<dyn VfsNode>;
-            Ext2File {
-                fs: Arc::clone(&self.fs),
-                inode_num: new_inode_num,
-                inode_data: RwLock::new(child_inode),
-                file_vmo: FileVmo::new(weak_node),
-            }
-        });
-
-        // cache file in active node cache
-        self.fs.active_files.lock().insert(new_inode_num, Arc::downgrade(&new_file));
-
-        let file_desc = Arc::new(FileDescription::new(new_file as Arc<dyn KernelObject>));
-
-        Ok(file_desc)
+        let file = Ext2File::get_or_open(&self.fs, new_inode_num, child_inode);
+        Ok(Arc::new(FileDescription::new(file)))
     }
 
     async fn create_child_dir(&self, name: &str, owner: UserID) -> Result<Arc<dyn KernelObject>, InvocationError> {
         validate_child_name(name)?;
         let creator_uid = u16::try_from(owner.0).map_err(|_| InvocationError::InvalidArgument)?;
 
-        if self.fs.lookup_in_dir(&self.inode_data.read(), name).await?.is_some() {
+        let _namespace = self.fs.namespace_lock.lock().await;
+        let mut parent = *self.inode_data.read();
+        self.fs.check_directory_writable(&parent)?;
+        if self.fs.lookup_in_dir(&parent, name).await?.is_some() {
             return Err(InvocationError::InvalidArgument);
         }
 
+        parent.links_count = parent.links_count.checked_add(1).ok_or(Ext2Error::InvalidMetadata)?;
         let block_size = self.fs.metadata_block_size()? as usize;
         let buffer = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
         let new_inode_num = self.fs.allocate_inode(true).await?;
@@ -459,46 +356,10 @@ impl KernelDirectory for Ext2Directory {
             }
         };
 
-        // initialize "." and ".." headers in the directory's data block
-        unsafe {
-            ptr::write_bytes(buffer.virt() as *mut u8, 0, block_size);
-
-            // entry 1: "." pointing to itself
-            let entry1_ptr = buffer.virt() as *mut DiskDirHeader;
-            ptr::write(
-                entry1_ptr,
-                DiskDirHeader {
-                    inode: new_inode_num,
-                    record_length: 12,
-                    name_length: 1,
-                    file_type: 2, // directory type
-                },
-            );
-            let name1_ptr = (entry1_ptr as *mut u8).add(8);
-            *name1_ptr = b'.';
-
-            // entry 2: ".." pointing to the parent directory
-            let entry2_ptr = (buffer.virt() as *mut u8).add(12) as *mut DiskDirHeader;
-            ptr::write(
-                entry2_ptr,
-                DiskDirHeader {
-                    inode: self.inode_num,
-                    record_length: (block_size - 12) as u16,
-                    name_length: 2,
-                    file_type: 2, // directory type
-                },
-            );
-            let name2_ptr = (entry2_ptr as *mut u8).add(8);
-            *name2_ptr = b'.';
-            *name2_ptr.add(1) = b'.';
-        }
-
-        let sector = block_id as u64 * self.fs.sectors_per_block as u64;
-        self.fs.partition
-            .write_sectors(sector, self.fs.sectors_per_block, buffer.phys() as u64)
-            .map_err(|_| Ext2Error::BlockWrite)?
-            .await
-            .map_err(|_| Ext2Error::BlockWrite)?;
+        let bytes = unsafe { slice::from_raw_parts_mut(buffer.virt() as *mut u8, block_size) };
+        bytes.fill(0);
+        self.write_record(&mut bytes[..12], new_inode_num, 2, b".");
+        self.write_record(&mut bytes[12..], self.inode_num, 2, b"..");
 
         let current_time = get_realtime().0 as u32;
 
@@ -534,16 +395,7 @@ impl KernelDirectory for Ext2Directory {
             osd2: [0; 12],
         };
 
-        self.fs.write_inode(new_inode_num, &child_inode).await?;
-
-        // link directory into the parent directory entry table
-        self.add_dir_entry(name, new_inode_num, 2u8).await?;
-
-        // increment parent directory link count (internal ".." points to parent)
-        let mut parent_inode = self.inode_data.read().clone();
-        parent_inode.links_count += 1;
-        self.fs.write_inode(self.inode_num, &parent_inode).await?;
-        *self.inode_data.write() = parent_inode;
+        self.publish_child(&parent, name, new_inode_num, child_inode, Some((block_id, &buffer))).await?;
 
         let new_dir = Arc::new(Ext2Directory { fs: Arc::clone(&self.fs), inode_num: new_inode_num, inode_data: RwLock::new(child_inode) });
 
@@ -560,400 +412,126 @@ fn register_created_object(object: Arc<dyn KernelObject>) -> Result<usize, Invoc
 }
 
 impl Ext2Directory {
-    pub async fn add_dir_entry(&self, name: &str, child_inode_num: u32, file_type: u8) -> Result<(), InvocationError> {
-        let name_bytes = name.as_bytes();
-        if name_bytes.len() > 254 || name_bytes.is_empty() {
-            return Err(InvocationError::InvalidArgument);
+    fn write_record(&self, bytes: &mut [u8], inode: u32, file_type: u8, name: &[u8]) {
+        const HEADER_SIZE: usize = size_of::<DiskDirHeader>();
+        let header = DiskDirHeader {
+            inode,
+            record_length: bytes.len() as u16,
+            name_length: name.len() as u8,
+            file_type: if self.fs.directory_file_types { file_type } else { 0 },
+        };
+        unsafe { ptr::write(bytes.as_mut_ptr().cast::<DiskDirHeader>(), header) };
+        bytes[HEADER_SIZE..HEADER_SIZE + name.len()].copy_from_slice(name);
+    }
+
+    async fn list_entries(&self) -> Result<Vec<(String, u8)>, Ext2Error> {
+        let _namespace = self.fs.namespace_lock.lock().await;
+        let inode = *self.inode_data.read();
+        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        let mut entries = Vec::new();
+        self.fs.walk_directory::<()>(&inode, &buffer, |record| {
+            if record.header.inode != 0 {
+                if let Ok(name) = str::from_utf8(record.name) {
+                    if !matches!(name, "" | "." | "..") {
+                        entries.try_reserve(1).map_err(|_| Ext2Error::OutOfMemory)?;
+                        let mut owned = String::new();
+                        owned.try_reserve_exact(name.len()).map_err(|_| Ext2Error::OutOfMemory)?;
+                        owned.push_str(name);
+                        entries.push((owned, record.header.file_type));
+                    }
+                }
+            }
+            Ok(None)
+        }).await?;
+        Ok(entries)
+    }
+
+    async fn publish_child(
+        &self,
+        parent: &DiskInode,
+        name: &str,
+        inode_num: u32,
+        mut inode: DiskInode,
+        contents: Option<(u32, &PhysBuffer)>,
+    ) -> Result<(), InvocationError> {
+        let file_type = if contents.is_some() { 2 } else { 1 };
+        let result = async {
+            if let Some((block, contents)) = contents {
+                self.fs.write_metadata_block(block, contents).await?;
+            }
+            self.fs.write_inode(inode_num, &inode).await?;
+            self.add_dir_entry(parent, name, inode_num, file_type).await
+        }.await;
+
+        if result.is_err() {
+            inode.links_count = 0;
+            self.fs.queue_orphan(inode_num, inode);
         }
+        result
+    }
 
-        let needed_len = (8 + name_bytes.len() + 3) & !3;
+    async fn add_dir_entry(
+        &self, parent: &DiskInode, name: &str, child_inode_num: u32, file_type: u8,
+    ) -> Result<(), InvocationError> {
+        const HEADER_SIZE: usize = size_of::<DiskDirHeader>();
+        let name = name.as_bytes();
+        let needed = (HEADER_SIZE + name.len()).next_multiple_of(4);
         let block_size = self.fs.metadata_block_size()? as usize;
-
         let buffer = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
 
-        let total_blocks = self.inode_data.read().size as usize / block_size;
-        for block_idx in 0..total_blocks {
-            let block_id = {
-                let inode_ref = self.inode_data.read();
-                self.fs.resolve_file_block(&*inode_ref, block_idx).await?
-            };
-            if block_id == 0 {
-                continue;
-            }
-
-            self.fs.read_metadata_block(block_id, &buffer).await?;
-
-            let mut offset = 0;
-            while offset < block_size {
-                unsafe {
-                    let entry_ptr = (buffer.virt() as *mut u8).add(offset) as *mut DiskDirHeader;
-                    let rec_len = (*entry_ptr).record_length as usize;
-                    let name_len = (*entry_ptr).name_length as usize;
-
-                    if rec_len == 0 {
-                        break;
-                    }
-
-                    if offset + rec_len == block_size {
-                        let last_used_len = (8 + name_len + 3) & !3;
-                        let padding = rec_len - last_used_len;
-
-                        if padding >= needed_len {
-                            (*entry_ptr).record_length = last_used_len as u16;
-
-                            let new_entry_ptr = (buffer.virt() as *mut u8).add(offset + last_used_len) as *mut DiskDirHeader;
-                            ptr::write(
-                                new_entry_ptr,
-                                DiskDirHeader {
-                                    inode: child_inode_num,
-                                    record_length: padding as u16,
-                                    name_length: name_bytes.len() as u8,
-                                    file_type,
-                                },
-                            );
-
-                            let new_name_ptr = (new_entry_ptr as *mut u8).add(8);
-                            copy_nonoverlapping(name_bytes.as_ptr(), new_name_ptr, name_bytes.len());
-
-                            self.fs.write_metadata_block(block_id, &buffer).await?;
-                            return Ok(());
-                        }
-                    }
-                    offset += rec_len;
-                }
-            }
-        }
-
-        let new_block_id = self.fs.allocate_block().await?;
-        unsafe {
-            ptr::write_bytes(buffer.virt() as *mut u8, 0, block_size);
-            let new_entry_ptr = buffer.virt() as *mut DiskDirHeader;
-            ptr::write(
-                new_entry_ptr,
-                DiskDirHeader { inode: child_inode_num, record_length: block_size as u16, name_length: name_bytes.len() as u8, file_type },
-            );
-
-            let new_name_ptr = (new_entry_ptr as *mut u8).add(8);
-            copy_nonoverlapping(name_bytes.as_ptr(), new_name_ptr, name_bytes.len());
-        }
-
-        let sector = new_block_id as u64 * self.fs.sectors_per_block as u64;
-        let write_result = async {
-            self.fs.partition
-                .write_sectors(sector, self.fs.sectors_per_block, buffer.phys() as u64)?
-                .await
-        }.await;
-        if write_result.is_err() {
-            self.fs.release_unlinked_block(new_block_id).await;
-            return Err(InvocationError::Io);
-        }
-
-        let new_logical_idx = total_blocks;
-        let mut inode_write = self.inode_data.write();
-
-        let map_result: Result<(), InvocationError> = {
-            if new_logical_idx < 12 {
-                unsafe {
-                    inode_write.data.blocks.direct[new_logical_idx] = new_block_id;
-                }
-                Ok(())
+        let slot = self.fs.walk_directory(parent, &buffer, |record| {
+            let used = if record.header.inode == 0 {
+                0
             } else {
-                let pointers_per_block = (self.fs.block_size / 4) as usize;
-                let blocks_per_double = pointers_per_block * pointers_per_block;
-                let blocks_per_triple = blocks_per_double * pointers_per_block;
-                let remaining = new_logical_idx - 12;
+                (HEADER_SIZE + record.name.len()).next_multiple_of(4)
+            };
+            let length = record.header.record_length as usize;
+            Ok((length - used >= needed).then_some((record.offset, used, length)))
+        }).await?;
 
-                if remaining < pointers_per_block {
-                    // single indirection
-                    let mut single_indirect = unsafe { inode_write.data.blocks.single_indirect };
-                    if single_indirect == 0 {
-                        single_indirect = self.fs.allocate_block().await?;
-                        inode_write.data.blocks.single_indirect = single_indirect;
-
-                        unsafe {
-                            ptr::write_bytes(buffer.virt() as *mut u8, 0, block_size);
-                        }
-                        let s = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                        self.fs.partition
-                            .write_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-                    }
-
-                    let s = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                    self.fs.partition
-                        .read_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    unsafe {
-                        let table_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                        ptr::write(table_ptr.add(remaining), new_block_id);
-                    }
-                    self.fs.partition
-                        .write_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    Ok(())
-                } else if remaining < pointers_per_block + blocks_per_double {
-                    // double indirection
-                    let doubly_idx = remaining - pointers_per_block;
-                    let mut double_indirect = unsafe { inode_write.data.blocks.double_indirect };
-                    if double_indirect == 0 {
-                        double_indirect = self.fs.allocate_block().await?;
-                        inode_write.data.blocks.double_indirect = double_indirect;
-
-                        unsafe {
-                            ptr::write_bytes(buffer.virt() as *mut u8, 0, block_size);
-                        }
-                        let s = double_indirect as u64 * self.fs.sectors_per_block as u64;
-                        self.fs.partition
-                            .write_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-                    }
-
-                    let s = double_indirect as u64 * self.fs.sectors_per_block as u64;
-                    self.fs.partition
-                        .read_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    let level1_idx = doubly_idx / pointers_per_block;
-                    let level2_idx = doubly_idx % pointers_per_block;
-
-                    let mut single_indirect = unsafe {
-                        let table_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                        ptr::read(table_ptr.add(level1_idx))
-                    };
-
-                    if single_indirect == 0 {
-                        let new_sub_block = self.fs.allocate_block().await?;
-                        single_indirect = new_sub_block;
-
-                        unsafe {
-                            let table_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                            ptr::write(table_ptr.add(level1_idx), single_indirect);
-                        }
-                        self.fs.partition
-                            .write_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-
-                        let buffer_sub = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
-                        unsafe {
-                            ptr::write_bytes(buffer_sub.virt() as *mut u8, 0, block_size);
-                        }
-                        let sub_s = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                        self.fs.partition
-                            .write_sectors(sub_s, self.fs.sectors_per_block, buffer_sub.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-                    }
-
-                    let sub_s = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                    self.fs.partition
-                        .read_sectors(sub_s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    unsafe {
-                        let table2_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                        ptr::write(table2_ptr.add(level2_idx), new_block_id);
-                    }
-                    self.fs.partition
-                        .write_sectors(sub_s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    Ok(())
-                } else if remaining < pointers_per_block + blocks_per_double + blocks_per_triple {
-                    // triple indirection
-                    let triply_idx = remaining - pointers_per_block - blocks_per_double;
-                    let mut triple_indirect = unsafe { inode_write.data.blocks.triple_indirect };
-                    if triple_indirect == 0 {
-                        triple_indirect = self.fs.allocate_block().await?;
-                        inode_write.data.blocks.triple_indirect = triple_indirect;
-
-                        unsafe {
-                            ptr::write_bytes(buffer.virt() as *mut u8, 0, block_size);
-                        }
-                        let s = triple_indirect as u64 * self.fs.sectors_per_block as u64;
-                        self.fs.partition
-                            .write_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-                    }
-
-                    let s = triple_indirect as u64 * self.fs.sectors_per_block as u64;
-                    self.fs.partition
-                        .read_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    let level1_idx = triply_idx / blocks_per_double;
-                    let level2_idx = (triply_idx % blocks_per_double) / pointers_per_block;
-                    let level3_idx = (triply_idx % blocks_per_double) % pointers_per_block;
-
-                    let mut double_indirect = unsafe {
-                        let table_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                        ptr::read(table_ptr.add(level1_idx))
-                    };
-
-                    if double_indirect == 0 {
-                        let new_sub_block = self.fs.allocate_block().await?;
-                        double_indirect = new_sub_block;
-
-                        unsafe {
-                            let table_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                            ptr::write(table_ptr.add(level1_idx), double_indirect);
-                        }
-                        self.fs.partition
-                            .write_sectors(s, self.fs.sectors_per_block, buffer.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-
-                        let buffer_sub = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
-                        unsafe {
-                            ptr::write_bytes(buffer_sub.virt() as *mut u8, 0, block_size);
-                        }
-                        let sub_s = double_indirect as u64 * self.fs.sectors_per_block as u64;
-                        self.fs.partition
-                            .write_sectors(sub_s, self.fs.sectors_per_block, buffer_sub.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-                    }
-
-                    let sub_s = double_indirect as u64 * self.fs.sectors_per_block as u64;
-                    self.fs.partition
-                        .read_sectors(sub_s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    let mut single_indirect = unsafe {
-                        let table2_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                        ptr::read(table2_ptr.add(level2_idx))
-                    };
-
-                    if single_indirect == 0 {
-                        let new_sub_block = self.fs.allocate_block().await?;
-                        single_indirect = new_sub_block;
-
-                        unsafe {
-                            let table2_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                            ptr::write(table2_ptr.add(level2_idx), single_indirect);
-                        }
-                        self.fs.partition
-                            .write_sectors(sub_s, self.fs.sectors_per_block, buffer.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-
-                        let buffer_sub = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
-                        unsafe {
-                            ptr::write_bytes(buffer_sub.virt() as *mut u8, 0, block_size);
-                        }
-                        let sub2_s = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                        self.fs.partition
-                            .write_sectors(sub2_s, self.fs.sectors_per_block, buffer_sub.phys() as u64)
-                            .map_err(|_| InvocationError::Io)?
-                            .await
-                            .map_err(|_| InvocationError::Io)?;
-                    }
-
-                    let sub2_s = single_indirect as u64 * self.fs.sectors_per_block as u64;
-                    self.fs.partition
-                        .read_sectors(sub2_s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    unsafe {
-                        let table3_ptr = (buffer.virt() as *mut u8) as *mut u32;
-                        ptr::write(table3_ptr.add(level3_idx), new_block_id);
-                    }
-                    self.fs.partition
-                        .write_sectors(sub2_s, self.fs.sectors_per_block, buffer.phys() as u64)
-                        .map_err(|_| InvocationError::Io)?
-                        .await
-                        .map_err(|_| InvocationError::Io)?;
-                    Ok(())
-                } else {
-                    Err(InvocationError::UnsupportedOperation)
-                }
+        let bytes = unsafe { slice::from_raw_parts_mut(buffer.virt() as *mut u8, block_size) };
+        if let Some((block, (offset, used, length))) = slot {
+            if used != 0 {
+                let previous = unsafe { bytes.as_mut_ptr().add(offset).cast::<DiskDirHeader>() };
+                unsafe { (*previous).record_length = used as u16 };
             }
-        };
-
-        map_result?;
-
-        inode_write.size += block_size as u32;
-        inode_write.blocks += self.fs.sectors_per_block;
-
-        let num = self.inode_num;
-        self.fs.write_inode(num, &*inode_write).await?;
+            self.write_record(&mut bytes[offset + used..offset + length], child_inode_num, file_type, name);
+            if file_type == 2 {
+                self.fs.write_inode_with_blocks(self.inode_num, parent, &[block], |_, cached| {
+                    cached.copy_from_slice(bytes);
+                }).await?;
+                *self.inode_data.write() = *parent;
+            } else {
+                self.fs.write_metadata_block(block, &buffer).await?;
+            }
+        } else {
+            bytes.fill(0);
+            self.write_record(bytes, child_inode_num, file_type, name);
+            let next = self.fs.append_directory_block(self.inode_num, parent, &buffer).await?;
+            *self.inode_data.write() = next;
+        }
         Ok(())
     }
 
     async fn remove_dir_entry(&self, name: &str) -> Result<(), InvocationError> {
-        const HEADER_SIZE: usize = size_of::<DiskDirHeader>();
-        let name_bytes = name.as_bytes();
-        let block_size = self.fs.metadata_block_size()? as usize;
         let inode = *self.inode_data.read();
-        let size = inode.size as usize;
-        if size % block_size != 0 {
-            return Err(Ext2Error::InvalidMetadata.into());
-        }
-        let buffer = PhysBuffer::new().ok_or(Ext2Error::OutOfMemory)?;
+        self.fs.check_directory_writable(&inode)?;
+        let buffer = PhysBuffer::new().ok_or(InvocationError::OutOfMemory)?;
+        let (block, (offset, previous, length)) = self.fs.walk_directory(&inode, &buffer, |record| {
+            Ok((record.header.inode != 0 && record.name == name.as_bytes()).then_some((
+                record.offset, record.previous_offset, record.header.record_length,
+            )))
+        }).await?.ok_or(InvocationError::PathNotFound)?;
 
-        for block_idx in 0..size / block_size {
-            let block_id = self.fs.resolve_file_block(&inode, block_idx).await?;
-            if block_id == 0 {
-                return Err(Ext2Error::InvalidMetadata.into());
-            }
-            self.fs.read_metadata_block(block_id, &buffer).await?;
-
-            let mut offset = 0;
-            let mut previous_offset = None;
-            while offset < block_size {
-                let (entry, matches_name) = {
-                    let bytes = unsafe {
-                        core::slice::from_raw_parts(
-                            (buffer.virt() as *const u8).add(offset),
-                            block_size - offset,
-                        )
-                    };
-                    let entry = Ext2FileSystem::read_dir_header(bytes)?;
-                    let name_end = HEADER_SIZE + entry.name_length as usize;
-                    (entry, &bytes[HEADER_SIZE..name_end] == name_bytes)
-                };
-                let rec_len = entry.record_length;
-                if entry.inode != 0 && matches_name {
-                    unsafe {
-                        let base = buffer.virt() as *mut u8;
-                        if let Some(previous_offset) = previous_offset {
-                            let previous = base.add(previous_offset).cast::<DiskDirHeader>();
-                            (*previous).record_length += rec_len;
-                        } else {
-                            let current = base.add(offset).cast::<DiskDirHeader>();
-                            (*current).inode = 0;
-                        }
-                    }
-                    self.fs.write_metadata_block(block_id, &buffer).await?;
-                    return Ok(());
-                }
-
-                previous_offset = Some(offset);
-                offset += rec_len as usize;
+        unsafe {
+            let base = buffer.virt() as *mut u8;
+            if let Some(previous) = previous {
+                (*base.add(previous).cast::<DiskDirHeader>()).record_length += length;
+            } else {
+                (*base.add(offset).cast::<DiskDirHeader>()).inode = 0;
             }
         }
-
-        Err(InvocationError::PathNotFound)
+        self.fs.write_metadata_block(block, &buffer).await?;
+        Ok(())
     }
 }

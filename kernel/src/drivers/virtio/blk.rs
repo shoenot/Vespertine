@@ -50,8 +50,7 @@ use crate::memory::{
     ALLOCATOR, DIRECT_MAP_OFFSET, PageSize, PhysBuffer,
 };
 use crate::storage::blockdev::{
-    AsyncBlockDevice,
-    DmaBuffer,
+    AsyncBlockDevice, BlockFlushError, DmaBuffer
 };
 use crate::util::bitwise::{
     set_bit,
@@ -139,6 +138,7 @@ pub struct VirtioBlockDevice {
     pub driver: VirtioBlockDriver,
     pub queues: Vec<VirtqueueState>,
     pub msi_handle: Option<MsiHandle>,
+    pub flush_supported: bool,
 }
 
 pub const RESULT_PENDING: u8 = 0;
@@ -147,11 +147,10 @@ pub const RESULT_ERROR: u8 = 2;
 
 #[derive(Debug)]
 pub struct BlockRequest {
-    d0: u16,
-    d1: u16,
-    d2: u16,
+    head: u16,
+    status_desc: u16,
     header: PhysBuffer,
-    dma_buffer: Arc<DmaBuffer>,
+    data: Option<(u16, Arc<DmaBuffer>)>,
 
     completed: AtomicBool,
     result: AtomicU8,
@@ -178,7 +177,9 @@ pub fn perform_handshake(drv: &VirtioBlockDriver) {
     }
 }
 
-pub fn negotiate_features(drv: &VirtioBlockDriver) {
+const VIRTIO_BLK_F_FLUSH: u32 = 1 << 9;
+
+pub fn negotiate_features(drv: &VirtioBlockDriver) -> bool {
     unsafe {
         let cfg = &mut *drv.common_cfg;
         let dev_feat_sel_ptr = addr_of_mut!(cfg.dev_feature_select) as *mut u32;
@@ -201,13 +202,14 @@ pub fn negotiate_features(drv: &VirtioBlockDriver) {
         lower = set_bit(lower, 2); // VIRTIO_BLK_F_SEG_MAX 
         lower = set_bit(lower, 5); // VIRTIO_BLK_F_RO 
         lower = set_bit(lower, 6); // VIRTIO_BLK_F_BLK_SIZE 
-        lower = set_bit(lower, 9); // VIRTIO_BLK_F_FLUSH 
         let driv_feat_sel_ptr = addr_of_mut!(cfg.driv_feature_select) as *mut u32;
         let driv_feat_ptr = addr_of_mut!(cfg.driv_feature) as *mut u32;
         write_volatile(driv_feat_sel_ptr, 0);
         write_volatile(driv_feat_ptr, lower);
         write_volatile(driv_feat_sel_ptr, 1);
         write_volatile(driv_feat_ptr, upper);
+
+        lower & VIRTIO_BLK_F_FLUSH != 0
     }
 }
 
@@ -312,7 +314,7 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
         let status_ptr = addr_of_mut!(cfg.device_status) as *mut u8;
 
         perform_handshake(&drv);
-        negotiate_features(&drv);
+        let flush_supported = negotiate_features(&drv);
 
         let dev_feat_ptr = addr_of_mut!((*cfg).dev_feature) as *mut u32;
         let lower = read_volatile(dev_feat_ptr);
@@ -340,7 +342,7 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
         let status = read_volatile(status_ptr);
         write_volatile(status_ptr, status | 4); // write DRIVER_OK
 
-        Some(VirtioBlockDevice { driver: drv, queues, msi_handle: None })
+        Some(VirtioBlockDevice { driver: drv, queues, msi_handle: None, flush_supported })
     }
 }
 
@@ -367,13 +369,12 @@ impl Virtqueue {
 }
 
 impl BlockRequest {
-    fn new(d0: u16, d1: u16, d2: u16, header: PhysBuffer, dma_buffer: Arc<DmaBuffer>) -> Arc<Self> {
+    fn new(head: u16, status_desc: u16, header: PhysBuffer, data: Option<(u16, Arc<DmaBuffer>)>) -> Arc<Self> {
         Arc::new(Self {
-            d0,
-            d1,
-            d2,
+            head,
+            status_desc,
             header,
-            dma_buffer,
+            data,
             completed: AtomicBool::new(false),
             result: AtomicU8::new(RESULT_PENDING),
             waiter: AsyncWaiter::new(),
@@ -381,26 +382,22 @@ impl BlockRequest {
     }
 }
 
-fn alloc_request_descs(vq: &mut Virtqueue) -> Result<(u16, u16, u16), ()> {
-    let d0 = vq.alloc_desc()? as u16;
+fn alloc_request_descs<const N: usize>(vq: &mut Virtqueue) -> Result<[u16; N], ()> {
+    let mut descriptors = [0; N];
 
-    let d1 = match vq.alloc_desc() {
-        Ok(d) => d as u16,
-        Err(_) => {
-            vq.free_desc(d0);
-            return Err(());
+    for index in 0..N {
+        match vq.alloc_desc() {
+            Ok(desc) => descriptors[index] = desc as u16,
+            Err(()) => {
+                for &desc in descriptors[..index].iter().rev() {
+                    vq.free_desc(desc);
+                }
+                return Err(());
+            }
         }
-    };
-    let d2 = match vq.alloc_desc() {
-        Ok(d) => d as u16,
-        Err(_) => {
-            vq.free_desc(d1);
-            vq.free_desc(d0);
-            return Err(());
-        }
-    };
+    }
 
-    Ok((d0, d1, d2))
+    Ok(descriptors)
 }
 
 fn take_request(vq: &Virtqueue, desc_id: usize) -> Option<Arc<BlockRequest>> {
@@ -408,7 +405,9 @@ fn take_request(vq: &Virtqueue, desc_id: usize) -> Option<Arc<BlockRequest>> {
     if desc_id < requests.len() { requests[desc_id].take() } else { None }
 }
 
-fn store_request(vq: &Virtqueue, request: &Arc<BlockRequest>) { vq.requests.lock()[request.d0 as usize] = Some(request.clone()); }
+fn store_request(vq: &Virtqueue, request: &Arc<BlockRequest>) { 
+    vq.requests.lock()[request.head as usize] = Some(request.clone()); 
+}
 
 fn publish_available(vq: &Virtqueue, idx: u16, doorbell_ptr: *mut u16, before_publish: impl FnOnce(&Virtqueue)) {
     before_publish(vq);
@@ -422,15 +421,38 @@ fn publish_available(vq: &Virtqueue, idx: u16, doorbell_ptr: *mut u16, before_pu
     }
 }
 
+#[cfg(feature = "diagnostics")]
+pub(crate) static DIAGNOSTIC_FLUSH_COUNT: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(feature = "diagnostics")]
+pub(crate) static DIAGNOSTIC_FAIL_FLUSH: AtomicBool = AtomicBool::new(false);
+
 fn complete_request(vq: &mut Virtqueue, request: &Arc<BlockRequest>, status: u8) {
+    #[cfg(feature = "diagnostics")]
+    let status = if request.data.is_none() {
+        if DIAGNOSTIC_FAIL_FLUSH.swap(false, Ordering::SeqCst) {
+            1
+        } else {
+            if status == 0 {
+                DIAGNOSTIC_FLUSH_COUNT.fetch_add(1, Ordering::SeqCst);
+            }
+            status
+        }
+    } else {
+        status
+    };
+
     let result = if status == 0 { RESULT_OK } else { RESULT_ERROR };
     request.result.store(result, Ordering::Release);
     request.completed.store(true, Ordering::Release);
     request.waiter.wake();
 
-    vq.free_desc(request.d0);
-    vq.free_desc(request.d1);
-    vq.free_desc(request.d2);
+    vq.free_desc(request.head);
+    if let Some((desc, _)) = &request.data {
+        vq.free_desc(*desc);
+    }
+    vq.free_desc(request.status_desc);
 }
 
 pub const VIRTIO_BLK_T_IN: u32 = 0; // READ
@@ -451,6 +473,13 @@ impl AsyncBlockDevice for VirtioBlockDevice {
 
     fn write_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
         self.transfer_sectors(sector, sectors_count, buf_phys, true)
+    }
+
+    fn flush(&self) -> Result<BlockTransferFuture, BlockFlushError> {
+        if !self.flush_supported { return Err(BlockFlushError::Unsupported); }
+
+        self.submit_request(VIRTIO_BLK_T_FLUSH, 0, None, None)
+            .map_err(|_| BlockFlushError::Io)
     }
 }
 
@@ -546,92 +575,89 @@ impl VirtioBlockDevice {
     }
 
     pub fn transfer_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64, is_write: bool) -> Result<BlockTransferFuture, ()> {
+        let len = sectors_count.checked_mul(512).ok_or(())? as usize;
+
+        if is_write {
+            let dma = DmaBuffer::from_phys(buf_phys as usize, len)?;
+            self.submit_request(VIRTIO_BLK_T_OUT, sector, Some(dma), None)
+        } else {
+            let dma = DmaBuffer::new(len)?;
+            let completion = BlockCompletion::CopyToPhys {
+                dst_phys: buf_phys as usize,
+            };
+            self.submit_request(VIRTIO_BLK_T_IN, sector, Some(dma), Some(completion))
+        }
+    }
+
+    fn submit_request(&self, req_type: u32, sector: u64, dma: Option<Arc<DmaBuffer>>, completion: Option<BlockCompletion>) -> Result<BlockTransferFuture, ()> {
         let drv = &self.driver;
-        let core_id = current_core_id();
-        let vq_idx = core_id % self.queues.len();
-        let vq_state = &self.queues[vq_idx];
+        let vq_state = &self.queues[current_core_id() % self.queues.len()];
+        let header = PhysBuffer::new().ok_or(())?;
+        let request = unsafe {
+            write_volatile(
+                header.virt() as *mut VirtioBlkReqHeader,
+                VirtioBlkReqHeader { req_type, reserved: 0, sector },
+            );
+            write_volatile((header.virt() + 512) as *mut u8, 0xff);
 
-        unsafe {
-            let buffer = PhysBuffer::new().ok_or(())?;
-            let dma_len = sectors_count as usize * 512;
-            let dma_buffer = if is_write { DmaBuffer::from_phys(buf_phys as usize, dma_len)? } else { DmaBuffer::new(dma_len)? };
-
-            write_bytes(buffer.virt() as *mut u8, 0, 4096);
-
-            let req_hdr = VirtioBlkReqHeader { req_type: if is_write { VIRTIO_BLK_T_OUT } else { VIRTIO_BLK_T_IN }, reserved: 0, sector };
-            let hdr_ptr = buffer.virt() as *mut VirtioBlkReqHeader;
-            write_volatile(hdr_ptr, req_hdr);
-
-            let status_ptr = (buffer.virt() + 512) as *mut u8;
-            write_volatile(status_ptr, 0xFF);
-
-            let request = {
-                let mut vq = vq_state.vq.lock();
-                let (d0, d1, d2) = alloc_request_descs(&mut vq)?;
-
-                // chain desc 0 - header
-                let desc0 = vq.desc.add(d0 as usize);
-                write_volatile(
-                    desc0,
-                    VqDescriptor {
-                        addr: buffer.phys() as u64,
-                        len: 16,
-                        flags: 1, // next flag
-                        next: d1,
-                    },
-                );
-
-                // chain desc 1 - data buffer
-                let desc1 = vq.desc.add(d1 as usize);
-                write_volatile(
-                    desc1,
-                    VqDescriptor {
-                        addr: dma_buffer.phys() as u64,
-                        len: sectors_count * 512,
-                        flags: if is_write { 1 } else { 3 },
-                        next: d2,
-                    },
-                );
-
-                // chain desc 2 - status byte
-                let desc2 = vq.desc.add(d2 as usize);
-                write_volatile(desc2, VqDescriptor { addr: (buffer.phys() + 512) as u64, len: 1, flags: 2, next: 0xFFFF });
-
-                let avail_idx_ptr = vq.available.idx;
-                let idx = read_volatile(avail_idx_ptr);
-                let slot = (idx as usize) % (vq.queue_size as usize);
-                let ring_slot_ptr = vq.available.ring.add(slot);
-                write_volatile(ring_slot_ptr, d0);
-                let request = BlockRequest::new(d0, d1, d2, buffer, dma_buffer);
-                store_request(&vq, &request);
-
-                // if the device supports virtio_ring_f_event_idx, update used_event so the device
-                // will generate an interrupt for the next completion. writing vq.last_seen_used
-                // causes the device's vring_need_event check to evaluate true for any new used.idx.
-                let used_event_ptr = vq.available._used_event;
-                if !used_event_ptr.is_null() {
-                    write_volatile(used_event_ptr, vq.last_seen_used);
-                }
-
-                let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
-                let doorbell_ptr = (drv.notify_base as usize + doorbell_offset) as *mut u16;
-                publish_available(&vq, idx, doorbell_ptr, |_| {});
-
-                request
+            let mut vq = vq_state.vq.lock();
+            let (head, status_desc, data) = if let Some(dma) = dma {
+                let [head, data, status] = alloc_request_descs(&mut vq)?;
+                (head, status, Some((data, dma)))
+            } else {
+                let [head, status] = alloc_request_descs(&mut vq)?;
+                (head, status, None)
             };
 
-            Ok(BlockTransferFuture {
-                request,
-                completion: if is_write { None } else { Some(BlockCompletion::CopyToPhys { dst_phys: buf_phys as usize }) },
-            })
-        }
+            let next = data.as_ref().map_or(status_desc, |(desc, _)| *desc);
+            write_volatile(vq.desc.add(head as usize), VqDescriptor {
+                addr: header.phys() as u64,
+                len: size_of::<VirtioBlkReqHeader>() as u32,
+                flags: 1,
+                next,
+            });
+            if let Some((desc, dma)) = &data {
+                write_volatile(vq.desc.add(*desc as usize), VqDescriptor {
+                    addr: dma.phys() as u64,
+                    len: dma.len() as u32,
+                    flags: if req_type == VIRTIO_BLK_T_IN { 3 } else { 1 },
+                    next: status_desc,
+                });
+            }
+            write_volatile(vq.desc.add(status_desc as usize), VqDescriptor {
+                addr: (header.phys() + 512) as u64,
+                len: 1,
+                flags: 2,
+                next: 0xffff,
+            });
+
+            let idx = read_volatile(vq.available.idx);
+            let slot = idx as usize % vq.queue_size as usize;
+            write_volatile(vq.available.ring.add(slot), head);
+            let request = BlockRequest::new(head, status_desc, header, data);
+            store_request(&vq, &request);
+
+            let used_event = vq.available._used_event;
+            if !used_event.is_null() {
+                write_volatile(used_event, vq.last_seen_used);
+            }
+
+            let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
+            let doorbell = (drv.notify_base as usize + doorbell_offset) as *mut u16;
+            publish_available(&vq, idx, doorbell, |_| {});
+            request
+        };
+
+        Ok(BlockTransferFuture { request, completion })
     }
 }
 
+#[derive(Debug)]
 enum BlockCompletion {
     CopyToPhys { dst_phys: usize },
 }
 
+#[derive(Debug)]
 pub struct BlockTransferFuture {
     request: Arc<BlockRequest>,
     completion: Option<BlockCompletion>,
@@ -646,7 +672,8 @@ impl Future for BlockTransferFuture {
         match poll_block_request(&self.request, cx, || {}) {
             Poll::Ready(Ok(())) => {
                 if let Some(BlockCompletion::CopyToPhys { dst_phys }) = self.completion.take() {
-                    self.request.dma_buffer.copy_to_phys(dst_phys);
+                    let (_, dma) = self.request.data.as_ref().expect("read request must own its DMA buffer");
+                    dma.copy_to_phys(dst_phys);
                 }
                 Poll::Ready(Ok(()))
             }

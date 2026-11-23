@@ -9,7 +9,7 @@ use hal::mmu::{PageFlags, PhysAddr};
 mod anonymous;
 pub use anonymous::AnonymousVmo;
 mod file;
-pub use file::FileVmo;
+pub use file::{FilePageWriteback, FileVmo};
 mod device;
 pub use device::DeviceVmo;
 

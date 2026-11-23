@@ -6,7 +6,7 @@ use crate::klogln;
 use crate::memory::{
     ALLOCATOR, DIRECT_MAP_OFFSET, PageSize, PhysBuffer, calculate_order,
 };
-use crate::storage::blockdev::AsyncBlockDevice;
+use crate::storage::blockdev::{AsyncBlockDevice, BlockFlushError};
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +75,10 @@ impl AsyncBlockDevice for GptPartition {
         let absolute_sector = self.start_sector + sector;
         // forward to the hardware driver
         self.raw_device.write_sectors(absolute_sector, sectors_count, buf_phys)
+    }
+
+    fn flush(&self) -> Result<BlockTransferFuture, BlockFlushError> {
+        self.raw_device.flush()
     }
 }
 

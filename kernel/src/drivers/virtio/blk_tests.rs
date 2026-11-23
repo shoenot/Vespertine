@@ -137,8 +137,8 @@ fn test_virtqueue(queue_size: u16, free_descs: u16) -> Virtqueue {
 
 fn queued_request(vq: &mut Virtqueue) -> Arc<BlockRequest> {
     let header = PhysBuffer::new().expect("header allocation failed");
-    let (d0, d1, d2) = alloc_request_descs(vq).expect("descriptor allocation failed");
-    let request = BlockRequest::new(d0, d1, d2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let [d0, d1, d2] = alloc_request_descs(vq).expect("descriptor allocation failed");
+    let request = BlockRequest::new(d0, d2, header, Some((d1, DmaBuffer::new(512).expect("dma buffer alloc failed"))));
     store_request(vq, &request);
     request
 }
@@ -149,9 +149,9 @@ fn test_dropped_future_leaves_request_queue_owned() {
     let future = BlockTransferFuture { request: request.clone(), completion: None };
     drop(future);
 
-    assert!(vq.requests.lock()[request.d0 as usize].is_some(), "queue lost ownership after future drop");
+    assert!(vq.requests.lock()[request.head as usize].is_some(), "queue lost ownership after future drop");
 
-    let queued = take_request(&vq, request.d0 as usize).expect("request missing from queue");
+    let queued = take_request(&vq, request.head as usize).expect("request missing from queue");
     complete_request(&mut vq, &queued, 0);
 }
 
@@ -160,10 +160,10 @@ fn test_completion_reclaims_descriptors_after_future_drop() {
     let request = queued_request(&mut vq);
     drop(BlockTransferFuture { request: request.clone(), completion: None });
 
-    let queued = take_request(&vq, request.d0 as usize).expect("request missing from queue");
+    let queued = take_request(&vq, request.head as usize).expect("request missing from queue");
     complete_request(&mut vq, &queued, 0);
 
-    assert_eq!(drain_descs(&mut vq, 3), alloc::vec![request.d2, request.d1, request.d0]);
+    assert_eq!(drain_descs(&mut vq, 3), alloc::vec![request.status_desc, request.data.as_ref().unwrap().0, request.head]);
 }
 
 fn test_dropped_future_is_not_woken() {
@@ -174,14 +174,14 @@ fn test_dropped_future_is_not_woken() {
     assert!(poll_future(&mut future, &mut Context::from_waker(&waker)).is_pending());
     drop(future);
 
-    let queued = take_request(&vq, request.d0 as usize).expect("request missing from queue");
+    let queued = take_request(&vq, request.head as usize).expect("request missing from queue");
     complete_request(&mut vq, &queued, 0);
     assert_eq!(counter.wakes.load(Ordering::Acquire), 0);
 }
 
 fn test_completion_before_registration_returns_ready() {
     let header = PhysBuffer::new().expect("header allocation failed");
-    let request = BlockRequest::new(0, 1, 2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let request = BlockRequest::new(0, 2, header, Some((1, DmaBuffer::new(512).expect("dma buffer alloc failed"))));
     mark_request_complete(&request, true);
     let (_, waker) = counting_context();
     let mut future = BlockTransferFuture { request: request.clone(), completion: None };
@@ -190,7 +190,7 @@ fn test_completion_before_registration_returns_ready() {
 
 fn test_completion_between_check_and_registration_returns_ready() {
     let header = PhysBuffer::new().expect("header allocation failed");
-    let request = BlockRequest::new(0, 1, 2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let request = BlockRequest::new(0, 2, header, Some((1, DmaBuffer::new(512).expect("dma buffer alloc failed"))));
     let (_, waker) = counting_context();
     let result = poll_block_request(&request, &mut Context::from_waker(&waker), || {
         mark_request_complete(&request, true);
@@ -205,7 +205,7 @@ fn test_request_status_is_published_before_waking() {
     let (observer, waker) = observer_context(request.clone());
     request.waiter.register(&waker);
 
-    let queued = take_request(&vq, request.d0 as usize).expect("request missing from queue");
+    let queued = take_request(&vq, request.head as usize).expect("request missing from queue");
     complete_request(&mut vq, &queued, 0);
 
     assert!(observer.saw_ready.load(Ordering::Acquire), "waker observed stale request status");
@@ -215,8 +215,8 @@ fn test_request_status_is_published_before_waking() {
 fn test_request_exists_before_submission_publication() {
     let mut vq = test_virtqueue(8, 8);
     let header = PhysBuffer::new().expect("header allocation failed");
-    let (d0, d1, d2) = alloc_request_descs(&mut vq).expect("descriptor allocation failed");
-    let request = BlockRequest::new(d0, d1, d2, header, DmaBuffer::new(512).expect("dma buffer alloc failed"));
+    let [d0, d1, d2] = alloc_request_descs(&mut vq).expect("descriptor allocation failed");
+    let request = BlockRequest::new(d0, d2, header, Some((d1, DmaBuffer::new(512).expect("dma buffer alloc failed"))));
     store_request(&vq, &request);
 
     unsafe {
@@ -235,7 +235,7 @@ fn test_descriptor_allocation_failure_cleans_up_resources() {
 
     {
         let _header = PhysBuffer::new().expect("header allocation failed");
-        assert!(alloc_request_descs(&mut vq).is_err(), "descriptor allocation unexpectedly succeeded");
+        assert!(alloc_request_descs::<3>(&mut vq).is_err(), "descriptor allocation unexpectedly succeeded");
     }
 
     assert_eq!(drain_descs(&mut vq, 2), alloc::vec![0, 1], "descriptor cleanup did not restore the freelist");
@@ -247,8 +247,8 @@ fn test_completion_happens_exactly_once() {
     let (_, waker) = counting_context();
     request.waiter.register(&waker);
 
-    let queued = take_request(&vq, request.d0 as usize).expect("request missing from queue");
-    assert!(take_request(&vq, request.d0 as usize).is_none(), "request was extracted twice");
+    let queued = take_request(&vq, request.head as usize).expect("request missing from queue");
+    assert!(take_request(&vq, request.head as usize).is_none(), "request was extracted twice");
     complete_request(&mut vq, &queued, 0);
 
     assert_eq!(request.result.load(Ordering::Acquire), RESULT_OK);
@@ -265,7 +265,7 @@ fn test_read_completion_copies_dma_back_to_destination() {
         core::ptr::copy_nonoverlapping(src.as_ptr(), (dma.phys() + *DIRECT_MAP_OFFSET) as *mut u8, src.len());
     }
 
-    let request = BlockRequest::new(0, 1, 2, header, dma);
+    let request = BlockRequest::new(0, 2, header, Some((1, dma)));
     mark_request_complete(&request, true);
 
     let (_, waker) = counting_context();

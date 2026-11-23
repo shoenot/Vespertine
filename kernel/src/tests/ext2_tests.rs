@@ -95,7 +95,8 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
     read_exact(description.as_ref(), &mut actual).await;
     assert_eq!(actual, expected, "warm shrink/re-extension failed");
 
-    // Drop the original file object so the reopen has a fresh page cache.
+    // Write back the retained block's zeroed tail before the cold reopen.
+    file.flush_dirty_pages().await.expect("flush truncated tail");
     root.fs.cache.flush().await.expect("flush resized inode");
     let weak_file = Arc::downgrade(&file);
     drop(file);
@@ -107,7 +108,113 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
     assert_eq!(actual, expected, "cold shrink/re-extension failed");
 
     cold.invoke(truncate(0), AccessRights::WRITE).await.unwrap();
+    root.fs.reap_pending().await;
     root.fs.cache.flush().await.expect("flush fixture cleanup");
 
     crate::klogln!("[TEST] Ext2 owned cache, truncate, and writeback passed");
+}
+
+pub(crate) async fn test_ext2_unlink_and_truncate(root: &Ext2Directory) {
+    use alloc::vec;
+    use vespertine_abi::{AccessRights, FileOp, Invocation, UserID};
+
+    use crate::memory::vmo::PagedBackingStore;
+    use crate::object::invoke::InvocationError;
+    use crate::object::obj::KernelDirectory;
+
+    const NAME: &str = ".ext2-reclaim-test";
+    const REPLACEMENT: &str = ".ext2-reclaim-replacement";
+
+    let fs = &root.fs;
+    let inode_for = async |name| {
+        let parent = *root.inode_data.read();
+        fs.lookup_in_dir(&parent, name).await.unwrap()
+    };
+    let free_blocks = || {
+        fs.bgdt.lock().iter().map(|group| u32::from(group.free_blocks_count)).sum::<u32>()
+    };
+    let free_inodes = || {
+        fs.bgdt.lock().iter().map(|group| u32::from(group.free_inodes_count)).sum::<u32>()
+    };
+
+    for name in [NAME, REPLACEMENT] {
+        if inode_for(name).await.is_some() {
+            root.unlink_child(name).await.expect("remove prior diagnostic fixture");
+        }
+    }
+    fs.reap_pending().await;
+
+    let description = root.create_child_file(NAME, UserID(0)).await.unwrap();
+    let inode = inode_for(NAME).await.unwrap();
+    let file = fs.active_files.lock().get(&inode).unwrap().upgrade().unwrap();
+
+    let block_size = fs.block_size as usize;
+    let old_size = 15 * block_size + 37;
+    let keep = 12 * block_size + 137;
+    let payload = vec![0x75; old_size];
+    let write = Invocation::File(FileOp::Write {
+        offset: 0, buffer_ptr: payload.as_ptr() as usize, len: old_size,
+    });
+    assert_eq!(description.invoke(write, AccessRights::WRITE).await.unwrap(), old_size);
+    file.flush_dirty_pages().await.unwrap();
+
+    let before = free_blocks();
+    let truncate = |size| Invocation::File(FileOp::Truncate { size });
+    description.invoke(truncate(keep), AccessRights::WRITE).await.unwrap();
+    assert_eq!(free_blocks(), before, "truncate released blocks before commit flush");
+    fs.reap_pending().await;
+    assert_eq!(free_blocks(), before + 3, "single-indirect shrink lost allocation accounting");
+
+    description.invoke(truncate(old_size), AccessRights::WRITE).await.unwrap();
+    file.flush_dirty_pages().await.unwrap();
+    let weak = Arc::downgrade(&file);
+    drop((file, description));
+    assert!(weak.upgrade().is_none(), "reopen must be cold");
+
+    let description = root.lookup_child(NAME).await.unwrap();
+    let file = fs.active_files.lock().get(&inode).unwrap().upgrade().unwrap();
+    let mut output = vec![0xff; old_size];
+    let read = Invocation::File(FileOp::Read {
+        offset: 0, buffer_ptr: output.as_mut_ptr() as usize, len: old_size,
+    });
+    assert_eq!(description.invoke(read, AccessRights::READ).await.unwrap(), old_size);
+    assert_eq!(&output[..keep], &payload[..keep]);
+    assert!(output[keep..].iter().all(|&byte| byte == 0), "cold regrowth exposed old bytes");
+
+    let live_backing: Arc<dyn PagedBackingStore> = file.clone();
+    let allocated = file.inode_data.read().blocks / fs.sectors_per_block;
+    root.unlink_child(NAME).await.unwrap();
+    assert!(matches!(root.lookup_child(NAME).await, Err(InvocationError::PathNotFound)));
+    let mut byte = 0u8;
+    let read = Invocation::File(FileOp::Read {
+        offset: 0, buffer_ptr: &mut byte as *mut u8 as usize, len: 1,
+    });
+    assert_eq!(description.invoke(read, AccessRights::READ).await.unwrap(), 1);
+    assert_eq!(byte, payload[0]);
+    let replacement_byte = 0x35u8;
+    let write = Invocation::File(FileOp::Write {
+        offset: keep, buffer_ptr: &replacement_byte as *const u8 as usize, len: 1,
+    });
+    assert_eq!(description.invoke(write, AccessRights::WRITE).await.unwrap(), 1);
+
+    let replacement = root.create_child_file(REPLACEMENT, UserID(0)).await.unwrap();
+    assert_ne!(inode_for(REPLACEMENT).await, Some(inode), "reused an inode while it was open");
+    let before_inodes = free_inodes();
+    let before_blocks = free_blocks();
+
+    drop((file, description));
+    fs.reap_pending().await;
+    assert_eq!(free_inodes(), before_inodes, "reaped an inode held by its live backing");
+
+    drop(live_backing);
+    fs.reap_pending().await;
+    assert_eq!(free_inodes(), before_inodes + 1);
+    assert_eq!(free_blocks(), before_blocks + allocated, "unlink leaked allocated pointers");
+
+    drop(replacement);
+    root.unlink_child(REPLACEMENT).await.unwrap();
+    fs.reap_pending().await;
+    fs.cache.flush().await.unwrap();
+
+    crate::klogln!("[TEST] Ext2 unlink lifetime and indirect truncate passed");
 }

@@ -4,10 +4,16 @@ use crate::{executor::async_mutex::AsyncMutex, memory::{Frame4K, PAGE_SIZE_4K, v
 
 use crate::{executor::syscall_bridge::block_on, memory::vmo::PagedBackingStore, storage::fs::{VfsNode, VfsReadError}};
 
+#[derive(Debug, Clone, Copy)]
+pub enum FilePageWriteback {
+    Page,
+    TailBlock { offset: usize },
+}
+
 #[derive(Debug)]
 struct CachedPage {
     frame: Arc<Frame4K>,
-    dirty: bool,
+    writeback: Option<FilePageWriteback>,
 }
 
 #[derive(Debug)]
@@ -47,36 +53,45 @@ impl FileVmo {
             }
         }
 
-        self.pages.lock().insert(offset, CachedPage { frame: Arc::clone(&frame), dirty: false });
+        self.pages.lock().insert(offset, CachedPage { frame: Arc::clone(&frame), writeback: None });
         Ok(frame)
     }
 
-    pub fn truncate_cached_locked(&self, new_size: usize) {
-        self.pages.lock().retain(|offset, _| *offset < new_size);
+    pub fn truncate_cached_locked(&self, new_size: usize, dirty_tail: Option<usize>) {
+        let mut pages = self.pages.lock();
+        pages.retain(|offset, _| *offset < new_size);
 
         let tail = new_size % PAGE_SIZE_4K;
         if tail != 0 {
-            if let Some(frame) = self.cached_frame(new_size - tail) {
-                unsafe { (frame.virt() as *mut u8).add(tail).write_bytes(0, PAGE_SIZE_4K - tail) };
+            if let Some(page) = pages.get_mut(&(new_size - tail)) {
+                unsafe { (page.frame.virt() as *mut u8).add(tail).write_bytes(0, PAGE_SIZE_4K - tail) };
+                if !matches!(page.writeback, Some(FilePageWriteback::Page)) {
+                    if let Some(offset) = dirty_tail {
+                        page.writeback = Some(FilePageWriteback::TailBlock { offset });
+                    } else if matches!(page.writeback, Some(FilePageWriteback::TailBlock { offset }) if offset >= tail) {
+                        page.writeback = None;
+                    }
+                }
             }
         }
     }
 
-    pub fn dirty_frames(&self) -> Vec<(usize, Arc<Frame4K>)> {
+    pub fn dirty_frames(&self) -> Vec<(usize, Arc<Frame4K>, FilePageWriteback)> {
         self.pages.lock().iter()
-            .filter(|(_, page)| page.dirty)
-            .map(|(&offset, page)| (offset, Arc::clone(&page.frame)))
+            .filter_map(|(&offset, page)| {
+                page.writeback.map(|writeback| (offset, Arc::clone(&page.frame), writeback))
+            })
             .collect()
     }
 
     pub fn mark_dirty(&self, offset: usize) -> Result<(), ()> {
-        self.pages.lock().get_mut(&offset).ok_or(())?.dirty = true;
+        self.pages.lock().get_mut(&offset).ok_or(())?.writeback = Some(FilePageWriteback::Page);
         Ok(())
     }
 
     pub fn clear_dirty(&self, offset: usize) {
         if let Some(page) = self.pages.lock().get_mut(&offset) {
-            page.dirty = false;
+            page.writeback = None;
         }
     }
 

@@ -62,7 +62,7 @@ pub struct DiskSuperblock {
     //-- Performance Hints --
     pub prealloc_blocks: u8,
     pub prealloc_dir_blocks: u8,
-    pub alignment: u16,
+    pub reserved_gdt_blocks: u16,
     //-- Journaling Support --
     pub journal_uuid: [u8; 16],
     pub journal_inum: u32,

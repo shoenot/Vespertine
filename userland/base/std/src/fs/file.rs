@@ -93,6 +93,11 @@ impl File {
     pub fn write_at(&self, buf: &[u8], offset: usize) -> Result<usize, Error> {
         sys_write(self.handle, buf.as_ptr(), buf.len(), offset).map_err(Error::from)
     }
+
+    pub fn sync(&self) -> Result<(), Error> {
+        sys_invoke(self.handle, &Invocation::File(FileOp::Sync)).map(|_| ())
+            .map_err(|e| Error::from(e).context("cannot sync file"))
+    }
 }
 
 impl Read for File {

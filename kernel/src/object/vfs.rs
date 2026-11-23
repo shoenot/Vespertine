@@ -43,6 +43,25 @@ pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<u
     obj.invoke(invocation, rights).await
 }
 
+pub async fn write_all_to_object(object: &dyn KernelObject, rights: AccessRights, mut bytes: &[u8]) -> Result<(), InvocationError> {
+    while !bytes.is_empty() {
+        let op = FileOp::Write {
+            offset: 0,
+            buffer_ptr: bytes.as_ptr() as usize,
+            len: bytes.len(),
+        };
+
+        let count = object.invoke(Invocation::File(op), rights).await?;
+        if count == 0 {
+            return Err(InvocationError::UnsupportedOperation);
+        }
+
+        bytes = bytes.get(count..).ok_or(InvocationError::Io)?;
+    }
+
+    Ok(())
+}
+
 pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
     current_process().expect("No active process").handles.write().close(handle)
 }
@@ -177,3 +196,4 @@ impl KernelObject for FileDescription {
         self.inner.copy_file_into_vmo(offset, bytes, backing).await
     }
 }
+

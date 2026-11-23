@@ -37,6 +37,7 @@ use crate::object::handle::HandleTable;
 use crate::object::help::RightsWrapper;
 use crate::object::invoke::InvocationError;
 use crate::object::mempool::MemPool;
+use crate::object::vfs::write_all_to_object;
 use crate::process::{
     ProcessControlBlock,
     find_process,
@@ -310,7 +311,7 @@ impl KernelObject for ProcessManager {
                             copy_nonoverlapping(info_ptr, buffer.as_mut_ptr().add(header_size), entry_size);
                         }
 
-                        if write_all_to_object(&sink_obj, AccessRights::WRITE, &buffer).await.is_err() {
+                        if write_all_to_object(sink_obj.as_ref(), AccessRights::WRITE, &buffer).await.is_err() {
                             return;
                         }
                     }
@@ -331,7 +332,7 @@ impl KernelObject for ProcessManager {
                         copy_nonoverlapping(header_ptr, buffer.as_mut_ptr(), size_of::<PacketHeader>());
                     }
 
-                    let _ = write_all_to_object(&sink_obj, AccessRights::WRITE, &buffer).await;
+                    let _ = write_all_to_object(sink_obj.as_ref(), AccessRights::WRITE, &buffer).await;
                 });
 
                 Ok(processes.len())
@@ -355,18 +356,3 @@ impl KernelObject for ProcessManager {
     }
 }
 
-async fn write_all_to_object(object: &Arc<dyn KernelObject>, rights: AccessRights, bytes: &[u8]) -> Result<(), InvocationError> {
-    let mut written = 0;
-
-    while written < bytes.len() {
-        let op = FileOp::Write { offset: 0, buffer_ptr: unsafe { bytes.as_ptr().add(written) as usize }, len: bytes.len() - written };
-
-        let count = object.invoke(Invocation::File(op), rights).await?;
-        if count == 0 {
-            return Err(InvocationError::UnsupportedOperation);
-        }
-
-        written += count;
-    }
-    Ok(())
-}

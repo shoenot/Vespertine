@@ -40,6 +40,7 @@ pub enum FileOp {
     Seek { offset: i64, whence: u32 },
     Truncate { size: usize },
     GetPrivateVmo { offset: usize, len: usize },
+    Sync,
 }
 
 #[repr(C)]
