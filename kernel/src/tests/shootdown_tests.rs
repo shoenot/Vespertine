@@ -30,11 +30,11 @@ fn wait_for(what: &str, ready: impl Fn() -> bool) {
 
 pub(crate) fn run_bsp() {
     if *NUM_CORES < 2 {
-        crate::klogln!("[TEST] cross-core TLB shootdown skipped, requires two CPUs");
+        crate::klogln!(Info, "Test/TLB", "Cross-core shootdown skipped (requires two CPUs)");
         return;
     }
 
-    crate::klogln!("[TEST] cross-core TLB shootdown");
+    crate::klogln!(Info, "Test/TLB", "Cross-core shootdown");
 
     let root = Frame4K::allocate_zeroed().expect("test root allocation failed");
     let first = Frame4K::allocate().expect("first test frame allocation failed");
@@ -73,7 +73,7 @@ pub(crate) fn run_bsp() {
     });
 
     pager.free_user_page_tables(&mut alloc);
-    crate::klogln!("[TEST] cross-core TLB shootdown OK");
+    crate::klogln!(Info, "Test/TLB", "Passed");
 }
 
 pub(crate) fn run_ap() {

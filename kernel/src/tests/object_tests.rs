@@ -12,9 +12,13 @@ use crate::klogln;
 const TEST_ELF: &str = "/System/Core/hesper";
 
 pub(super) async fn run() {
+    klogln!(Info, "Test/Object", "Native VMO rights and 4 KiB protection");
     test_native_vmo_rights().await;
+    klogln!(Info, "Test/Object", "Mempool reservation follows VMO backing");
     test_pool_reservation_lifetime().await;
+    klogln!(Info, "Test/Object", "Private file copy shares the default pool quota");
     test_private_copy_pool_charge().await;
+    klogln!(Info, "Test/Object", "Failed spawn releases the child");
     test_failed_spawn_releases_child().await;
 }
 
@@ -154,8 +158,6 @@ async fn test_native_vmo_rights() {
 
     kernel_invoke(SELF, unmap(addr)).await.unwrap();
     assert_eq!(Arc::strong_count(&frame), 1);
-
-    klogln!("  Native VMO rights and 4 KiB protection passed");
 }
 
 async fn test_pool_reservation_lifetime() {
@@ -215,8 +217,6 @@ async fn test_pool_reservation_lifetime() {
     for handle in [left, right, parent] {
         kernel_close(handle).unwrap();
     }
-
-    klogln!("[TEST] Mempool reservation follows VMO backing");
 }
 
 async fn test_private_copy_pool_charge() {
@@ -269,8 +269,6 @@ async fn test_private_copy_pool_charge() {
     let recycled = HandleID(kernel_invoke(HandleID(4), allocate()).await.unwrap());
     kernel_close(recycled).unwrap();
     kernel_close(file).unwrap();
-
-    klogln!("[TEST] Private file copy shares the default pool quota");
 }
 
 async fn test_failed_spawn_releases_child() {
@@ -330,6 +328,4 @@ async fn test_failed_spawn_releases_child() {
     for handle in [marker_handle, exec, pm] {
         kernel_close(handle).unwrap();
     }
-
-    klogln!("[TEST] Failed spawn releases child");
 }

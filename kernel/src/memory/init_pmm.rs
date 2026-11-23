@@ -1,9 +1,5 @@
 use hal::boot::{BootMemoryKind, for_each_memory_region};
 
-use crate::drivers::serial::{
-    log_to_serial,
-    log_u64_to_serial,
-};
 use crate::memory::DIRECT_MAP_OFFSET;
 
 static PAGE_SIZE: usize = 4096;
@@ -70,8 +66,6 @@ impl BitmapPMM {
                 }
             }
         });
-        log_u64_to_serial(bitmap_virt_addr as u64);
-        log_to_serial("\n");
         pmm
     }
 

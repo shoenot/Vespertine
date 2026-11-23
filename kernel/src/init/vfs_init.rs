@@ -42,7 +42,7 @@ pub async fn init_vfs() {
 
     mount(bootstrap_root, block_root).expect("[FATAL] Failed to mount disk root");
 
-    klogln!("[SUCCESS] Disk root mounted at /");
+    klogln!(Info, "Filesystem", "ext2 root mounted at /");
     let root_dir = root_location.directory();
 
     let authority = kernel_namespace_authority();

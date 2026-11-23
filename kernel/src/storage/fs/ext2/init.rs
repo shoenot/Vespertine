@@ -26,20 +26,24 @@ async fn ext2_writeback_daemon(fs: Arc<Ext2FileSystem>) {
 
         for file in dirty {
             if let Err(error) = file.flush_dirty_pages().await {
-                crate::klogln!("[EXT2] writeback failed for inode {}: {:?}", file.inode_num, error);
+                crate::klogln!(Error, "Ext2", "Writeback failed for inode {}: {error:?}", file.inode_num);
             }
         }
 
-        if fs.cache.flush().await.is_err() {
-            crate::klogln!("[EXT2] metadata cache flush failed");
+        if let Err(error) = fs.cache.flush().await {
+            crate::klogln!(Error, "Ext2", "Metadata cache flush failed: {error:?}");
         }
     }
 }
 
 pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> Arc<Ext2Directory> {
+    #[cfg(feature = "diagnostics")]
+    crate::klogln!(Debug, "Filesystem", "Reading GPT for the root disk");
     let gpt = GptTable::parse(raw_block_device).await.expect("Failed to read the GPT partition table");
     let partition = gpt.partitions.into_iter().next().expect("No partition available for the ext2 root");
     let total_sectors = partition.total_sectors;
+    #[cfg(feature = "diagnostics")]
+    crate::klogln!(Debug, "Filesystem", "Probing ext2 at LBA {}", partition.start_sector);
     let ext2_fs = Arc::new(
         Ext2FileSystem::mount(Arc::new(partition), total_sectors)
             .await.expect("Failed to mount the ext2 root"),
@@ -58,9 +62,13 @@ pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> A
 
     #[cfg(feature = "diagnostics")]
     {
+        crate::klogln!(Info, "Test/Ext2", "Owned cache, truncate, and writeback");
         crate::tests::ext2_tests::test_ext2_owned_cache(&root_dir_object).await;
+        crate::klogln!(Info, "Test/Ext2", "Unlink lifetime and indirect truncate");
         crate::tests::ext2_tests::test_ext2_unlink_and_truncate(&root_dir_object).await;
+        crate::klogln!(Info, "Test/Ext2", "Sync device completion, cold read, and error propagation");
         test_ext2_sync(&root_dir_object, total_sectors).await;
+        crate::klogln!(Info, "Test/Ext2", "Passed");
     }
 
     Executor::new().spawn(ext2_writeback_daemon(ext2_fs));
@@ -152,6 +160,4 @@ async fn test_ext2_sync(root: &Ext2Directory, total_sectors: u64) {
     root.unlink_child(NAME).await.unwrap();
     root.fs.reap_pending().await;
     root.fs.cache.flush().await.unwrap();
-
-    crate::klogln!("[TEST] ext2 sync device completion, cold read, and error propagation passed");
 }

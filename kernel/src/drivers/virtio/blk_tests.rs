@@ -286,24 +286,24 @@ fn test_read_completion_copies_dma_back_to_destination() {
 }
 
 pub(super) fn run() {
-    crate::klogln!("[TEST] virtio blk dropped future keeps request");
+    crate::klogln!(Info, "Test/VirtIO", "Dropped future keeps request");
     test_dropped_future_leaves_request_queue_owned();
-    crate::klogln!("[TEST] virtio blk reclaim after drop");
+    crate::klogln!(Info, "Test/VirtIO", "Reclaim after drop");
     test_completion_reclaims_descriptors_after_future_drop();
-    crate::klogln!("[TEST] virtio blk dropped future not woken");
+    crate::klogln!(Info, "Test/VirtIO", "Dropped future not woken");
     test_dropped_future_is_not_woken();
-    crate::klogln!("[TEST] virtio blk completion before registration");
+    crate::klogln!(Info, "Test/VirtIO", "Completion before registration");
     test_completion_before_registration_returns_ready();
-    crate::klogln!("[TEST] virtio blk completion during registration");
+    crate::klogln!(Info, "Test/VirtIO", "Completion during registration");
     test_completion_between_check_and_registration_returns_ready();
-    crate::klogln!("[TEST] virtio blk status before wake");
+    crate::klogln!(Info, "Test/VirtIO", "Status before wake");
     test_request_status_is_published_before_waking();
-    crate::klogln!("[TEST] virtio blk request before publish");
+    crate::klogln!(Info, "Test/VirtIO", "Request before publish");
     test_request_exists_before_submission_publication();
-    crate::klogln!("[TEST] virtio blk allocation cleanup");
+    crate::klogln!(Info, "Test/VirtIO", "Allocation cleanup");
     test_descriptor_allocation_failure_cleans_up_resources();
-    crate::klogln!("[TEST] virtio blk single completion");
+    crate::klogln!(Info, "Test/VirtIO", "Single completion");
     test_completion_happens_exactly_once();
-    crate::klogln!("[TEST] virtio blk read copy-back");
+    crate::klogln!(Info, "Test/VirtIO", "Read copy-back");
     test_read_completion_copies_dma_back_to_destination();
 }

@@ -103,7 +103,7 @@ pub fn init_smp() {
         hal_boot_alloc,
     );
 
-    klogln!("[SUCCESS] All CPUs started and operational.");
+    klogln!(Info, "CPU", "{core_count} CPUs online");
 
     NUM_CORES.get_or_init(|| core_count);
 }

@@ -110,8 +110,6 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
     cold.invoke(truncate(0), AccessRights::WRITE).await.unwrap();
     root.fs.reap_pending().await;
     root.fs.cache.flush().await.expect("flush fixture cleanup");
-
-    crate::klogln!("[TEST] Ext2 owned cache, truncate, and writeback passed");
 }
 
 pub(crate) async fn test_ext2_unlink_and_truncate(root: &Ext2Directory) {
@@ -215,6 +213,4 @@ pub(crate) async fn test_ext2_unlink_and_truncate(root: &Ext2Directory) {
     root.unlink_child(REPLACEMENT).await.unwrap();
     fs.reap_pending().await;
     fs.cache.flush().await.unwrap();
-
-    crate::klogln!("[TEST] Ext2 unlink lifetime and indirect truncate passed");
 }

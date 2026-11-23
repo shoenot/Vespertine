@@ -103,14 +103,14 @@ fn test_cancelling_after_firing_does_not_wake_again() {
 }
 
 pub(super) fn run() {
-    crate::klogln!("[TEST] async sleep drop cancels");
+    crate::klogln!(Info, "Test/Timer", "Drop cancels sleep");
     test_dropping_armed_sleep_prevents_wake();
-    crate::klogln!("[TEST] async sleep replacement cancels");
+    crate::klogln!(Info, "Test/Timer", "Replacement cancels sleep");
     test_replacing_sleep_cancels_old_registration();
-    crate::klogln!("[TEST] async sleep waker update");
+    crate::klogln!(Info, "Test/Timer", "Update sleep waker");
     test_polling_with_new_waker_replaces_stored_waker();
-    crate::klogln!("[TEST] async sleep fires once");
+    crate::klogln!(Info, "Test/Timer", "Sleep fires once");
     test_firing_timer_wakes_once();
-    crate::klogln!("[TEST] async sleep cancel after fire");
+    crate::klogln!(Info, "Test/Timer", "Cancel after fire");
     test_cancelling_after_firing_does_not_wake_again();
 }

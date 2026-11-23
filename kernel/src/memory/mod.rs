@@ -137,7 +137,7 @@ impl PCAllocator {
                 }
             },
             PageSize::Size1G => {
-                klogln!("[WARNING] Ignored attempt to free unsupported 1G page at {:#X}", addr);
+                klogln!(Warn, "Memory", "Ignored attempt to free unsupported 1G page at {:#X}", addr);
             },
         }
     }
@@ -156,14 +156,12 @@ impl FrameAllocator for PCAllocator {
 }
 
 pub fn init() {
-    klogln!("[INFO] Initiating memory management system...");
     hal::mmu::init_direct_map_offset(direct_map_offset());
     // Inititate PMM
     {
         let mut global_pmm = GLOBAL_PMM.lock();
         global_pmm.init();
     }
-    klogln!("[SUCCESS] Physical memory manager operational.");
     // Inititate Pager
     {
         let boot_cr3 = get_cr3() & 0x000F_FFFF_FFFF_F000;
@@ -179,7 +177,7 @@ pub fn init() {
 
         *PAGER.lock() = kernel_pager;
     }
-    klogln!("[SUCCESS] Switched CR3. Paging handover complete.");
+    klogln!(Info, "Memory", "Memory management online");
 }
 
 pub fn calculate_order(bytes: usize) -> usize {

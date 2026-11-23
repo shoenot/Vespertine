@@ -499,8 +499,9 @@ impl VirtioBlockDevice {
             msi_register,
         };
 
-        let has_msix = pci_has_msix(self.driver.bus, self.driver.slot, self.driver.func);
-        if !has_msix {
+        let VirtioBlockDriver { bus, slot, func, .. } = self.driver;
+        if !pci_has_msix(bus, slot, func) {
+            crate::klogln!(Error, "VirtIO", "Block device {bus:02x}:{slot:02x}.{func} has no MSI-X capability");
             unsafe {
                 let cfg = &mut *self.driver.common_cfg;
                 write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
@@ -510,6 +511,7 @@ impl VirtioBlockDevice {
 
         let num_queues = self.queues.len();
         let handle = msi_allocate(num_queues, 0).map_err(|_| {
+            crate::klogln!(Error, "VirtIO", "Could not allocate MSI-X vectors for {num_queues} block queues");
             unsafe {
                 let cfg = &mut *self.driver.common_cfg;
                 write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
@@ -517,6 +519,7 @@ impl VirtioBlockDevice {
             ()
         })?;
 
+        let mut registered_queues = 0;
         for i in 0..num_queues {
             let vq_state_ptr = &self.queues[i] as *const VirtqueueState as usize;
 
@@ -524,9 +527,9 @@ impl VirtioBlockDevice {
             let res = msi_register(
                 &handle,
                 i,
-                self.driver.bus,
-                self.driver.slot,
-                self.driver.func,
+                bus,
+                slot,
+                func,
                 virtio_blk_irq_handler,
                 vq_state_ptr,
                 i, // hardware entry index i
@@ -534,7 +537,8 @@ impl VirtioBlockDevice {
             );
 
             match res {
-                Ok(vector) => {
+                Ok(_) => {
+                    registered_queues += 1;
                     unsafe {
                         let vq_state_mut = &self.queues[i] as *const VirtqueueState as *mut VirtqueueState;
 
@@ -552,13 +556,15 @@ impl VirtioBlockDevice {
                         write_volatile(addr_of_mut!((*cfg).queue_msix_vector), i as u16);
                         write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
                     }
-                    crate::klogln!("[VIRTIO] Queue {} registered: vector={} entry={} core={}", i, vector, i, i);
                 }
-                Err(_) => unsafe {
-                    let cfg = &mut *self.driver.common_cfg;
-                    write_volatile(addr_of_mut!((*cfg).queue_select), i as u16);
-                    write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
-                },
+                Err(_) => {
+                    crate::klogln!(Error, "VirtIO", "Could not register MSI-X for block queue {i} on CPU {i}");
+                    unsafe {
+                        let cfg = &mut *self.driver.common_cfg;
+                        write_volatile(addr_of_mut!((*cfg).queue_select), i as u16);
+                        write_volatile(addr_of_mut!((*cfg).queue_enable), 1);
+                    }
+                }
             }
         }
 
@@ -571,6 +577,11 @@ impl VirtioBlockDevice {
             write_volatile(addr_of_mut!((*cfg).config_msix_vector), 0); // Reuse entry 0 for config
         }
 
+        let flush = if self.flush_supported { "supported" } else { "unsupported" };
+        crate::klogln!(
+            Info, "VirtIO",
+            "Block device {bus:02x}:{slot:02x}.{func}, MSI-X queues {registered_queues}/{num_queues}, flush {flush}"
+        );
         Ok(())
     }
 

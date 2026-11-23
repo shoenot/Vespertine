@@ -11,7 +11,7 @@ use crate::memory::{
     },
 };
 
-use crate::{klog, klogln};
+use crate::klogln;
 
 pub(super) fn run() {
     run_pmm_tests();
@@ -20,15 +20,15 @@ pub(super) fn run() {
 }
 
 fn run_pmm_tests() {
-    klogln!("RUNNING PMM BUDDY TESTS...");
+    klogln!(Info, "Test/PMM", "Buddy split and merge");
     test_buddy_merge();
+    klogln!(Info, "Test/PMM", "Huge page alignment");
     test_huge_alignment();
+    klogln!(Info, "Test/PMM", "Freelist isolation");
     test_freelist_isolation();
-    klogln!("ALL PMM TESTS PASSED!");
 }
 
 fn test_buddy_merge() {
-    klog!("  Testing buddy split and merge... ");
     let mut pmm = GLOBAL_PMM.lock();
 
     // get order 1 block, and store the address, then free it
@@ -49,11 +49,9 @@ fn test_buddy_merge() {
     assert_eq!(target_block, merged_block, "Buddy merge failed! Expected base {:#X}, got {:#X}", target_block, merged_block);
 
     pmm.free_order(merged_block, 1);
-    klogln!("OK");
 }
 
 fn test_huge_alignment() {
-    klog!("  Testing huge page alignment... ");
     let mut pmm = GLOBAL_PMM.lock();
 
     let huge_frame = pmm.alloc(PageSize::Size2M).expect("Failed to allocate Huge Page");
@@ -61,11 +59,9 @@ fn test_huge_alignment() {
     assert_eq!(huge_frame % PAGE_SIZE_2M, 0, "Alignment fault! {:#X} is not 2MB aligned.", huge_frame);
 
     pmm.free(huge_frame, PageSize::Size2M);
-    klogln!("OK");
 }
 
 fn test_freelist_isolation() {
-    klog!("  Testing freelist isolation... ");
     let mut pmm = GLOBAL_PMM.lock();
 
     // Allocate two blocks, ensure the allocator doesn't hand out the same frame twice.
@@ -76,20 +72,20 @@ fn test_freelist_isolation() {
 
     pmm.free(block1, PageSize::Size4K);
     pmm.free(block2, PageSize::Size4K);
-    klogln!("OK");
 }
 
 fn run_range_tree_tests() {
-    klogln!("RUNNING RANGE TREE TESTS...");
+    klogln!(Info, "Test/RangeTree", "Insert and lookup");
     test_range_tree_insert_lookup();
+    klogln!(Info, "Test/RangeTree", "Reject overlaps");
     test_range_tree_overlap_rejection();
+    klogln!(Info, "Test/RangeTree", "Find gaps");
     test_range_tree_gap_search();
+    klogln!(Info, "Test/RangeTree", "Repeated removal and rebalance");
     test_range_tree_remove_stress();
-    klogln!("ALL RANGE TREE TESTS PASSED!");
 }
 
 fn test_range_tree_insert_lookup() {
-    klog!("  Testing range tree insert/lookup... ");
     let mut tree = RangeMap::new();
 
     assert_eq!(tree.insert(0x3000, 0x4000, 3), Ok(()));
@@ -103,12 +99,9 @@ fn test_range_tree_insert_lookup() {
     assert!(tree.get(0x2000).is_none());
     assert!(tree.get(0x4000).is_none());
     assert!(tree.validate());
-
-    klogln!("OK");
 }
 
 fn test_range_tree_overlap_rejection() {
-    klog!("  Testing range tree overlap rejection... ");
     let mut tree = RangeMap::new();
 
     assert_eq!(tree.insert(0x1000, 0x2000, 1), Ok(()));
@@ -120,12 +113,9 @@ fn test_range_tree_overlap_rejection() {
     assert_eq!(tree.insert(0x4000, 0x4000, 6), Err(RangeMapError::Empty));
 
     assert!(tree.validate());
-
-    klogln!("OK");
 }
 
 fn test_range_tree_gap_search() {
-    klog!("  Testing range tree gap search... ");
     let mut tree = RangeMap::new();
 
     assert_eq!(tree.insert(0x1000, 0x2000, 1), Ok(()));
@@ -141,12 +131,9 @@ fn test_range_tree_gap_search() {
     assert_eq!(tree.find_gap(0x2000, 0x1000, 0x9000, 0xA000), Ok(None));
 
     assert!(tree.validate());
-
-    klogln!("OK");
 }
 
 fn test_range_tree_remove_stress() {
-    klog!("  Testing range tree repeated remove/rebalance... ");
     let mut tree = RangeMap::new();
 
     for i in 0..128 {
@@ -174,23 +161,22 @@ fn test_range_tree_remove_stress() {
 
     assert!(tree.is_empty());
     assert!(tree.validate());
-
-    klogln!("OK");
 }
 
 fn run_vmm_tests() {
-    klogln!("RUNNING VMM TESTS...");
+    klogln!(Info, "Test/VMM", "Unmap across multiple VMAs");
     test_vmm_unmap_across_multiple_vmas();
+    klogln!(Info, "Test/VMM", "Protect a subrange and split the VMA");
     test_vmm_protect_middle_splits_vma();
+    klogln!(Info, "Test/VMM", "Reject unmap and protect across holes");
     test_vmm_range_edits_reject_holes();
+    klogln!(Info, "Test/VMM", "Mapping transaction stress");
     test_vmm_transaction_stress();
+    klogln!(Info, "Test/VMM", "Owned anonymous mappings");
     test_owned_anonymous_mappings();
-
-    klogln!("ALL VMM TESTS PASSED!");
 }
 
 fn test_vmm_unmap_across_multiple_vmas() {
-    klog!("  Testing VMM multi-vma unmap... ");
     let mut vmm = VirtMemManager::new(&ALLOCATOR);
     let base = 0x4000_0000;
     let page = PAGE_SIZE_4K;
@@ -225,12 +211,9 @@ fn test_vmm_unmap_across_multiple_vmas() {
     let snapshot = vmm.accounting().snapshot();
     assert_eq!(snapshot.reserved_bytes, page * 2);
     assert_eq!(snapshot.committed_bytes, page * 2);
-
-    klogln!("OK");
 }
 
 fn test_vmm_protect_middle_splits_vma() {
-    klog!("  Testing VMM middle protect split... ");
     let mut vmm = VirtMemManager::new(&ALLOCATOR);
     let base = 0x4000_0000;
     let page = PAGE_SIZE_4K;
@@ -267,8 +250,6 @@ fn test_vmm_protect_middle_splits_vma() {
     let snapshot = vmm.accounting().snapshot();
     assert_eq!(snapshot.reserved_bytes, size);
     assert_eq!(snapshot.committed_bytes, size);
-
-    klogln!("OK");
 }
 
 fn test_vmm_range_edits_reject_holes() {
@@ -309,11 +290,9 @@ fn test_vmm_range_edits_reject_holes() {
     let read_only = VmOptions::user_ro().permissions;
     assert_eq!(vmm.protect_range(base, 3 * page, read_only), Err(VmError::NotFound));
     check_unchanged(&vmm);
-    klogln!("  Unmap and protect reject holes without changing mappings");
 }
 
 fn test_vmm_transaction_stress() {
-    klog!("  Testing VMM transaction stress pipeline... ");
 
     let mut vmm = VirtMemManager::new(&ALLOCATOR);
     let page = PAGE_SIZE_4K;
@@ -355,8 +334,6 @@ fn test_vmm_transaction_stress() {
     let after = vmm.accounting().snapshot();
     assert_eq!(before.reserved_bytes, after.reserved_bytes);
     assert_eq!(before.committed_bytes, after.committed_bytes);
-
-    klogln!("OK");
 }
 
 fn test_owned_anonymous_mappings() {
@@ -417,6 +394,4 @@ fn test_owned_anonymous_mappings() {
     drop(frame);
     drop(vmo);
     assert!(weak.upgrade().is_none(), "an owner leaked the frame");
-
-    klogln!("  Owned anonymous mappings OK");
 }

@@ -164,8 +164,6 @@ fn connect_auth() -> Result<AuthClient, Error> {
 fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     let launcher_policy = Arc::new(PolicyStore::load()?);
     let log = SystemLog::connect();
-    println!("[INFO] Hesper init system online");
-    log.write_string("Hesper init system online".into())?;
 
     launch_vlog(&log)?;
 

@@ -207,16 +207,15 @@ fn test_dropped_async_mutex_waiter_is_skipped() {
 }
 
 pub(super) fn run() {
-    crate::klogln!("[TEST] executor repeated wakes");
+    crate::klogln!(Info, "Test/Executor", "Repeated wakes");
     test_repeated_wakes_are_coalesced();
-    crate::klogln!("[TEST] executor self wake");
+    crate::klogln!(Info, "Test/Executor", "Self wake");
     test_self_wake_is_polled_again();
-    crate::klogln!("[TEST] executor completed future");
+    crate::klogln!(Info, "Test/Executor", "Completed future");
     test_completed_future_is_never_repolled();
-    crate::klogln!("[TEST] async mutex contention");
+    crate::klogln!(Info, "Test/Executor", "Async mutex contention");
     test_async_mutex_contenders_acquire();
-    crate::klogln!("[TEST] async mutex cancelled waiter");
+    crate::klogln!(Info, "Test/Executor", "Async mutex cancelled waiter");
     test_dropped_async_mutex_waiter_is_skipped();
-    crate::klogln!("[TEST] async sleep timers");
     run_async_sleep_tests();
 }

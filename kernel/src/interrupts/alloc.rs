@@ -5,7 +5,6 @@ use crate::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::klogln;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MsiHandle {
@@ -45,15 +44,13 @@ pub fn msi_allocate(n: usize, _preferred_mask: usize) -> Result<MsiHandle, ()> {
     let hid = st.next_handle;
     st.next_handle += 1;
     let mut vecs = Vec::new();
-    let mut vec_list = Vec::new();
     for _ in 0..n {
         let v = st.next_vector;
         st.next_vector = st.next_vector.wrapping_add(1);
         vecs.push(VectorMeta { owner: hid, vector: v, affinity_mask: 0 });
-        vec_list.push(v);
     }
     st.handles.insert(hid, vecs);
-    klogln!("[MSI] msi_allocate: handle={} vectors={:?}", hid, vec_list);
+
     Ok(MsiHandle { id: hid })
 }
 

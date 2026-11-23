@@ -41,12 +41,8 @@ pub use vespertine_common::define_bitflags;
 use crate::cpu::init_smp;
 use crate::sched::dispatch::spawn_kernel_thread;
 use crate::sched::priority::ThreadPriority;
-use crate::time::datetime::epoch_to_datetime;
 use crate::drivers::keyboard::init_keyboard_irq;
-use crate::drivers::pci::{
-    PCI_DEVICES,
-    enumerate_pci_devices,
-};
+use crate::drivers::pci::enumerate_pci_devices;
 use crate::drivers::virtio::blk::init_block_device;
 use crate::drivers::virtio::mmio::init_virtio;
 use crate::memory::{
@@ -59,6 +55,8 @@ use crate::init::vfs_init::BLOCK_DEVICE;
 pub extern "C" fn kmain() -> ! {
     LOGGER.lock().init();
 
+    let boot_mode = if cfg!(feature = "diagnostics") { "diagnostic boot" } else { "normal boot" };
+    klogln!(Info, "Boot", "Vespertine {} ({boot_mode})", env!("CARGO_PKG_VERSION"));
     memory::init();
     let bootstrap_page = GLOBAL_PMM.lock().alloc(PageSize::Size2M).unwrap() as usize;
     BOOTSTRAP_ALLOC.lock().init(bootstrap_page);
@@ -69,10 +67,8 @@ pub extern "C" fn kmain() -> ! {
     init_bootstrap_core();
     hal::platform::init();
 
-    klogln!("[INFO] GS Base initialized. Starting FPU...");
     hal::cpu::init_bsp_state(hal_boot_alloc);
 
-    klogln!("[INFO] FPU initialized. Starting IOAPIC...");
     hal::interrupts::init_platform_interrupts();
 
     process::init_kernel_process();
@@ -91,17 +87,13 @@ pub extern "C" fn kmain() -> ! {
     tests::shootdown_tests::run_bsp();
 
     enumerate_pci_devices();
-    for dev in &*PCI_DEVICES.lock() {
-        klogln!("{}", dev);
-    }
 
     init_virtio();
 
-    let blk = init_block_device().expect("Failed to init block device");
+    let blk = init_block_device().expect("No usable VirtIO block device");
     let blk_arc = Arc::new(blk);
 
-    // setup_interrupts now handles spawning per-core worker threads and MSI-X steering
-    blk_arc.setup_interrupts().ok();
+    let _ = blk_arc.setup_interrupts();
 
     {
         let kernel_root_phys = PAGER.lock().root_phys().0;
@@ -113,8 +105,6 @@ pub extern "C" fn kmain() -> ! {
     BLOCK_DEVICE.get_or_init(|| blk_dyn);
 
     time::init_realtime();
-    klogln!("[SUCCESS] Initialized Real Time Clock.");
-    klogln!("[INFO] Current date and time: {}", epoch_to_datetime(time::get_realtime().0));
 
     init_keyboard_irq();
     enable_interrupts();

@@ -62,10 +62,11 @@ extern "C" fn exit_worker(expected_core: usize) -> ! {
 
 pub(crate) fn run() {
     if *NUM_CORES < 2 {
+        crate::klogln!(Info, "Test/Thread", "Thread lifetime tests skipped (require two CPUs)");
         return;
     }
 
-    crate::klogln!("[TEST] pinned TCB defers reaping");
+    crate::klogln!(Info, "Test/Thread", "Pinned TCB defers reaping");
 
     let worker_core = if current_core_id() == 0 { 1 } else { 0 };
     let worker = create_tcb(
@@ -113,12 +114,15 @@ pub(crate) fn run() {
     assert!(!after_free.fired());
 
     WATCHED_TID.store(NO_TARGET, Ordering::Release);
-    crate::klogln!("[TEST] pinned TCB defers reaping OK");
 
+    crate::klogln!(Info, "Test/Thread", "Terminate a suspended thread");
     test_terminate_suspended();
+    crate::klogln!(Info, "Test/Thread", "Resume a suspended thread twice");
     test_resume_suspended_twice();
+    crate::klogln!(Info, "Test/Thread", "Race resume against termination");
     test_resume_terminate_race();
     test_smp_address_space_reap();
+    crate::klogln!(Info, "Test/Thread", "Passed");
 }
 
 static ENTRY_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -180,8 +184,6 @@ fn test_terminate_suspended() {
 
     assert!(child.request_terminate(ProcTermination::terminated(17)));
     check_reaped(&child, ProcTermReason::Terminated, 17, 0);
-
-    crate::klogln!("[TEST] terminate suspended thread OK");
 }
 
 fn test_resume_suspended_twice() {
@@ -192,8 +194,6 @@ fn test_resume_suspended_twice() {
     MAY_EXIT.store(true, Ordering::Release);
 
     check_reaped(&child, ProcTermReason::Exited, 42, 1);
-
-    crate::klogln!("[TEST] resume suspended thread twice OK");
 }
 
 struct StartupRace {
@@ -289,7 +289,6 @@ fn test_resume_terminate_race() {
     assert!(entries <= 1, "child entry ran {entries} times");
 
     WATCHED_TID.store(NO_TARGET, Ordering::Release);
-    crate::klogln!("[TEST] resume/terminate race OK, child entries={entries}");
 }
 
 struct SmpReapWorker<'a> {
@@ -339,12 +338,13 @@ fn test_smp_address_space_reap() {
     let controller = current_core_id();
     let mut remote = (0..*NUM_CORES).filter(|&core| core != controller);
     let (Some(first), Some(second)) = (remote.next(), remote.next()) else {
-        crate::klogln!("[TEST] SMP address-space reap skipped, requires three CPUs");
+        crate::klogln!(Info, "Test/Thread", "SMP address-space reap skipped (requires three CPUs)");
         return;
     };
     let cores = [first, second];
 
     const ROUNDS: usize = 4;
+    crate::klogln!(Info, "Test/Thread", "SMP address-space reap ({ROUNDS} rounds)");
     for _ in 0..ROUNDS {
         let child = ProcessControlBlock::new_unregistered(
             HandleTable::new(),
@@ -464,6 +464,4 @@ fn test_smp_address_space_reap() {
         kernel_close(handle).unwrap();
         WATCHED_TID.store(NO_TARGET, Ordering::Release);
     }
-
-    crate::klogln!("[TEST] SMP address-space reap passed ({ROUNDS} rounds)");
 }

@@ -57,14 +57,10 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_sink_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
 
     spawn_kernel_thread(executor_thread as *const () as usize, 0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
-    klogln!("[INFO] Launched async executor thread.");
 
     let executor = Executor::new();
     executor.spawn(async move {
-        klogln!("[ASYNC INIT] started");
-        klogln!("[ASYNC INIT] calling init_vfs()");
         init_vfs().await;
-        klogln!("[ASYNC INIT] init_vfs completed");
 
         #[cfg(feature = "diagnostics")]
         tests::run_post_vfs_tests().await;
@@ -124,11 +120,10 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             start_suspended: false,
         };
 
-        let child_handle_id =
-            kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op)).await.expect("[FATAL] Failed to spawn process");
-
-        klogln!("[SUCCESS] Process spawn success. Handle: {}", child_handle_id);
-        klogln!("[INFO] Logger switched to log file");
+        kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
+            .await
+            .expect("Failed to spawn userspace init");
+        klogln!(Info, "Boot", "Hesper started");
     });
 
     terminate_thread!();

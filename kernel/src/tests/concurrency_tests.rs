@@ -316,25 +316,24 @@ fn test_stolen_thread_wakeup_routes_to_assigned_cpu() {
 }
 
 pub fn run_concurrency_tests() {
-    crate::klogln!("[TEST] early timer preserves quantum");
+    crate::klogln!(Info, "Test/Scheduler", "Early timer preserves quantum");
     test_early_timer_event_preserves_quantum();
-    crate::klogln!("[TEST] priority validation");
+    crate::klogln!(Info, "Test/Scheduler", "Priority validation");
     test_priority_from_clamps_invalid_values();
-    crate::klogln!("[TEST] wake boost");
+    crate::klogln!(Info, "Test/Scheduler", "Wake boost");
     test_woken_thread_receives_boost();
-    crate::klogln!("[TEST] completed-quantum boost decay");
+    crate::klogln!(Info, "Test/Scheduler", "Completed-quantum boost decay");
     test_boost_decays_once_per_completed_quantum();
-    crate::klogln!("[TEST] atomic wake claim");
+    crate::klogln!(Info, "Test/Scheduler", "Atomic wake claim");
     test_two_cpu_wakes_enqueue_blocked_thread_once();
-    crate::klogln!("[TEST] idle CPU steals migratable work");
+    crate::klogln!(Info, "Test/Scheduler", "Idle CPU steals migratable work");
     test_idle_cpu_obtains_migratable_work();
-    crate::klogln!("[TEST] pinned thread is not donated");
+    crate::klogln!(Info, "Test/Scheduler", "Pinned thread is not donated");
     test_migration_disabled_thread_is_never_donated();
-    crate::klogln!("[TEST] migrated wake routing");
+    crate::klogln!(Info, "Test/Scheduler", "Migrated wake routing");
     test_stolen_thread_wakeup_routes_to_assigned_cpu();
-    crate::klogln!("[TEST] wake before block");
+    crate::klogln!(Info, "Test/Scheduler", "Wake before block");
     test_wake_immediately_before_blocking_cancels_block();
-    crate::klogln!("[TEST] wake after block");
+    crate::klogln!(Info, "Test/Scheduler", "Wake after block");
     test_wake_immediately_after_blocking_makes_thread_ready();
-    crate::klogln!("[TEST] concurrency invariants passed");
 }

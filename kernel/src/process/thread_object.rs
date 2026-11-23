@@ -80,7 +80,6 @@ impl KernelObject for ThreadObject {
             Invocation::Thread(ThreadOp::Join) => Err(InvocationError::UnsupportedOperation),
             Invocation::Thread(ThreadOp::GetID) => {
                 calling_rights.err_if_no(AccessRights::READ)?;
-                klogln!("GetID tid={}", self.tid);
                 Ok(self.tid)
             }
             _ => Err(InvocationError::UnsupportedOperation),

@@ -230,22 +230,22 @@ fn test_timed_read_restarts_timer_without_stale_wake() {
 }
 
 pub(super) fn run() {
-    crate::klogln!("[TEST] socket multiple readers");
+    crate::klogln!(Info, "Test/Socket", "Multiple readers");
     test_two_readers_are_woken();
-    crate::klogln!("[TEST] socket multiple writers");
+    crate::klogln!(Info, "Test/Socket", "Multiple writers");
     test_two_writers_are_woken();
-    crate::klogln!("[TEST] socket cancelled reader");
+    crate::klogln!(Info, "Test/Socket", "Cancelled reader");
     test_dropped_reader_is_not_woken();
-    crate::klogln!("[TEST] socket endpoint closure");
+    crate::klogln!(Info, "Test/Socket", "Endpoint closure");
     test_endpoint_close_wakes_peer_waiters();
-    crate::klogln!("[TEST] socket mixed waiters");
+    crate::klogln!(Info, "Test/Socket", "Mixed waiters");
     test_read_and_signal_waiters_coexist();
-    crate::klogln!("[TEST] socket shared waiter");
+    crate::klogln!(Info, "Test/Socket", "Shared waiter");
     test_shared_waiter_across_buses_wakes_once();
-    crate::klogln!("[TEST] socket targeted wakeups");
+    crate::klogln!(Info, "Test/Socket", "Targeted wakeups");
     test_readable_change_does_not_wake_blocked_writer();
-    crate::klogln!("[TEST] socket registration recheck");
+    crate::klogln!(Info, "Test/Socket", "Registration recheck");
     test_wait_future_rechecks_readiness();
-    crate::klogln!("[TEST] socket timer restart");
+    crate::klogln!(Info, "Test/Socket", "Timer restart");
     test_timed_read_restarts_timer_without_stale_wake();
 }
