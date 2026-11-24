@@ -4,6 +4,6 @@ bundle = "dusk"
 archetype = "shell"
 
 [grants]
-root-rights = []
+namespace-rights = ["execute", "mutate"]
 cwd-rights = []
 capabilities = []

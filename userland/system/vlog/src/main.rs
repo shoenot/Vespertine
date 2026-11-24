@@ -4,6 +4,7 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use vespertine_abi::tag::CAP_LOG_READER;
 use core::str;
 
 use vespertine_common::datetime::epoch_to_datetime;
@@ -57,8 +58,9 @@ fn main() -> Result<(), Error> {
     ensure_dir(&process_dir)?;
     prune_old_boots()?;
 
-    let log_handle = resolve(&Path::new("/System/Services/Log"), AccessRights::READ)?;
-    let reader = LogReader::from_handle(log_handle);
+    let grant = env::capability(CAP_LOG_READER)
+        .ok_or_else(|| Error::access_denied("vlog requires a log reader grant".into()))?;
+    let reader = LogReader::from_handle(grant.id);
     let mut index = AppendFile::open(&format!("{}/index.vlog", boot_dir))?;
     let mut processes = BTreeMap::<String, AppendFile>::new();
     let mut buf = [0u8; MAX_RECORD_BYTES];

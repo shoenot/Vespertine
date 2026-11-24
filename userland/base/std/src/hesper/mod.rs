@@ -6,9 +6,7 @@ use alloc::vec::Vec;
 use vespertine_abi::app::hesper::*;
 use vespertine_abi::tag::CAP_LAUNCHER_CONNECT;
 use vespertine_abi::{
-    AccessRights,
-    CapabilityID,
-    HandleID,
+    AccessRights, CapabilityGrant, CapabilityID, HandleID,
 };
 
 use crate::broker::Broker;
@@ -418,8 +416,8 @@ impl Launcher {
 
     pub fn revoke(&self, offer_id: PortalOfferId) -> Result<(), Error> { revoke_offer(self.socket.handle(), offer_id) }
 
-    pub fn launch(
-        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode, source: HandleID, sink: HandleID, cwd: HandleID,
+    pub fn launch_with_capabilities(
+        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode, source: HandleID, sink: HandleID, cwd: HandleID, capabilities: &[CapabilityGrant]
     ) -> Result<Process, Error> {
         let mut pending_offers = Vec::new();
 
@@ -433,17 +431,15 @@ impl Launcher {
             let cwd_offer = self.offer(cwd, AccessRights::TRAVERSE | AccessRights::LIST)?;
             pending_offers.push(cwd_offer);
 
-            let environment_capabilities = env::capabilities();
-
-            if environment_capabilities.len() > MAX_CAPABILITY_OFFERS {
-                return Err(Error::invalid_argument("too many environment capabilities".into()));
+            if capabilities.len() > MAX_CAPABILITY_OFFERS {
+                return Err(Error::invalid_argument("too many capabilities".into()));
             }
 
-            let mut capability_offers = Vec::with_capacity(environment_capabilities.len());
+            let mut capability_offers = Vec::with_capacity(capabilities.len());
 
-            for grant in environment_capabilities {
+            for grant in capabilities {
                 if capability_offers.iter().any(|offer: &CapabilityOffer| offer.capability == grant.capability) {
-                    return Err(Error::invalid_argument("duplicate environment capability".into()));
+                    return Err(Error::invalid_argument("duplicate capability".into()));
                 }
 
                 let offer_id = self.offer(grant.id, grant.rights)?;
@@ -481,6 +477,14 @@ impl Launcher {
         let process_handle = self.accept(process_offer, AccessRights::READ | AccessRights::WRITE)?;
 
         Ok(Process::from_handle(process_handle))
+    }
+
+    pub fn launch(
+        &mut self, app_name: &str, arguments: &[String], mode: AppIoMode, source: HandleID, sink: HandleID, cwd: HandleID
+        ) -> Result<Process, Error> {
+        self.launch_with_capabilities(
+            app_name, arguments, mode, source, sink, cwd, env::capabilities(),
+        )
     }
 }
 

@@ -1,0 +1,6 @@
+[application]
+id = "os.vespertine.terminal"
+bundle = "terminal"
+
+[grants]
+capabilities = ["framebuffer"]

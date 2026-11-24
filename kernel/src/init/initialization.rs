@@ -1,8 +1,7 @@
 use alloc::sync::Arc;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
-    CAP_LOGGER,
-    CAP_PROCMAN,
+    CAP_LOG_READER, CAP_LOGGER, CAP_PROCMAN,
 };
 use vespertine_abi::{
     AccessRights,
@@ -31,7 +30,7 @@ use crate::sched::priority::ThreadPriority;
 use crate::sched::reap::reaper_daemon;
 use crate::drivers::keyboard::kbd_processor_thread;
 use crate::drivers::logger::ScreenWriter;
-use crate::init::vfs_init::init_vfs;
+use crate::init::vfs_init::{init_log_service, init_vfs};
 #[cfg(feature = "diagnostics")]
 use crate::tests;
 use crate::{
@@ -61,6 +60,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     let executor = Executor::new();
     executor.spawn(async move {
         init_vfs().await;
+        let log_reader = init_log_service().await
+            .expect("Failed to initialize the log service");
 
         #[cfg(feature = "diagnostics")]
         tests::run_post_vfs_tests().await;
@@ -83,8 +84,6 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
         let _ = kernel_close(pm_broker_handle);
 
-        let log_handle = kernel_walk("/System/Services/Log", HandleID(0), AccessRights::WRITE).await.expect("[FATAL] No Log Service found");
-
         // userspace init proc
         let screen_writer = Arc::new(ScreenWriter {});
         let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
@@ -98,7 +97,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let source = kbd_source_handle;
         let sink = screen_handle;
 
-        let capabilities = [CapabilityGrant { id: log_handle, rights: AccessRights::WRITE, capability: CAP_LOGGER }];
+        let capabilities = [CapabilityGrant { id: log_reader, rights: AccessRights::READ, capability: CAP_LOG_READER }];
 
         let name = "Hesper";
 
@@ -123,6 +122,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
             .await
             .expect("Failed to spawn userspace init");
+        let _ = kernel_close(log_reader);
         klogln!(Info, "Boot", "Hesper started");
     });
 

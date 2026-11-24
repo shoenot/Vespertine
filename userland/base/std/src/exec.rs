@@ -117,6 +117,22 @@ impl Process {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct NamespaceRights(AccessRights);
+
+impl NamespaceRights {
+    pub const NONE: Self = Self(AccessRights::new());
+    pub const FULL: Self = Self(AccessRights::all());
+
+    pub const fn from_access_rights(rights: AccessRights) -> Self {
+        Self(rights)
+    }
+
+    pub const fn as_access_rights(self) -> AccessRights {
+        self.0
+    }
+}
+
 pub struct Exec {
     exec_handle: HandleID,
     owns_exec_handle: bool,
@@ -129,7 +145,7 @@ pub struct Exec {
     sink: HandleID,
     credentials: SpawnCredentials,
     capabilities: Vec<CapabilityGrant>,
-    root_rights: AccessRights,
+    namespace_rights: NamespaceRights,
     cwd_rights: AccessRights,
     start_suspended: bool,
 }
@@ -222,8 +238,8 @@ impl Exec {
         self
     }
 
-    pub fn root_rights(mut self, rights: AccessRights) -> Self {
-        self.root_rights = rights;
+    pub fn namespace_rights(mut self, rights: NamespaceRights) -> Self {
+        self.namespace_rights = rights;
         self
     }
 
@@ -246,7 +262,7 @@ impl Exec {
             name_len: self.name.len(),
             exec_handle: self.exec_handle,
             root_handle: self.root,
-            root_rights: self.root_rights,
+            root_rights: self.namespace_rights.as_access_rights(),
             source: self.source,
             sink: self.sink,
             credentials: self.credentials,
@@ -293,7 +309,7 @@ impl Exec {
             sink: env::sink(),
             credentials: SpawnCredentials::Inherit,
             capabilities: Vec::new(),
-            root_rights: AccessRights::new(),
+            namespace_rights: NamespaceRights::NONE,
             cwd_rights: AccessRights::TRAVERSE | AccessRights::LIST,
             start_suspended: false,
         }

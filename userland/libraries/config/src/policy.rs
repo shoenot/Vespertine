@@ -11,7 +11,7 @@ use crate::ConfigError;
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct GrantSet {
     #[serde(default)]
-    pub root_rights: Vec<String>,
+    pub namespace_rights: Vec<String>,
 
     #[serde(default)]
     pub cwd_rights: Vec<String>,
@@ -22,7 +22,7 @@ pub struct GrantSet {
 
 impl GrantSet {
     pub fn extend(&mut self, other: &GrantSet) {
-        self.root_rights.extend(other.root_rights.iter().cloned());
+        self.namespace_rights .extend(other.namespace_rights.iter().cloned());
         self.cwd_rights.extend(other.cwd_rights.iter().cloned());
         self.capabilities.extend(other.capabilities.iter().cloned());
     }

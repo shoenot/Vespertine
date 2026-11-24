@@ -1,16 +1,14 @@
 use alloc::sync::Arc;
 
-use vespertine_abi::AccessRights;
+use vespertine_abi::{AccessRights, HandleID};
 use vespertine_abi::tag::{
-    CAP_CLOCK,
-    CAP_PORTAL_FACTORY,
-    CAP_PROCMAN,
-    CAP_SOCKFAC,
+    CAP_CLOCK, CAP_LOGGER, CAP_PORTAL_FACTORY, CAP_PROCMAN, CAP_SOCKFAC,
 };
 
 use crate::object::broker::Broker;
 use crate::object::clock::Clock;
 use crate::object::fs::directory::*;
+use crate::object::invoke::InvocationError;
 use crate::object::log::Log;
 use crate::object::memman::MemoryManager;
 use crate::object::mount::mount;
@@ -22,9 +20,7 @@ use crate::object::ipc::portal::PortalFactory;
 use crate::process::procman::ProcessManager;
 use crate::object::ipc::socket::SocketFactory;
 use crate::object::vfs::{
-    kernel_root_location,
-    link_kernel_object,
-    mount_kernel_object,
+    kernel_register_obj, kernel_root_location, link_kernel_object, mount_kernel_object,
 };
 use crate::sync::KernelOnceCell;
 use crate::drivers::video::init_framebuffer;
@@ -78,9 +74,20 @@ pub async fn init_vfs() {
     portal_broker.publish(CAP_PORTAL_FACTORY, Arc::new(PortalFactory), AccessRights::CREATE);
     link_kernel_object(srv_dir.clone(), "Portal", Arc::new(portal_broker)).await.expect("Failed to mount Portal");
 
-    let log_obj = Arc::new(Log::new());
-    link_kernel_object(srv_dir, "Log", log_obj).await.expect("Failed to mount Log");
-
     let fb_obj = Arc::new(init_framebuffer());
     link_kernel_object(dev_dir, "Framebuffer", fb_obj).await.expect("Failed to mount Framebuffer");
+}
+
+
+// returns the log read handle
+pub async fn init_log_service() -> Result<HandleID, InvocationError> {
+    let authority = kernel_namespace_authority();
+    let services = resolve_kernel_object(&authority, kernel_root_location(), "/System/Services").await?;
+
+    let log = Arc::new(Log::new());
+    let mut log_broker = Broker::new();
+    log_broker.publish(CAP_LOGGER, log.clone(), AccessRights::WRITE);
+    link_kernel_object(services, "Log", Arc::new(log_broker)).await?;
+
+    Ok(kernel_register_obj(log, AccessRights::READ)) 
 }

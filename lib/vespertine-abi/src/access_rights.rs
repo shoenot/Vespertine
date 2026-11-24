@@ -12,3 +12,32 @@ define_bitflags! {
         REMOVE          = 1 << 7;
     }
 }
+
+impl core::fmt::Display for AccessRights {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let flags = [
+            (Self::READ, "READ"),
+            (Self::WRITE, "WRITE"),
+            (Self::EXECUTE, "EXECUTE"),
+            (Self::CREATE, "CREATE"),
+            (Self::MUTATE, "MUTATE"),
+            (Self::TRAVERSE, "TRAVERSE"),
+            (Self::LIST, "LIST"),
+            (Self::REMOVE, "REMOVE"),
+        ];
+
+        if self.is_empty() {
+            return f.write_str("NONE");
+        }
+
+        let mut separator = "";
+        for (flag, name) in flags {
+            if self.contains(flag) {
+                f.write_str(separator)?;
+                f.write_str(name)?;
+                separator = "|";
+            }
+        }
+        Ok(())
+    }
+}

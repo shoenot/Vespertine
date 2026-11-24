@@ -6,10 +6,11 @@ mod launcher;
 mod meta;
 mod policy;
 
+use vespertine_abi::app::hesper::AppIoMode;
 use vespertine_abi::{ProcState, UserID};
 use vespertine_abi::tag::{
     CAP_LAUNCHER_CONNECT,
-    CAP_LOGGER,
+    CAP_LOG_READER,
 };
 use vrt::syscall::{
     sys_close,
@@ -24,7 +25,7 @@ use vstd::fs::{
 use vstd::hesper::recv_hesper_request;
 use vstd::log::SystemLog;
 use vstd::portal::PortalFactory;
-use vstd::prelude::*;
+use vstd::{NamespaceRights, prelude::*};
 use vstd::proc::Waiter;
 use vstd::{
     Exec,
@@ -89,8 +90,8 @@ fn launch_vlog(log: &SystemLog) -> Result<(), Error> {
         .source(env::source())
         .sink(env::sink())
         .cwd(env::cwd(), AccessRights::all())
-        .root_rights(AccessRights::all())
-        .grant(CAP_LOGGER, AccessRights::WRITE)?
+        .namespace_rights(NamespaceRights::FULL)
+        .grant(CAP_LOG_READER, AccessRights::READ)?
         .spawn()?;
 
     Ok(())
@@ -103,8 +104,7 @@ fn launch_vreg(log: &SystemLog) -> Result<Process, Error> {
         .source(env::source())
         .sink(env::sink())
         .cwd(env::cwd(), AccessRights::all())
-        .root_rights(AccessRights::all())
-        .grant(CAP_LOGGER, AccessRights::WRITE)?
+        .namespace_rights(NamespaceRights::FULL)
         .spawn()
 }
 
@@ -115,8 +115,7 @@ fn launch_auth(log: &SystemLog) -> Result<Process, Error> {
         .source(env::source())
         .sink(env::sink())
         .cwd(env::cwd(), AccessRights::all())
-        .root_rights(AccessRights::all())
-        .grant(CAP_LOGGER, AccessRights::WRITE)?
+        .namespace_rights(NamespaceRights::FULL)
         .spawn()
 }
 
@@ -193,14 +192,18 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     println!("[INFO] Launching terminal...");
     log.write_string("Launching terminal".into())?;
 
-    Exec::open_canonical("terminal")?
-        .source(env::source())
-        .sink(env::sink())
-        .cwd(env::cwd(), AccessRights::all())
-        .root_rights(AccessRights::all())
-        .user(UserID(default_user.user.id))
-        .grant(CAP_LOGGER, AccessRights::WRITE)?
-        .spawn()?;
+    let terminal = launcher::spawn_local(
+        "terminal", 
+        AppIoMode::Terminal, 
+        &launcher_policy, 
+        UserID(default_user.user.id), 
+        launcher::LaunchHandles {
+            source: env::source(),
+            sink: env::sink(),
+            cwd: env::cwd(),
+        }
+    )?;
+    terminal.resume()?;
 
     println!("[INFO] Hesper initialization complete. Entering event loop.");
 

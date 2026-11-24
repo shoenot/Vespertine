@@ -2,8 +2,7 @@ use alloc::collections::BTreeMap;
 
 use vespertine_abi::CapabilityID;
 use vespertine_abi::tag::{
-    CAP_APP_TERMCTRL,
-    CAP_PROCMAN,
+    CAP_APP_TERMCTRL, CAP_FRAMEBUFFER, CAP_PROCMAN,
 };
 use vconfig::ConfigError;
 use vconfig::manifest::AppManifest;
@@ -14,7 +13,7 @@ use vconfig::policy::{
     parse_grant_file,
 };
 use vstd::fs::EntryKind;
-use vstd::prelude::*;
+use vstd::{NamespaceRights, prelude::*};
 
 const ARCHETYPES_PATH: &str = "/System/Policy/archetypes.toml";
 
@@ -22,7 +21,7 @@ const GRANTS_PATH: &str = "/System/Policy/Grants";
 
 #[derive(Debug)]
 pub struct LaunchPolicy {
-    pub root_rights: AccessRights,
+    pub namespace_rights: NamespaceRights,
     pub cwd_rights: AccessRights,
     pub capabilities: Vec<CapabilityPolicy>,
 }
@@ -136,6 +135,7 @@ fn resolve_capability(name: &str) -> Result<CapabilityPolicy, Error> {
     match name {
         "term-control" => Ok(CapabilityPolicy { capability: CAP_APP_TERMCTRL, rights: AccessRights::READ | AccessRights::WRITE }),
         "procman-list" => Ok(CapabilityPolicy { capability: CAP_PROCMAN, rights: AccessRights::READ | AccessRights::LIST }),
+        "framebuffer" => Ok(CapabilityPolicy { capability: CAP_FRAMEBUFFER, rights: AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE }),
         _ => Err(Error::invalid_argument(format!("unknown capability {}", name,).into())),
     }
 }
@@ -144,7 +144,7 @@ fn validate_capability(name: &str) -> Result<(), Error> { resolve_capability(nam
 
 impl PolicyStore {
     fn validate(&self) -> Result<(), Error> {
-        parse_rights(&self.defaults.root_rights)?;
+        parse_rights(&self.defaults.namespace_rights)?;
         parse_rights(&self.defaults.cwd_rights)?;
 
         for capability in &self.defaults.capabilities {
@@ -152,7 +152,7 @@ impl PolicyStore {
         }
 
         for archetype in self.archetypes.values() {
-            parse_rights(&archetype.root_rights)?;
+            parse_rights(&archetype.namespace_rights)?;
             parse_rights(&archetype.cwd_rights)?;
 
             for capability in &archetype.capabilities {
@@ -161,7 +161,7 @@ impl PolicyStore {
         }
 
         for grant in self.applications.values() {
-            parse_rights(&grant.grants.root_rights)?;
+            parse_rights(&grant.grants.namespace_rights)?;
             parse_rights(&grant.grants.cwd_rights)?;
 
             for capability in &grant.grants.capabilities {
@@ -173,17 +173,19 @@ impl PolicyStore {
     }
 }
 
-fn requested_root_rights(manifest: &AppManifest) -> Result<AccessRights, Error> {
-    match manifest.permissions.filesystem.as_str() {
-        "read-only" => Ok(AccessRights::READ | AccessRights::TRAVERSE | AccessRights::LIST),
-        "mutable" => Ok(AccessRights::READ |
+fn requested_namespace_rights(manifest: &AppManifest) -> Result<NamespaceRights, Error> {
+    let raw = match manifest.permissions.filesystem.as_str() {
+        "read-only" => AccessRights::READ | AccessRights::TRAVERSE | AccessRights::LIST,
+        "mutable" => AccessRights::READ |
             AccessRights::WRITE |
             AccessRights::CREATE |
             AccessRights::REMOVE |
             AccessRights::TRAVERSE |
-            AccessRights::LIST),
-        _ => Err(Error::invalid_argument("unknown filesystem permission request".into())),
-    }
+            AccessRights::LIST,
+        "full" => AccessRights::all(),
+        _ => return Err(Error::invalid_argument("unknown filesystem permission request".into())),
+    };
+    Ok(NamespaceRights::from_access_rights(raw))
 }
 
 impl PolicyStore {
@@ -210,12 +212,16 @@ impl PolicyStore {
             maximum.extend(&application.grants);
         }
 
-        let maximum_root = parse_rights(&maximum.root_rights)?;
+        let maximum_ns_rights = parse_rights(&maximum.namespace_rights)?;
+        let requested_ns_rights = requested_namespace_rights(manifest)?;
+        let requested_ns_rights_raw = requested_ns_rights.as_access_rights();
 
-        let requested_root = requested_root_rights(manifest)?;
-
-        if !maximum_root.contains(requested_root) {
-            return Err(Error::access_denied("application requested filesystem rights denied by policy".into()));
+        if !maximum_ns_rights.contains(requested_ns_rights_raw) {
+            return Err(Error::access_denied(format!(
+                "launch policy denied namespace rights for '{app_id}': \
+                 requested {requested_ns_rights_raw}, allowed {maximum_ns_rights}, missing {}",
+                requested_ns_rights_raw.difference(maximum_ns_rights),
+            )));
         }
 
         for requested in &manifest.permissions.capabilities {
@@ -237,7 +243,7 @@ impl PolicyStore {
             capabilities.push(resolve_capability(requested)?);
         }
 
-        Ok(LaunchPolicy { root_rights: requested_root, cwd_rights: parse_rights(&maximum.cwd_rights)?, capabilities })
+        Ok(LaunchPolicy { namespace_rights: requested_ns_rights, cwd_rights: parse_rights(&maximum.cwd_rights)?, capabilities })
     }
 
     pub fn app_ids(&self) -> impl Iterator<Item = &str> { self.applications.keys().map(|id| id.as_str()) }

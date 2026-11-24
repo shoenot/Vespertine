@@ -7,3 +7,7 @@ binary = "terminal"
 input = "terminal"
 modes = ["terminal"]
 default = "terminal"
+
+[permissions]
+filesystem = "read-only"
+capabilities = [ "framebuffer" ]

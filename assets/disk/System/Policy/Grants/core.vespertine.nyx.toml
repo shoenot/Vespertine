@@ -4,6 +4,6 @@ bundle = "nyx"
 archetype = "mutable-coreutil"
 
 [grants]
-root-rights = []
+namespace-rights = []
 cwd-rights = []
 capabilities = []

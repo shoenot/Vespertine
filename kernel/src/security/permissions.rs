@@ -17,14 +17,21 @@ pub struct FilePermissions {
 }
 
 impl FilePermissions {
-    pub fn allowed_for(self, user: UserID) -> AccessRights { if user == self.owner { self.owner_rights } else { self.other_rights } }
+    pub fn permitted_handle_rights_for(self, user: UserID) -> AccessRights { 
+        if user == self.owner { 
+            self.owner_rights 
+        } else { 
+            self.other_rights 
+        }
+    }
 }
 
-pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, InvocationError> {
+pub fn filesystem_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, InvocationError> {
     let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
+    let user = proc.credentials.user();
 
     let ret = match object.permissions() {
-        Some(perms) => perms.allowed_for(proc.credentials.user()),
+        Some(perms) => perms.permitted_handle_rights_for(user),
         None => AccessRights::all(), // virtual objects remain capability-controlled
     };
 
@@ -33,5 +40,5 @@ pub fn allowed_rights(object: &Arc<dyn KernelObject>) -> Result<AccessRights, In
 
 pub fn rights_for_permissions(permissions: FilePermissions) -> Result<AccessRights, InvocationError> {
     let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
-    Ok(permissions.allowed_for(proc.credentials.user()))
+    Ok(permissions.permitted_handle_rights_for(proc.credentials.user()))
 }

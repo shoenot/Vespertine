@@ -35,17 +35,36 @@ pub struct Framebuffer {
 
 impl Framebuffer {
     pub fn open() -> Result<Self, Error> {
-        let handle = resolve(&Path::new("/Devices/Framebuffer"), AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE)?;
+        let handle = resolve(
+            &Path::new("/Devices/Framebuffer"),
+            AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE,
+        )?;
+        Self::from_handle(handle)
+    }
 
-        let mut info = FramebufferInfo { width: 0, height: 0, pitch: 0, bpp: 0 };
-        let info_ptr = &mut info as *mut _ as *mut u8;
-        sys_read(handle, info_ptr, size_of::<FramebufferInfo>(), 0)?;
+    pub fn from_handle(handle: HandleID) -> Result<Self, Error> {
+        let result = (|| -> Result<Self, Error> {
+            let mut info = FramebufferInfo { width: 0, height: 0, pitch: 0, bpp: 0 };
+            let info_ptr = (&mut info as *mut FramebufferInfo).cast::<u8>();
+            let info_size = size_of::<FramebufferInfo>();
 
-        let size_in_bytes = info.pitch * info.height;
-        let map_op = VmoOp::MapIntoProc { vaddr: 0, len: size_in_bytes, vm_flags: 5 };
-        let mapped_virt = sys_invoke(handle, &Invocation::Vmo(map_op))?;
+            if sys_read(handle, info_ptr, info_size, 0)? != info_size {
+                return Err(Error::invalid_argument("incomplete framebuffer info".into()));
+            }
 
-        Ok(Self { handle, info, pixel_ptr: mapped_virt as *mut u32, size_in_bytes })
+            let size_in_bytes = info.pitch.checked_mul(info.height)
+                .ok_or_else(|| Error::invalid_argument("framebuffer size overflow".into()))?;
+
+            let map_op = VmoOp::MapIntoProc { vaddr: 0, len: size_in_bytes, vm_flags: 5 };
+            let mapped_virt = sys_invoke(handle, &Invocation::Vmo(map_op))?;
+
+            Ok(Self { handle, info, pixel_ptr: mapped_virt as *mut u32, size_in_bytes })
+        })();
+
+        if result.is_err() {
+            let _ = sys_close(handle);
+        }
+        result
     }
 
     pub fn pixels(&self) -> &[u32] { unsafe { slice::from_raw_parts(self.pixel_ptr, self.size_in_bytes / 4) } }

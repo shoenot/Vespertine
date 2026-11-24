@@ -4,10 +4,12 @@
 pub mod font;
 mod term;
 mod input;
+use vespertine_abi::CapabilityGrant;
+use vespertine_abi::app::hesper::AppIoMode;
 use vespertine_abi::app::termios::*;
 use vespertine_abi::key::KeyEvent;
 use vespertine_abi::protocol::PacketType;
-use vespertine_abi::tag::CAP_APP_TERMCTRL;
+use vespertine_abi::tag::{CAP_APP_TERMCTRL, CAP_FRAMEBUFFER};
 use vrt::syscall::{
     sys_read,
     sys_set_read_policy,
@@ -17,6 +19,7 @@ use vrt::thread as rt_thread;
 use vstd::Exec;
 use vstd::clock::Time;
 use vstd::fb::Framebuffer;
+use vstd::hesper::Launcher;
 use vstd::log::SystemLog;
 use vstd::prelude::*;
 use vstd::proc::Waiter;
@@ -37,7 +40,9 @@ pub const BG_COLOR: u32 = 0x11080d;
 #[vapp::main]
 fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     let log = SystemLog::connect();
-    let fb = Framebuffer::open()?;
+    let fb_grant = env::capability(CAP_FRAMEBUFFER)
+        .ok_or_else(|| Error::access_denied("Terminal requires a framebuffer grant".into()))?;
+    let fb = Framebuffer::from_handle(fb_grant.id)?;
     let info = fb.info();
 
     let width_cols = info.width - 2 * PADDING_X;
@@ -74,14 +79,31 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
 
     log.write_string("Launching dusk".into())?;
 
-    Exec::open_canonical("dusk".into())?
-        .source(app_stdin.handle())
-        .sink(app_stdout.handle())
-        .cwd(env::cwd(), AccessRights::all())
-        .root_rights(AccessRights::all())
-        .grant_new(app_ctrl.handle(), CAP_APP_TERMCTRL, AccessRights::READ | AccessRights::WRITE)?
-        .inherit_capabilities()
-        .spawn()?;
+    let term_control = CapabilityGrant {
+        id: app_ctrl.handle(),
+        rights: AccessRights::READ | AccessRights::WRITE,
+        capability: CAP_APP_TERMCTRL,
+    };
+
+    let shell = Launcher::connect()?.launch_with_capabilities(
+        "dusk", 
+        &[], 
+        AppIoMode::Terminal, 
+        app_stdin.handle(), 
+        app_stdout.handle(), 
+        env::cwd(), 
+        &[term_control],
+    )?;
+
+    if let Err(e) = shell.resume() {
+        let _ = shell.terminate();
+        return Err(e);
+    }
+
+    drop(shell);
+    drop(app_stdin);
+    drop(app_stdout);
+    drop(app_ctrl);
 
     // Spawn the cursor blinker thread
     rt_thread::spawn(move || {

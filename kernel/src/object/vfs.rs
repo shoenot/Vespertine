@@ -25,7 +25,7 @@ use crate::object::obj::KernelObject;
 use crate::security::permissions::FilePermissions;
 use crate::sync::KernelOnceCell;
 use crate::process::current_process;
-use crate::klogln;
+use crate::{klogln, klogln_serial};
 
 pub static ROOT_DIRECTORY: KernelOnceCell<Arc<dyn KernelObject>> = KernelOnceCell::new();
 
@@ -34,11 +34,32 @@ pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights
 }
 
 pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
-    let demanded_rights = invocation.required_rights();
+    let required = invocation.required_rights();
+    let process = current_process().expect("No active process");
     let (obj, rights) = {
         let table = current_process().expect("No active processes").handles.read();
-        let entry = table.resolve_entry(handle, demanded_rights)?;
-        (entry.object.clone(), entry.rights)
+        match table.resolve_entry(handle, required) {
+            Ok(entry) => (entry.object.clone(), entry.rights),
+            Err(e) => {
+                if e == InvocationError::AccessDenied {
+                    let details = table.get(&handle)
+                        .map(|entry| (entry.object.clone(), entry.rights));
+                    drop(table);
+
+                    if let Some((object, held)) = details {
+                        klogln_serial!(
+                            "[Access] pid={} invoke {} handle={}: \
+                             need {required}, held {held}, missing {}",
+                            process.proc_id,
+                            object.type_name(),
+                            handle.0,
+                            required.difference(held),
+                        );
+                    }
+                }
+                return Err(e);
+            },
+        }
     }; // drop the lock 
     obj.invoke(invocation, rights).await
 }

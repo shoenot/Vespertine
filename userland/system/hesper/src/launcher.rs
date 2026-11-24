@@ -7,12 +7,12 @@ use vespertine_abi::app::hesper::{
     HESPER_STATUS_NOT_FOUND,
     HESPER_STATUS_OK,
 };
-use vespertine_abi::tag::CAP_PROCMAN;
+use vespertine_abi::tag::{CAP_FRAMEBUFFER, CAP_PROCMAN};
 use vrt::syscall::{
     sys_close,
     sys_yield,
 };
-use vstd::Exec;
+use vstd::{Exec, Process};
 use vstd::broker::Broker;
 use vstd::fs::resolve;
 use vstd::hesper::{
@@ -36,8 +36,7 @@ use vstd::vreg::{
 
 use crate::meta::load_manifest;
 use crate::policy::{
-    CapabilityPolicy,
-    PolicyStore,
+    CapabilityPolicy, LaunchPolicy, PolicyStore,
 };
 
 struct AcceptedHandle {
@@ -112,65 +111,91 @@ pub fn handle_request(
     }
 }
 
-fn handle_execute(
-    socket: &Socket, request_id: u32, request: ExecuteRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID,
-) -> Result<(), Error> {
-    let app = match resolve_request(&request.app_name) {
-        Ok(app) => app,
-        Err(error) => {
-            let status = if error.kind == ErrorKind::NotFound {
-                HESPER_STATUS_NOT_FOUND
-            } else {
-                HESPER_STATUS_LAUNCH_FAILED
-            };
-            send_execute_response(socket, request_id, status, None, &error.to_string())?;
-            return Err(error);
-        }
-    };
+struct PreparedLaunch {
+    app: ResolvedApplication,
+    policy: LaunchPolicy,
+}
 
-    let metadata = match load_manifest(&app.bundle) {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            let _ = send_execute_response(socket, request_id, HESPER_STATUS_INVALID_REQUEST, None, "application manifest is invalid");
-            return Err(error);
-        }
-    };
+struct PrepareError {
+    status: u32,
+    error: Error,
+    public_message: Option<&'static str>,
+}
 
-    if metadata.application.id != app.app_id {
-        let _ = send_execute_response(
-            socket,
-            request_id,
-            HESPER_STATUS_INVALID_REQUEST,
-            None,
-            "application registry does not match bundle manifest",
-        );
-        return Err(Error::access_denied("registry app ID does not match bundle manifest".into()));
+impl PrepareError {
+    fn invalid(error: Error, public_message: Option<&'static str>) -> Self {
+        Self { status: HESPER_STATUS_INVALID_REQUEST, error, public_message }
+    }
+}
+
+fn prepare_launch(name: &str, mode: AppIoMode, policies: &PolicyStore) -> Result<PreparedLaunch, PrepareError> {
+    let app = resolve_request(&name).map_err(|error| {
+        let status = if error.kind == ErrorKind::NotFound {
+            HESPER_STATUS_NOT_FOUND
+        } else {
+            HESPER_STATUS_LAUNCH_FAILED
+        };
+        PrepareError { status, error, public_message: None }
+    })?;
+
+    let manifest = load_manifest(&app.bundle)
+        .map_err(|e| PrepareError::invalid(e, Some("Application manifest is invalid")))?;
+
+    if manifest.application.id != app.app_id {
+        return Err(PrepareError::invalid(
+                Error::access_denied("Registry app ID does not match bundle manifest".into()), 
+                Some("Application registry app ID does not match bundle manifest"),
+        ));
     }
 
-    let policy = match policy.resolve(&app.app_id, &metadata) {
-        Ok(policy) => policy,
-        Err(error) => {
-            let _ = send_execute_response(
-                socket,
-                request_id,
-                HESPER_STATUS_INVALID_REQUEST,
+    let policy = policies.resolve(&app.app_id, &manifest)
+        .map_err(|e| PrepareError::invalid(e, None))?;
+
+    if mode == AppIoMode::Any || !app.modes.contains_mode(mode) {
+        return Err(PrepareError::invalid(
+                Error::invalid_argument("Application does not support requested launch mode".into()), 
                 None,
-                &error.to_string(),
-            );
-            return Err(error);
+        ));
+    }
+
+    Ok(PreparedLaunch { app, policy })
+}
+
+pub struct LaunchHandles {
+    pub source: HandleID,
+    pub sink: HandleID,
+    pub cwd: HandleID,
+}
+
+fn spawn_application(launch: PreparedLaunch, user: UserID, handles: LaunchHandles, args: &[String], capabilites: &[AcceptedCapability]) -> Result<Process, Error> {
+    let PreparedLaunch { app, policy } = launch;
+    let binary_path = format!("{}/bin/{}", app.bundle, app.binary);
+    let mut exec = Exec::open(&Path::new(&binary_path), app.binary)?
+        .start_suspended()
+        .args(args)
+        .source(handles.source)
+        .sink(handles.sink)
+        .cwd(handles.cwd, policy.cwd_rights)
+        .namespace_rights(policy.namespace_rights)
+        .user(user);
+
+    for grant in capabilites {
+        exec = exec.grant_new(grant.handle.handle(), grant.policy.capability, grant.policy.rights)?;
+    }
+
+    exec.spawn()
+}
+
+fn handle_execute(socket: &Socket, request_id: u32, request: ExecuteRequest, log: &SystemLog, policy: &PolicyStore, caller_user: UserID) -> Result<(), Error> {
+    let launch = match prepare_launch(&request.app_name, request.mode, policy) {
+        Ok(launch) => launch,
+        Err(e) => {
+            let message = e.public_message.map(String::from).unwrap_or_else(|| e.error.to_string());
+            send_execute_response(socket, request_id, e.status, None, &message)?;
+            return Err(e.error);
         }
     };
-
-    if request.mode == AppIoMode::Any || !app.modes.contains_mode(request.mode) {
-        let _ = send_execute_response(
-            socket,
-            request_id,
-            HESPER_STATUS_INVALID_REQUEST,
-            None,
-            "application does not support requested launch mode",
-        );
-        return Err(Error::invalid_argument("application does not support requested launch mode".into()));
-    }
+    let policy = &launch.policy;
 
     let session = socket.handle();
     let accepted = (|| {
@@ -230,27 +255,17 @@ fn handle_execute(
 
     accepted_capabilities.extend(system_capabilities);
 
-    log.write_string(format!("launching {}:{} as {}", app.app_id, app.entrypoint, app.binary))?;
-
-    let binary_path = format!("{}/bin/{}", app.bundle, app.binary);
-
-    let spawn_result = (|| {
-        let mut exec = Exec::open(&Path::new(&binary_path), app.binary)?
-            .start_suspended()
-            .args(&request.arguments)
-            .source(source.handle())
-            .sink(sink.handle())
-            .cwd(cwd.handle(), policy.cwd_rights)
-            .root_rights(policy.root_rights)
-            .user(caller_user);
-
-        for capability in &accepted_capabilities {
-            exec = exec.grant_new(capability.handle.handle(), capability.policy.capability, capability.policy.rights)
-                .map_err(|error| error.context(format_args!("cannot install capability {:?}", capability.policy.capability)))?;
-        }
-
-        exec.spawn()
-    })();
+    let spawn_result = spawn_application(
+        launch, 
+        caller_user, 
+        LaunchHandles {
+            source: source.handle(),
+            sink: sink.handle(),
+            cwd: cwd.handle(),
+        }, 
+        &request.arguments, 
+        &accepted_capabilities,
+    );
 
     let process = match spawn_result {
         Ok(process) => process,
@@ -277,6 +292,20 @@ fn handle_execute(
     Ok(())
 }
 
+pub fn spawn_local(name: &str, mode: AppIoMode, policies: &PolicyStore, user: UserID, handles: LaunchHandles) -> Result<Process, Error> {
+    let launch = prepare_launch(name, mode, policies).map_err(|e| e.error)?;
+    let mut capabilities = Vec::new();
+
+    for &grant in &launch.policy.capabilities {
+        let capability = request_system_capability(grant)?.ok_or_else(|| {
+            Error::invalid_argument(format!("Local launch of '{name}' requires a caller-supplied capability"))
+        })?;
+        capabilities.push(capability);
+    }
+
+    spawn_application(launch, user, handles, &[], &capabilities)
+}
+
 fn send_launcher_invalid_request(sock: &Socket, id: u32) {
     let _ = send_app_metadata_response(&sock, id, HESPER_STATUS_INVALID_REQUEST, AppIoMode::Any, AppIoModes::new(), AppIoMode::Any, "", "");
 }
@@ -289,8 +318,11 @@ fn request_system_capability(policy: CapabilityPolicy) -> Result<Option<Accepted
             let handle = broker.request(policy.capability, policy.rights)?;
 
             Ok(Some(AcceptedCapability { handle: AcceptedHandle { handle }, policy }))
-        }
-
+        },
+        CAP_FRAMEBUFFER => {
+            let handle = resolve(&Path::new("/Devices/Framebuffer"), policy.rights)?;
+            Ok(Some(AcceptedCapability { handle: AcceptedHandle { handle }, policy }))
+        },
         _ => Ok(None),
     }
 }

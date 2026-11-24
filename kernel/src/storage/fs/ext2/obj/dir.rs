@@ -39,7 +39,7 @@ use crate::object::obj::{
 use crate::object::vfs::{FileDescription, write_all_to_object};
 use crate::security::permissions::{
     FilePermissions,
-    allowed_rights,
+    filesystem_rights
 };
 use crate::sync::RwLock;
 use crate::process::current_process;
@@ -406,7 +406,7 @@ impl KernelDirectory for Ext2Directory {
 }
 
 fn register_created_object(object: Arc<dyn KernelObject>) -> Result<usize, InvocationError> {
-    let rights = allowed_rights(&object)?;
+    let rights = filesystem_rights(&object)?;
     let proc = current_process().ok_or(InvocationError::InvalidHandle)?;
     Ok(proc.handles.write().insert(object, rights).0)
 }

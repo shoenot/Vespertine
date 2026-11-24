@@ -1,3 +1,4 @@
+use vespertine_abi::tag::CAP_LOGGER;
 use vespertine_abi::{
     AccessRights,
     HandleID,
@@ -8,6 +9,7 @@ use vrt::syscall::{
     sys_write,
 };
 
+use crate::broker::Broker;
 use crate::fs::{
     Path,
     resolve,
@@ -22,8 +24,10 @@ pub struct SystemLog(HandleID);
 
 impl SystemLog {
     pub fn try_connect() -> Result<Self, Error> {
-        let handle = resolve(&Path::new("/System/Services/Log"), AccessRights::WRITE)?;
-        Ok(Self(handle))
+        let handle = resolve(&Path::new("/System/Services/Log"), AccessRights::READ)?;
+        let broker = Broker::from_handle(handle);
+        let writer = broker.request(CAP_LOGGER, AccessRights::WRITE)?;
+        Ok(Self(writer))
     }
 
     pub fn connect() -> Self { Self::try_connect().expect("Could not find logger") }

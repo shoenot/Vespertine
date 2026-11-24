@@ -27,8 +27,7 @@ use crate::object::invoke::InvocationError;
 use crate::object::mount::follow_mount;
 use crate::object::obj::KernelObject;
 use crate::security::permissions::{
-    FilePermissions,
-    allowed_rights,
+    FilePermissions, filesystem_rights,
 };
 use crate::process::current_process;
 
@@ -95,10 +94,9 @@ impl DirLocation {
     pub(crate) fn arc_clone(&self) -> Arc<Self> { Arc::new(self.clone()) }
 
     async fn resolve(
-        &self, start_handle: HandleID, path: &str, requested_rights: AccessRights, root_rights: AccessRights,
+        &self, start_handle: HandleID, path: &str, requested_rights: AccessRights, namespace_rights: AccessRights,
     ) -> Result<usize, InvocationError> {
         let root = self.arc_clone();
-        let ns_ceiling = root_rights;
         let mut ancestry = if path.starts_with('/') {
             vec![root.clone()]
         } else {
@@ -136,10 +134,12 @@ impl DirLocation {
 
                     let current = ancestry.last().ok_or(InvocationError::InvalidArgument)?;
                     let current_object: Arc<dyn KernelObject> = current.clone();
-                    let current_user_rights = allowed_rights(&current_object)?;
-                    let traversal_rights = ns_ceiling & current_user_rights;
 
-                    if !traversal_rights.contains(AccessRights::TRAVERSE) {
+                    let target_fs_rights = filesystem_rights(&current_object)?;
+                    let available_rights = namespace_rights & target_fs_rights;
+
+                    if !available_rights.contains(AccessRights::TRAVERSE) {
+                        report_resolve_denial(path, name, AccessRights::TRAVERSE, namespace_rights, target_fs_rights);
                         return Err(InvocationError::AccessDenied);
                     }
 
@@ -163,10 +163,11 @@ impl DirLocation {
             Resolved::Object(object) => object,
         };
 
-        let user_rights = allowed_rights(&object)?;
-        let effective_rights = ns_ceiling & user_rights;
+        let target_fs_rights = filesystem_rights(&object)?;
+        let available_rights = namespace_rights & target_fs_rights;
 
-        if !effective_rights.contains(requested_rights) {
+        if !available_rights.contains(requested_rights) {
+            report_resolve_denial(path, "target", requested_rights, namespace_rights, target_fs_rights);
             return Err(InvocationError::AccessDenied);
         }
 
@@ -183,22 +184,22 @@ impl DirLocation {
         let name = core::str::from_utf8(&bytes).map_err(|_| InvocationError::InvalidEncoding)?;
 
         let self_object: Arc<dyn KernelObject> = self.arc_clone();
-        let parent_user_rights = allowed_rights(&self_object)?;
-        let parent_effective_rights = capability_rights & parent_user_rights;
+        let parent_user_rights = filesystem_rights(&self_object)?;
+        let parent_available_rights = capability_rights & parent_user_rights;
 
-        if !parent_effective_rights.contains(AccessRights::TRAVERSE) {
+        if !parent_available_rights.contains(AccessRights::TRAVERSE) {
             return Err(InvocationError::AccessDenied);
         }
 
         match name {
-            "." => register_result(self.arc_clone(), parent_effective_rights),
+            "." => register_result(self.arc_clone(), parent_available_rights),
             ".." => Err(InvocationError::UnsupportedOperation),
             _ => {
                 let directory = self.directory();
                 let child = directory.as_directory().ok_or(InvocationError::InvalidArgument)?.lookup_child(name).await?;
                 let child = follow_mount(child);
 
-                let child_user_rights = allowed_rights(&child)?;
+                let child_user_rights = filesystem_rights(&child)?;
                 let child_effective_rights = capability_rights & child_user_rights;
 
                 let result: Arc<dyn KernelObject> =
@@ -220,7 +221,7 @@ impl DirLocation {
             return Err(InvocationError::InvalidArgument);
         }
 
-        let child_rights = allowed_rights(&child)?;
+        let child_rights = filesystem_rights(&child)?;
         let location = DirLocation::child(child, self.arc_clone());
         register_result(location, child_rights)
     }
@@ -361,4 +362,14 @@ pub async fn resolve_kernel_object(
         KernelResolved::Directory(location) => location.directory(),
         KernelResolved::Object(object) => object,
     })
+}
+
+fn report_resolve_denial(path: &str, step: &str, reqd: AccessRights, namespace: AccessRights, filesystem: AccessRights) {
+    let namespace_missing = reqd.difference(namespace);
+    let filesystem_missing = reqd.difference(filesystem);
+    crate::klogln_serial!(
+        "[Access] resolve {path:?} at {step:?}: \
+         need {reqd}, namespace missing {namespace_missing}, \
+         filesystem missing {filesystem_missing}"
+    );
 }
