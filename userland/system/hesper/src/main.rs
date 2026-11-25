@@ -9,8 +9,7 @@ mod policy;
 use vespertine_abi::app::hesper::AppIoMode;
 use vespertine_abi::{ProcState, UserID};
 use vespertine_abi::tag::{
-    CAP_LAUNCHER_CONNECT,
-    CAP_LOG_READER,
+    CAP_LAUNCHER_CONNECT, CAP_LOG_READER, CAP_SERIAL_WRITE,
 };
 use vrt::syscall::{
     sys_close,
@@ -83,18 +82,16 @@ fn spawn_launcher_session(handle: HandleID, caller_process: HandleID, policy: Ar
     .map_err(Error::from)
 }
 
-fn launch_vlog(log: &SystemLog) -> Result<(), Error> {
-    log.write_string("Launching vlog".into())?;
+fn launch_vlog() -> Result<Process, Error> {
+    println!("[INFO] [hesper] Launching vlog...");
 
     Exec::open(&Path::new("/System/Core/vlog"), "vlog".into())?
         .source(env::source())
         .sink(env::sink())
         .cwd(env::cwd(), AccessRights::all())
         .namespace_rights(NamespaceRights::FULL)
-        .grant(CAP_LOG_READER, AccessRights::READ)?
-        .spawn()?;
-
-    Ok(())
+        .grant(CAP_SERIAL_WRITE, AccessRights::READ | AccessRights::CREATE)?
+        .spawn()
 }
 
 fn launch_vreg(log: &SystemLog) -> Result<Process, Error> {
@@ -119,15 +116,19 @@ fn launch_auth(log: &SystemLog) -> Result<Process, Error> {
         .spawn()
 }
 
-fn wait_for_service(name: &str, path: &Path<'_>, process: &Process, log: &SystemLog) -> Result<(), Error> {
+fn wait_for_service(name: &str, path: &Path<'_>, process: &Process, log: Option<&SystemLog>) -> Result<(), Error> {
     println!("[INFO] Waiting for {name} service...");
-    let _ = log.write_string(format!("waiting for {name} service"));
+    if let Some(sl) = log {
+        let _ = sl.write_string(format!("waiting for {name} service"));
+    }
     loop {
         match resolve(path, AccessRights::READ) {
             Ok(handle) => {
                 sys_close(handle).map_err(Error::from)?;
                 println!("[INFO] {name} service online");
-                log.write_string(format!("{name} service online"))?;
+                if let Some(sl) = log {
+                    sl.write_string(format!("{name} service online"))?;
+                }
                 return Ok(());
             }
             Err(error) if error.kind == ErrorKind::NotFound => {
@@ -162,16 +163,17 @@ fn connect_auth() -> Result<AuthClient, Error> {
 #[vapp::main]
 fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     let launcher_policy = Arc::new(PolicyStore::load()?);
+
+    let vlog = launch_vlog()?;
+    wait_for_service("vlog", &Path::new("/System/Services/Log"), &vlog, None)?;
     let log = SystemLog::connect();
 
-    launch_vlog(&log)?;
-
     let auth = launch_auth(&log)?;
-    wait_for_service("auth", &Path::new("/System/Services/Auth"), &auth, &log)?;
+    wait_for_service("auth", &Path::new("/System/Services/Auth"), &auth, Some(&log))?;
     drop(auth);
 
     let vreg = launch_vreg(&log)?;
-    wait_for_service("vreg", &Path::new("/System/Services/VRegistry"), &vreg, &log)?;
+    wait_for_service("vreg", &Path::new("/System/Services/VRegistry"), &vreg, Some(&log))?;
     drop(vreg);
 
     let portal_factory = PortalFactory::request()?;
@@ -205,6 +207,7 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     )?;
     terminal.resume()?;
 
+    log.debug("Test message")?;
     println!("[INFO] Hesper initialization complete. Entering event loop.");
 
     let mut waiter = Waiter::new().readable(launcher_accept.handle());

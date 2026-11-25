@@ -57,13 +57,13 @@ impl Drop for SinkWriter {
 #[macro_export]
 macro_rules! print {
 ($($arg:tt)*) => {
-        {
-            let mut writer = $crate::sink::SinkWriter::new();
-    let _ = core::fmt::write(
-                &mut writer,
-                core::format_args!($($arg)*)
-    );
-        }
+    {
+        let mut writer = $crate::sink::SinkWriter::new();
+        let _ = core::fmt::write(
+            &mut writer,
+            core::format_args!($($arg)*)
+        );
+    }
 };
 }
 

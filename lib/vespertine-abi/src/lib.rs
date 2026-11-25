@@ -36,6 +36,9 @@ pub use syscall::SysError;
 
 pub mod key;
 
+mod log;
+pub use log::LogLevel;
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HandleID(pub usize);

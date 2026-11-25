@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use vespertine_abi::{AccessRights, HandleID};
+use vespertine_abi::{AccessRights, CapabilityID, HandleID};
 use vespertine_abi::tag::{
     CAP_CLOCK, CAP_LOGGER, CAP_PORTAL_FACTORY, CAP_PROCMAN, CAP_SOCKFAC,
 };
@@ -9,7 +9,6 @@ use crate::object::broker::Broker;
 use crate::object::clock::Clock;
 use crate::object::fs::directory::*;
 use crate::object::invoke::InvocationError;
-use crate::object::log::Log;
 use crate::object::memman::MemoryManager;
 use crate::object::mount::mount;
 use crate::object::namespace::{
@@ -17,6 +16,7 @@ use crate::object::namespace::{
     resolve_kernel_object,
 };
 use crate::object::ipc::portal::PortalFactory;
+use crate::object::obj::KernelObject;
 use crate::process::procman::ProcessManager;
 use crate::object::ipc::socket::SocketFactory;
 use crate::object::vfs::{
@@ -79,15 +79,28 @@ pub async fn init_vfs() {
 }
 
 
-// returns the log read handle
-pub async fn init_log_service() -> Result<HandleID, InvocationError> {
+pub async fn init_service(
+    service: Arc<dyn KernelObject>, 
+    name: &'static str, 
+    capability: CapabilityID,
+    public_rights: AccessRights,
+    private_rights: AccessRights,
+) -> Result<HandleID, InvocationError> {
     let authority = kernel_namespace_authority();
     let services = resolve_kernel_object(&authority, kernel_root_location(), "/System/Services").await?;
 
-    let log = Arc::new(Log::new());
-    let mut log_broker = Broker::new();
-    log_broker.publish(CAP_LOGGER, log.clone(), AccessRights::WRITE);
-    link_kernel_object(services, "Log", Arc::new(log_broker)).await?;
+    let mut service_broker = Broker::new();
+    service_broker.publish(capability, service.clone(), public_rights);
+    link_kernel_object(services, name, Arc::new(service_broker)).await?;
 
-    Ok(kernel_register_obj(log, AccessRights::READ)) 
+    Ok(kernel_register_obj(service, private_rights)) 
+}
+
+pub async fn init_device(device: Arc<dyn KernelObject>, name: &'static str, rights: AccessRights) -> Result<HandleID, InvocationError> {
+    let authority = kernel_namespace_authority();
+    let devices = resolve_kernel_object(&authority, kernel_root_location(), "/Devices").await?;
+
+    link_kernel_object(devices, name, device.clone()).await?;
+
+    Ok(kernel_register_obj(device, rights))
 }

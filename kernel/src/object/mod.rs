@@ -7,7 +7,6 @@ pub mod fs;
 pub mod ipc;
 pub mod broker;
 pub mod framebuffer;
-pub mod log;
 pub mod mempool;
 pub mod memman;
 pub mod clock;

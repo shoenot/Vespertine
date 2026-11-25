@@ -11,6 +11,7 @@ pub const CAP_SOCKFAC: CapabilityID = CapabilityID(0x2003);
 pub const CAP_PORTAL_FACTORY: CapabilityID = CapabilityID(0x2004);
 pub const CAP_FRAMEBUFFER: CapabilityID = CapabilityID(0x2005);
 pub const CAP_LOG_READER: CapabilityID = CapabilityID(0x2006);
+pub const CAP_SERIAL_WRITE: CapabilityID = CapabilityID(0x2007);
 
 pub const CAP_LAUNCHER_CONNECT: CapabilityID = CapabilityID(0x2100);
 pub const CAP_VREG_CONNECT: CapabilityID = CapabilityID(0x2101);

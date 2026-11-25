@@ -1,3 +1,4 @@
+use vespertine_abi::FileStat;
 use vespertine_abi::typed::{
     DATETIME_HAS_OFFSET,
     DateTimeValue,
@@ -82,7 +83,10 @@ pub fn list(args: &[String]) -> Result<(), Error> {
         };
 
         let entry_path = PathBuf::from(dir_path.as_str()).join(&Path::new(entry.name.as_str()));
-        let stat = stat(&entry_path.as_path())?;
+        let stat = match stat(&entry_path.as_path()) {
+            Ok(res) => res,
+            Err(_) => FileStat::zeroed(),
+        };
 
         out.row_values(&[
             TypedValue::String(entry.name),

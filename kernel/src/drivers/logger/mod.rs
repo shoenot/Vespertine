@@ -214,25 +214,6 @@ impl KernelObject for ScreenWriter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogLevel {
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-impl LogLevel {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            LogLevel::Debug => "DEBUG",
-            LogLevel::Info => "INFO",
-            LogLevel::Warn => "WARN",
-            LogLevel::Error => "ERROR",
-        }
-    }
-}
-
 #[macro_export]
 macro_rules! klog {
     ($($arg:tt)*) => {
@@ -249,7 +230,7 @@ macro_rules! klogln {
     ($level:ident, $target:expr, $($arg:tt)+) => {
         $crate::klog!(
             "[{} {}] {}\n",
-            $crate::drivers::logger::LogLevel::$level.as_str(),
+            vespertine_abi::LogLevel::$level.as_str(),
             $target,
             format_args!($($arg)+),
         )

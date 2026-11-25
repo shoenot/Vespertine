@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::tag::{
-    CAP_LOG_READER, CAP_LOGGER, CAP_PROCMAN,
+    CAP_PROCMAN, CAP_SERIAL_WRITE,
 };
 use vespertine_abi::{
     AccessRights,
@@ -14,6 +14,7 @@ use vespertine_abi::{
 };
 
 use crate::cpu::current_core_mut;
+use crate::drivers::serial::SerialDevice;
 use crate::executor::{
     Executor,
     executor_thread,
@@ -30,7 +31,7 @@ use crate::sched::priority::ThreadPriority;
 use crate::sched::reap::reaper_daemon;
 use crate::drivers::keyboard::kbd_processor_thread;
 use crate::drivers::logger::ScreenWriter;
-use crate::init::vfs_init::{init_log_service, init_vfs};
+use crate::init::vfs_init::{init_device, init_vfs};
 #[cfg(feature = "diagnostics")]
 use crate::tests;
 use crate::{
@@ -60,8 +61,12 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     let executor = Executor::new();
     executor.spawn(async move {
         init_vfs().await;
-        let log_reader = init_log_service().await
-            .expect("Failed to initialize the log service");
+
+        let serial_opener = init_device(
+            Arc::new(SerialDevice), 
+            "Serial", 
+            AccessRights::READ | AccessRights::CREATE
+        ).await.expect("Failed to publish /Devices/Serial");
 
         #[cfg(feature = "diagnostics")]
         tests::run_post_vfs_tests().await;
@@ -97,7 +102,9 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let source = kbd_source_handle;
         let sink = screen_handle;
 
-        let capabilities = [CapabilityGrant { id: log_reader, rights: AccessRights::READ, capability: CAP_LOG_READER }];
+        let capabilities = [
+            CapabilityGrant { id: serial_opener, rights: AccessRights::READ | AccessRights::CREATE, capability: CAP_SERIAL_WRITE},
+        ];
 
         let name = "Hesper";
 
@@ -122,7 +129,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
             .await
             .expect("Failed to spawn userspace init");
-        let _ = kernel_close(log_reader);
+        let _ = kernel_close(serial_opener);
         klogln!(Info, "Boot", "Hesper started");
     });
 

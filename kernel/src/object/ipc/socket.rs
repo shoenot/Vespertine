@@ -201,15 +201,17 @@ impl Future for SocketReadFuture<'_> {
         let mut inner = this.endpoint.read_bus.inner.lock();
         let available = inner.buffer.len();
 
-        if this.endpoint.is_nb.load(Ordering::Acquire) && available == 0 {
-            return Poll::Ready(Err(InvocationError::WouldBlock));
-        }
+        let closed = this.endpoint.read_bus.is_closed.load(Ordering::Acquire);
+        let nonblocking = this.endpoint.is_nb.load(Ordering::Acquire);
 
-        if this.endpoint.read_bus.is_closed.load(Ordering::Acquire) && available == 0 {
-            return Poll::Ready(Ok(0));
-        }
+        if available == 0 && closed { return Poll::Ready(Ok(0)); }
+        if available == 0 && nonblocking { return Poll::Ready(Err(InvocationError::WouldBlock)); }
 
-        let enough_data = if this.requested_min == 0 { available > 0 } else { available >= this.requested_min };
+        let enough_data = if nonblocking || closed || this.requested_min == 0 {
+            available > 0
+        } else {
+            available >= this.requested_min
+        };
         let immediate_empty_read = this.requested_min == 0 && this.timeout_ms == 0;
 
         if enough_data || immediate_empty_read {
@@ -490,6 +492,28 @@ impl SocketEndpoint {
             written += count;
         }
         Ok(())
+    }
+
+    pub(crate) async fn read_internal(&self, dst: &mut [u8]) -> Result<usize, InvocationError> {
+        if dst.is_empty() { return Ok(0) };
+        loop {
+            {
+                let mut inner = self.read_bus.inner.lock();
+                let count = inner.buffer.pop_slice(dst);
+
+                if count != 0 {
+                    drop(inner);
+                    self.read_bus.notify_writable();
+                    return Ok(count);
+                }
+
+                if self.read_bus.is_closed.load(Ordering::Acquire) {
+                    return Ok(0)
+                }
+            }
+
+            ObjectWaitFuture::new(self, Signal::READABLE).await?;
+        }
     }
 }
 
