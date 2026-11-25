@@ -1,0 +1,6 @@
+[application]
+id = "ports.openbsd.hexdump"
+bundle = "hexdump"
+
+[grants]
+capabilities = ["runtime-libc"]

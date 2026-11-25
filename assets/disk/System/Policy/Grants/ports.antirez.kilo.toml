@@ -6,4 +6,4 @@ archetype = "text-editor"
 [grants]
 namespace-rights = []
 cwd-rights = []
-capabilities = []
+capabilities = ["runtime-libc"]

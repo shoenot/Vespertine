@@ -7,7 +7,7 @@ use vespertine_abi::app::hesper::{
     HESPER_STATUS_NOT_FOUND,
     HESPER_STATUS_OK,
 };
-use vespertine_abi::tag::{CAP_FRAMEBUFFER, CAP_PROCMAN};
+use vespertine_abi::tag::{CAP_FRAMEBUFFER, CAP_LIBC, CAP_PROCMAN};
 use vrt::syscall::{
     sys_close,
     sys_yield,
@@ -312,6 +312,11 @@ fn send_launcher_invalid_request(sock: &Socket, id: u32) {
 
 fn request_system_capability(policy: CapabilityPolicy) -> Result<Option<AcceptedCapability>, Error> {
     match policy.capability {
+        CAP_LIBC => {
+            let handle = resolve(&Path::new("/System/Libraries/libc.so"), policy.rights)
+                .map_err(|error| error.context("cannot open system libc for the loader"))?;
+            Ok(Some(AcceptedCapability { handle: AcceptedHandle { handle }, policy }))
+        },
         CAP_PROCMAN => {
             let broker_handle = resolve(&Path::new("/System/Services/ProcManager"), AccessRights::READ)?;
             let broker = Broker::from_handle(broker_handle);

@@ -11,15 +11,25 @@ mod sys;
 
 use error::ShellError;
 use vrt::source::read_line;
-use vstd::prelude::*;
+use vstd::auth::AuthClient;
+use vstd::{Process, prelude::*};
 use vstd::term::get_term_cursor_position;
 
 use crate::runtime::ShellRuntime;
 use crate::sys::ShellResult;
 
+fn cd_user_home(runtime: &mut ShellRuntime) -> Result<(), Error> {
+    let user= Process::info_from_handle(env::self_handle())?.user;
+    let account = AuthClient::connect()?.lookup_id(user)?;
+    runtime.context.change_dir(Path::new(&account.home).to_path_buf())
+}
+
 #[vapp::main]
 fn main(_pkg: &ProcessInitPackage) -> Result<(), ShellError> {
     let mut runtime = ShellRuntime::new();
+    if let Err(e) = cd_user_home(&mut runtime) {
+        println!("dusk: cannot enter home directory: {e}")
+    }
 
     loop {
         if let Ok((_row, col)) = get_term_cursor_position() &&

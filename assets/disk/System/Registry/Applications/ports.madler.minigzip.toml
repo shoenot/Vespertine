@@ -1,0 +1,13 @@
+version = 1 
+
+[[application]]
+id = "ports.madler.minigzip"
+bundle = "/Programs/minigzip.app"
+default-entrypoint = "main"
+
+[application.aliases]
+minigzip = "main"
+
+[installation]
+installed-ts = 2026-11-25T16:06:00Z
+updated-ts = 2026-11-25T16:06:00Z

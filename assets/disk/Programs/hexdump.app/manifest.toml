@@ -1,0 +1,12 @@
+[application]
+name = "hexdump"
+id = "ports.openbsd.hexdump"
+
+[entrypoints.main]
+binary = "hexdump"
+input = "text"
+modes = ["text"]
+output = "text"
+
+[permissions]
+capabilities = ["runtime-libc"]

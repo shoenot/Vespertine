@@ -2,7 +2,7 @@ use alloc::collections::BTreeMap;
 
 use vespertine_abi::CapabilityID;
 use vespertine_abi::tag::{
-    CAP_APP_TERMCTRL, CAP_FRAMEBUFFER, CAP_PROCMAN,
+    CAP_APP_TERMCTRL, CAP_FRAMEBUFFER, CAP_LIBC, CAP_PROCMAN,
 };
 use vconfig::ConfigError;
 use vconfig::manifest::AppManifest;
@@ -133,6 +133,7 @@ fn parse_rights(names: &[String]) -> Result<AccessRights, Error> {
 
 fn resolve_capability(name: &str) -> Result<CapabilityPolicy, Error> {
     match name {
+        "runtime-libc" => Ok(CapabilityPolicy { capability: CAP_LIBC, rights: AccessRights::READ | AccessRights::EXECUTE }),
         "term-control" => Ok(CapabilityPolicy { capability: CAP_APP_TERMCTRL, rights: AccessRights::READ | AccessRights::WRITE }),
         "procman-list" => Ok(CapabilityPolicy { capability: CAP_PROCMAN, rights: AccessRights::READ | AccessRights::LIST }),
         "framebuffer" => Ok(CapabilityPolicy { capability: CAP_FRAMEBUFFER, rights: AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE }),

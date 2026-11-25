@@ -13,6 +13,7 @@ members = [
 	"userland/libraries/app",
     "userland/libraries/cli",
 	"userland/libraries/config",
+	"userland/libraries/liner",
 
 	"userland/system/auth",
     "userland/system/hesper", 
@@ -47,6 +48,7 @@ vstd    = { package = "vespertine-std", path = "userland/base/std" }
 vapp    = { package = "vespertine-app", path = "userland/libraries/app" }
 vcli    = { package = "vespertine-cli", path = "userland/libraries/cli" }
 vconfig = { package = "vespertine-config", path = "userland/libraries/config" }
+vliner = { package = "vespertine-liner", path = "userland/libraries/liner" }
 
 [profile.dev]
 panic = "abort"

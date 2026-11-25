@@ -1,0 +1,6 @@
+[application]
+id = "ports.0xAether.cowsay"
+bundle = "cowsay"
+
+[grants]
+capabilities = ["runtime-libc"]

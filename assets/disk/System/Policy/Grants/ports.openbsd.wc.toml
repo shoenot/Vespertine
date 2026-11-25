@@ -1,0 +1,6 @@
+[application]
+id = "ports.openbsd.wc"
+bundle = "wc"
+
+[grants]
+capabilities = ["runtime-libc"]

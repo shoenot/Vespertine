@@ -1,0 +1,9 @@
+[application]
+id = "ports.madler.minigzip"
+bundle = "minigzip"
+archetype = "mutable-coreutil"
+
+[grants]
+namespace-rights = []
+cwd-rights = []
+capabilities = ["runtime-libc"]

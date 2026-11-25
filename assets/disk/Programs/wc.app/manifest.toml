@@ -7,3 +7,6 @@ binary = "wc"
 input = "text"
 modes = ["text"]
 default = "text"
+
+[permissions]
+capabilities = ["runtime-libc"]

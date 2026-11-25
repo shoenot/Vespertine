@@ -13,7 +13,9 @@ applications = [
     "os.vespertine.terminal",
     "ports.antirez.kilo",
     "ports.0xAether.cowsay",
+    "ports.openbsd.hexdump",
     "ports.openbsd.grep",
+    "ports.madler.minigzip",
     "ports.openbsd.ls",
     "ports.openbsd.wc",
 ]

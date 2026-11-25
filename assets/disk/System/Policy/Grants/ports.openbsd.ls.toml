@@ -1,0 +1,6 @@
+[application]
+id = "ports.openbsd.ls"
+bundle = "ls"
+
+[grants]
+capabilities = ["runtime-libc"]

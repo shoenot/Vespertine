@@ -229,7 +229,7 @@ macro_rules! klogln {
 
     ($level:ident, $target:expr, $($arg:tt)+) => {
         $crate::klog!(
-            "[{} {}] {}\n",
+            "[{}] [{}] {}\n",
             vespertine_abi::LogLevel::$level.as_str(),
             $target,
             format_args!($($arg)+),

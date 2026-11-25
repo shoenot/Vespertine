@@ -1,0 +1,13 @@
+version = 1 
+
+[[application]]
+id = "ports.openbsd.hexdump"
+bundle = "/Programs/hexdump.app"
+default-entrypoint = "main"
+
+[application.aliases]
+hexdump = "main"
+
+[installation]
+installed-ts = 2026-11-25T16:22:00Z
+updated-ts = 2026-11-15T16:22:00Z

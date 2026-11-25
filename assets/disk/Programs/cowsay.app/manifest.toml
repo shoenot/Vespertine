@@ -7,3 +7,6 @@ binary = "cowsay"
 input = "text"
 modes = ["text"]
 output = "text"
+
+[permissions]
+capabilities = ["runtime-libc"]

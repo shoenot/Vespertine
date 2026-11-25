@@ -168,8 +168,8 @@ fn main() -> Result<(), Error> {
                 Ok(Some((end, level))) => {
                     let client = &clients[i];
                     let message = &client.buffer[HEADER_BYTES..end];
-                    let record = build_record(&client.caller, message);
                     let levelstr = level.as_str();
+                    let record = build_record(&client.caller, levelstr, message);
 
                     index.append(record.as_bytes())?;
 
@@ -272,14 +272,14 @@ fn push_json_escaped(dst: &mut String, value: &[u8]) {
     }
 }
 
-fn build_record(caller: &ProcInfo, message: &[u8]) -> String {
+fn build_record(caller: &ProcInfo, level: &str, message: &[u8]) -> String {
     let (ts_sec, ts_nsec) = Time::now();
     let mut record = format!(
         "{{\"ts_sec\":{ts_sec},\"ts_nsec\":{ts_nsec},\"pid\":{},\"user\":{},\"process\":",
         caller.pid, caller.user.0,
     );
     push_json_string(&mut record, caller.name());
-    record.push_str(",\"level\":\"info\",\"dropped\":0,\"message\":");
+    record.push_str(&format!(",\"level\":\"{level}\",\"dropped\":0,\"message\":"));
     push_json_bytes(&mut record, message);
     record.push_str("}\n");
     record

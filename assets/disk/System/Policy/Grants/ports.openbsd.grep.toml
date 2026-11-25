@@ -1,0 +1,6 @@
+[application]
+id = "ports.openbsd.grep"
+bundle = "grep"
+
+[grants]
+capabilities = ["runtime-libc"]

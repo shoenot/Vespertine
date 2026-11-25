@@ -1,0 +1,13 @@
+[application]
+name = "minigzip"
+id = "ports.madler.minigzip"
+
+[entrypoints.main]
+binary = "minigzip"
+input =  "text"
+modes = ["text"]
+default = "text"
+
+[permissions]
+filesystem = "mutable"
+capabilities = ["runtime-libc"]

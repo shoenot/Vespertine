@@ -101,8 +101,15 @@ impl Process {
     }
 
     pub fn info(&self) -> Result<ProcInfo, Error> {
+        Self::info_from_handle(self.handle)
+    }
+
+    pub fn info_from_handle(handle: HandleID) -> Result<ProcInfo, Error> {
         let mut info = ProcInfo::zeroed();
-        sys_invoke(self.handle, &Invocation::Proc(ProcOp::GetInfo { info_ptr: &mut info as *mut _ as usize })).map_err(Error::from)?;
+        let op = Invocation::Proc(ProcOp::GetInfo {
+            info_ptr: &mut info as *mut _ as usize,
+        });
+        sys_invoke(handle, &op).map_err(Error::from)?;
         Ok(info)
     }
 

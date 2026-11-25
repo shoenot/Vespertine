@@ -10,4 +10,4 @@ default = "terminal"
 
 [permissions]
 filesystem = "mutable"
-capabilities = [ "term-control" ]
+capabilities = ["term-control", "runtime-libc"]
