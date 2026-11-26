@@ -4,12 +4,16 @@
 #include <mlibc-config.h>
 
 #include <abi-bits/pid_t.h>
-#include <abi-bits/sigevent.h>
+#include <abi-bits/sigval.h>
 #include <abi-bits/sigset_t.h>
 #include <abi-bits/uid_t.h>
 #include <bits/ansi/clock_t.h>
 #include <bits/size_t.h>
 #include <bits/types.h>
+
+#if __MLIBC_POSIX_OPTION
+#include <abi-bits/sigevent.h>
+#endif
 
 #if defined(_DEFAULT_SOURCE) || (__MLIBC_POSIX1 && !__MLIBC_POSIX2024)
 #define POLL_IN 1
@@ -160,8 +164,20 @@ typedef void (*__sighandler) (int);
 #define SIGTIMER  33
 
 #if __MLIBC_XOPEN
+
+#if defined(__x86_64__) || defined(__i386__) || defined(__riscv) || defined(__m68k__)
 #define MINSIGSTKSZ 2048
 #define SIGSTKSZ 8192
+#elif defined(__aarch64__)
+#define MINSIGSTKSZ 5120
+#define SIGSTKSZ 16384
+#elif defined(__loongarch64)
+#define MINSIGSTKSZ 4096
+#define SIGSTKSZ 16384
+#else
+#error unhandled architecture
+#endif
+
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 #endif
@@ -219,7 +235,7 @@ struct sigaction {
 		void (*sa_handler)(int);
 		void (*sa_sigaction)(int, siginfo_t *, void *);
 	} __sa_handler;
-	unsigned long sa_flags;
+	int sa_flags;
 	void (*sa_restorer)(void);
 	sigset_t sa_mask;
 };
@@ -265,7 +281,11 @@ struct sigaction {
 
 #define __NGREG 23
 #if defined(_DEFAULT_SOURCE)
-#define NGREG __NREG
+#define NGREG __NGREG
+#endif
+
+#if defined(_DEFAULT_SOURCE)
+typedef long long greg_t, gregset_t[__NGREG];
 #endif
 
 struct _fpxreg {
@@ -341,6 +361,10 @@ typedef struct __ucontext {
 #define REG_UESP 17
 #define REG_SS 18
 #define NGREG 19
+
+#if defined(_DEFAULT_SOURCE)
+typedef int greg_t, gregset_t[NGREG];
+#endif
 
 struct _fpreg {
 	unsigned short significand[4];
@@ -427,6 +451,10 @@ typedef struct __ucontext {
 
 #define NGREG 32
 
+#if defined(_DEFAULT_SOURCE)
+typedef unsigned long greg_t, gregset_t[NGREG];
+#endif
+
 enum {
   REG_PC = 0,
 #define REG_PC REG_PC
@@ -487,6 +515,10 @@ typedef struct __ucontext {
 #elif defined (__aarch64__)
 
 #define NGREG 34
+
+#if defined(_DEFAULT_SOURCE)
+typedef unsigned long greg_t, gregset_t[NGREG];
+#endif
 
 typedef struct sigcontext {
 	__mlibc_uint64 fault_address;

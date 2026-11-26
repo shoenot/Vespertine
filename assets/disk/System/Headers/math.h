@@ -44,7 +44,7 @@ typedef float float_t;
 
 #define MATH_ERRNO 1
 #define MATH_ERREXCEPT 2
-#define math_errhandling 3
+#define math_errhandling MATH_ERREXCEPT
 
 /* [C11/7.12.3 Classification macros] */
 
@@ -374,11 +374,26 @@ extern int signgam;
 #define __signgam signgam
 #endif
 
+#if defined(_DEFAULT_SOURCE) || __MLIBC_XOPEN
+double j0(double __x);
+double j1(double __x);
+double jn(int __n, double __x);
+double y0(double __x);
+double y1(double __x);
+double yn(int __n, double __x);
+#endif /* defined(_DEFAULT_SOURCE) || __MLIBC_XOPEN */
+
 #if defined(_GNU_SOURCE)
 /* BSD floating-point classification functions - obsolete */
 int finite(double __x);
 int finitef(float __x);
 #endif
+
+#if defined(_DEFAULT_SOURCE)
+double lgamma_r(double __x, int *__signp);
+float lgammaf_r(float __x, int *__signp);
+long double lgammal_r(long double __x, int *__signp);
+#endif /* defined (_DEFAULT_SOURCE) */
 
 #endif /* !__MLIBC_ABI_ONLY */
 

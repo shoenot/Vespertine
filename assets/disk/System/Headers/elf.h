@@ -203,6 +203,9 @@ __MLIBC_INLINE_DEFINITION unsigned char ELF64_ST_TYPE(unsigned char info) {
 __MLIBC_INLINE_DEFINITION unsigned char ELF64_ST_INFO(unsigned char bind, unsigned char type) {
 	return (bind << 4) | type;
 }
+__MLIBC_INLINE_DEFINITION unsigned char ELF64_ST_VISIBILITY(unsigned char info) {
+	return info & 0x03;
+}
 
 typedef struct {
 	Elf64_Half si_boundto;
@@ -218,6 +221,10 @@ __MLIBC_INLINE_DEFINITION unsigned char ELF32_ST_TYPE(unsigned char info) {
 __MLIBC_INLINE_DEFINITION unsigned char ELF32_ST_INFO(unsigned char bind, unsigned char type) {
 	return (bind << 4) | (type & 0xF);
 }
+__MLIBC_INLINE_DEFINITION unsigned char ELF32_ST_VISIBILITY(unsigned char info) {
+	return info & 0x03;
+}
+
 
 enum {
 	STB_GLOBAL = 1,
@@ -240,6 +247,7 @@ enum {
 	R_X86_64_NONE = 0,
 	R_X86_64_64 = 1,
 	R_X86_64_PC32 = 2,
+	R_X86_64_GOT32 = 3,
 	R_X86_64_PLT32 = 4,
 	R_X86_64_COPY = 5,
 	R_X86_64_GLOB_DAT = 6,
@@ -248,15 +256,35 @@ enum {
 	R_X86_64_GOTPCREL = 9,
 	R_X86_64_32 = 10,
 	R_X86_64_32S = 11,
+	R_X86_64_16 = 12,
 	R_X86_64_PC16 = 13,
+	R_X86_64_8 = 14,
 	R_X86_64_PC8 = 15,
 	R_X86_64_DTPMOD64 = 16,
 	R_X86_64_DTPOFF64 = 17,
 	R_X86_64_TPOFF64 = 18,
+	R_X86_64_TLSGD = 19,
+	R_X86_64_TLSLD = 20,
+	R_X86_64_DTPOFF32 = 21,
+	R_X86_64_GOTTPOFF = 22,
+	R_X86_64_TPOFF32 = 23,
 	R_X86_64_PC64 = 24,
 	R_X86_64_GOTPC32 = 26,
+	R_X86_64_GOT64 = 27,
+	R_X86_64_GOTPCREL64 = 28,
+	R_X86_64_GOTPC64 = 29,
+	R_X86_64_GOTPLT64 = 30,
+	R_X86_64_PLTOFF64 = 31,
+	R_X86_64_SIZE32 = 32,
+	R_X86_64_SIZE64 = 33,
+	R_X86_64_GOTPC32_TLSDESC = 34,
+	R_X86_64_TLSDESC_CALL = 35,
 	R_X86_64_TLSDESC = 36,
-	R_X86_64_IRELATIVE = 37
+	R_X86_64_IRELATIVE = 37,
+	R_X86_64_RELATIVE64 = 38,
+	R_X86_64_GOTPCRELX = 41,
+	R_X86_64_REX_GOTPCRELX = 42,
+	R_X86_64_NUM = 43
 };
 
 enum {
@@ -270,6 +298,7 @@ enum {
 	R_386_TLS_TPOFF = 14,
 	R_386_TLS_DTPMOD32 = 35,
 	R_386_TLS_DTPOFF32 = 36,
+	R_386_TLS_TPOFF32 = 37,
 	R_386_TLS_DESC = 41,
 	R_386_IRELATIVE = 42
 };
@@ -434,6 +463,8 @@ typedef struct {
 	Elf64_Xword p_align; /* Alignment of segment */
 } Elf64_Phdr;
 
+#define PN_XNUM 0xffff
+
 enum {
 	DT_NULL = 0,
 	DT_NEEDED = 1,
@@ -490,6 +521,7 @@ enum {
 
 enum {
 	/* For DT_FLAGS. */
+	DF_ORIGIN = 0x01,
 	DF_SYMBOLIC = 0x02,
 	DF_TEXTREL = 0x04,
 	DF_BIND_NOW = 0x08,
@@ -497,8 +529,36 @@ enum {
 
 	/* For DT_FLAGS_1. */
 	DF_1_NOW = 0x00000001,
+	DF_1_GLOBAL = 0x00000002,
+	DF_1_GROUP = 0x00000004,
 	DF_1_NODELETE = 0x00000008,
-	DF_1_PIE = 0x08000000
+	DF_1_LOADFLTR = 0x00000010,
+	DF_1_INITFIRST = 0x00000020,
+	DF_1_NOOPEN = 0x00000040,
+	DF_1_ORIGIN = 0x00000080,
+	DF_1_DIRECT = 0x00000100,
+	DF_1_TRANS = 0x00000200,
+	DF_1_INTERPOSE = 0x00000400,
+	DF_1_NODEFLIB = 0x00000800,
+	DF_1_NODUMP = 0x00001000,
+	DF_1_CONFALT = 0x00002000,
+	DF_1_ENDFILTEE = 0x00004000,
+	DF_1_DISPRELDNE = 0x00008000,
+	DF_1_DISPRELPND = 0x00010000,
+	DF_1_NODIRECT = 0x00020000,
+	DF_1_IGNMULDEF = 0x00040000,
+	DF_1_NOKSYMS = 0x00080000,
+	DF_1_NOHDR = 0x00100000,
+	DF_1_EDITED = 0x00200000,
+	DF_1_NORELOC = 0x00400000,
+	DF_1_SYMINTPOSE = 0x00800000,
+	DF_1_GLOBAUDIT = 0x01000000,
+	DF_1_SINGLETON = 0x02000000,
+	DF_1_STUB = 0x04000000,
+	DF_1_PIE = 0x08000000,
+	DF_1_KMOD = 0x10000000,
+	DF_1_WEAKFILTER = 0x20000000,
+	DF_1_NOCOMMON = 0x40000000
 };
 
 /* Valid values for note segment descriptor files for core files */
@@ -672,6 +732,7 @@ typedef struct {
 #define EI_VERSION	6
 
 #define EI_OSABI	7
+#define ELFOSABI_NONE		0
 #define ELFOSABI_HPUX		1
 #define ELFOSABI_NETBSD		2
 #define ELFOSABI_GNU		3
@@ -683,6 +744,8 @@ typedef struct {
 #define ELFOSABI_OPENBSD	12
 
 #define EI_ABIVERSION	8
+
+#define EI_PAD 9
 
 #define ELF_NOTE_GNU "GNU"
 

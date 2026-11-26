@@ -129,8 +129,8 @@ extern "C" {
 #define _PC_NO_TRUNC		7
 #define _PC_VDISABLE		8
 
-#define _PC_FILESIZEBITS 9
-#define _PC_SYMLINK_MAX 10
+#define _PC_FILESIZEBITS 13
+#define _PC_SYMLINK_MAX 19
 
 /* MISSING: remaining _SC_macros */
 #define _SC_ARG_MAX 0
@@ -270,12 +270,6 @@ extern "C" {
 #define _SC_SIGSTKSZ 250
 
 #define __MLIBC_SC_MAX (_SC_SIGSTKSZ+1)
-
-/* Port-specific _SC_* define values */
-
-#if defined (__ironclad__)
-#define _SC_TOTAL_PAGES 1000
-#endif /* defined (__ironclad__) */
 
 #define STDERR_FILENO 2
 #define STDIN_FILENO 0

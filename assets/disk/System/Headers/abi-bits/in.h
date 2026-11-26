@@ -154,7 +154,7 @@ struct group_source_req {
 #define IPPROTO_UDPLITE  136
 #define IPPROTO_MPLS     137
 #define IPPROTO_RAW      255
-#define IPPROTO_MAX      256
+#define IPPROTO_MAX      263
 
 #define IP_TOS 1
 #define IP_TTL 2
@@ -167,6 +167,7 @@ struct group_source_req {
 #define IP_MTU_DISCOVER 10
 #define IP_RECVERR 11
 #define IP_RECVTTL 12
+#define IP_RECVTOS 13
 #define IP_MTU 14
 #define IP_MULTICAST_IF 32
 #define IP_MULTICAST_TTL 33
@@ -202,6 +203,8 @@ struct group_source_req {
 
 #define IPV6_RECVTCLASS	66
 #define IPV6_TCLASS 67
+
+#define IPV6_UNICAST_IF 76
 
 #define IPV6_ADD_MEMBERSHIP IPV6_JOIN_GROUP
 #define IPV6_DROP_MEMBERSHIP IPV6_LEAVE_GROUP

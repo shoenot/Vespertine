@@ -6,6 +6,8 @@
 typedef long blksize_t;
 #elif defined(__riscv) || defined(__aarch64__) || defined(__loongarch64)
 typedef int blksize_t;
+#else
+#error "Missing architecture specific code."
 #endif
 
 #endif /* _ABIBITS_BLKSIZE_T_H */
