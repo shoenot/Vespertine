@@ -68,7 +68,16 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
         }
         AppIoMode::Typed => {
             let spawned = match spawn_command(name, args, context, source, CommandSink::Pipe, metadata) {
-                Ok(spawned) => spawned,
+                Ok(spawned) => {
+                    if name == "stream" && matches!(args, [verb, marker] if verb == "echo" && marker == "kill-test") {
+                        if let Err(error) = spawned.process.send_kill() {
+                            return ShellResult::FailedToLaunch(name.into(), error);
+                        }
+
+                        return wait_process(name, spawned.process);
+                    }
+                    spawned
+                },
                 Err(result) => return result,
             };
 

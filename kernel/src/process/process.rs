@@ -24,15 +24,7 @@ use hal::usercopy::{
 };
 use vespertine_abi::op::ProcOp;
 use vespertine_abi::{
-    AccessRights,
-    HandleID,
-    Invocation,
-    ProcInfo,
-    ProcState,
-    ProcTermReason,
-    Signal,
-    WaitItem,
-    WaitOp,
+    AccessRights, HandleID, Invocation, ProcInfo, ProcSignal, ProcState, ProcTermReason, Signal, WaitItem, WaitOp,
 };
 use vespertine_common::lock::TicketLock;
 use crate::object::mempool::MemPool;
@@ -145,6 +137,14 @@ impl ProcTermination {
     pub const fn terminated(reason: u32) -> Self { Self { reason: ProcTermReason::Terminated, code: reason, detail: 0 } }
 
     pub const fn faulted(code: u32, detail: usize) -> Self { Self { reason: ProcTermReason::Faulted, code, detail } }
+
+    pub const fn signal_kill(signal: ProcSignal, sender_pid: usize) -> Self {
+        Self { reason: ProcTermReason::TerminatedBySignal, code: signal as u32, detail: sender_pid }
+    }
+
+    pub const fn signal_unhandled_interrupt(signal: ProcSignal, sender_pid: usize) -> Self {
+        Self { reason: ProcTermReason::TerminatedBySignal, code: signal as u32, detail: sender_pid }
+    }
 }
 
 struct WaitManyFuture<'a> {
@@ -499,6 +499,21 @@ impl KernelObject for ProcessControlBlock {
                 vmm.protect_range(vaddr, len, perms)?;
                 Ok(0)
             },
+            Invocation::Proc(ProcOp::SendSignal { code }) => {
+                calling_rights.err_if_no(AccessRights::WRITE)?;
+                let signal = ProcSignal::from_raw(code).ok_or(InvocationError::InvalidArgument)?;
+                match signal {
+                    ProcSignal::Kill => {
+                        let sender = current_process().ok_or(InvocationError::InvalidHandle)?;
+                        self.request_terminate(ProcTermination::signal_kill(signal, sender.proc_id));
+                    },
+                    ProcSignal::Interrupt => {
+                        let sender = current_process().ok_or(InvocationError::InvalidHandle)?;
+                        self.request_terminate(ProcTermination::signal_kill(signal, sender.proc_id));
+                    }
+                }
+                Ok(0)
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

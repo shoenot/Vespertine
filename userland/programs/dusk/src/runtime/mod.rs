@@ -25,12 +25,15 @@ use crate::sys::{
     launch_command,
 };
 
+const PROMPT_STRING: &'static str = ">>";
+
 pub struct ShellRuntime {
     pub context: ShellContext,
+    pub prompt: String,
 }
 
 impl ShellRuntime {
-    pub fn new() -> Self { Self { context: ShellContext::new() } }
+    pub fn new() -> Self { Self { context: ShellContext::new(), prompt: PROMPT_STRING.into() } }
 
     pub fn eval(&mut self, line: String) -> Result<ShellResult, ShellError> {
         let mut tokenizer = Tokenizer;
@@ -47,8 +50,13 @@ impl ShellRuntime {
         Ok(res)
     }
 
-    pub fn draw_prompt(&self) {
-        print!("\x1b[34m{}\x1b[0m \x1b[35m{}\n>> \x1b[0m", self.context.cwd().to_string(), self.context.status());
+    pub(crate) fn prompt(&self) -> String {
+        let cwd: String = self.context.cwd().to_string().chars()
+            .map(|ch| if ch.is_control() { '�' } else { ch })
+            .collect();
+        let status = self.context.status();
+
+        format!("\x1b[34m{cwd}\x1b[0m \x1b[35m{status}\n>> \x1b[0m")
     }
 
     pub fn run_command(&mut self, cmd: CommandNode) -> ShellResult {
@@ -64,10 +72,7 @@ impl ShellRuntime {
                 }
             }
             CommandNode::ClearScreen => match term::clear_term_screen() {
-                Ok(_) => {
-                    self.draw_prompt();
-                    ShellResult::None
-                }
+                Ok(_) => ShellResult::None,
                 Err(error) => ShellResult::InternalError(error),
             },
             CommandNode::GetMetadata { app } => match get_app_metadata(app.as_str()) {
@@ -80,7 +85,15 @@ impl ShellRuntime {
             CommandNode::Autopsy => {
                 println!("{}", self.context.last_details());
                 ShellResult::None
-            }
+            },
+            CommandNode::SetPrompt(parts) => {
+                if parts.is_empty() {
+                    println!("{}", self.prompt);
+                } else {
+                    self.prompt = parts.join(" ");
+                }
+                ShellResult::None
+            },
             CommandNode::NoOp => ShellResult::None,
         }
     }

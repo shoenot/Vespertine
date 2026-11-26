@@ -1,8 +1,7 @@
 use core::fmt::Display;
 
 use vespertine_abi::{
-    ProcInfo,
-    ProcTermReason,
+    ProcInfo, ProcSignal, ProcTermReason,
 };
 use vstd::prelude::*;
 
@@ -56,5 +55,11 @@ fn format_process_result(info: &ProcInfo, f: &mut core::fmt::Formatter<'_>) -> c
         ProcTermReason::Exited => write!(f, "pid {} exited with code {}", info.pid, info.term_code),
         ProcTermReason::Terminated => write!(f, "pid {} terminated with reason {}", info.pid, info.term_code),
         ProcTermReason::Faulted => write!(f, "pid {} faulted: {}, detail={:#x}", info.pid, info.fault_name(), info.term_detail),
+        ProcTermReason::TerminatedBySignal => {
+            let signal = ProcSignal::from_raw(info.term_code)
+                .map(|signal| signal.name())
+                .unwrap_or("unknown signal");
+            write!(f, "pid: {} terminated by {} ({}) from pid {}", info.pid, signal, info.term_code, info.term_detail)
+        }
     }
 }

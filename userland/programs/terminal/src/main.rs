@@ -96,7 +96,7 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
     )?;
 
     if let Err(e) = shell.resume() {
-        let _ = shell.terminate();
+        let _ = shell.send_kill();
         return Err(e);
     }
 
@@ -305,9 +305,6 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
 
                         grid.apply_termios(t);
                         let _ = sys_set_read_policy(term_stdin.handle(), min, timeout_ds);
-                        if current_is_raw && new_is_default {
-                            grid.clear_screen();
-                        }
                     }
                     TermCommand::GetTermios => {
                         let _ = ctrl_term.send_packet(PacketType::Termios as u32, &grid.termios);

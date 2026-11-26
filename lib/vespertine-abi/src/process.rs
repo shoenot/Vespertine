@@ -48,6 +48,7 @@ pub enum ProcTermReason {
     Exited = 1,
     Terminated = 2,
     Faulted = 3,
+    TerminatedBySignal = 4,
 }
 
 pub const PROC_FAULT_PAGE: u32 = 1;
@@ -122,6 +123,7 @@ impl ProcInfo {
             ProcTermReason::Exited => self.term_code,
             ProcTermReason::Terminated => 128 + self.term_code,
             ProcTermReason::Faulted => 128,
+            ProcTermReason::TerminatedBySignal => 128 + self.term_code,
         }
     }
 
@@ -137,6 +139,31 @@ impl ProcInfo {
             }
             ProcTermReason::Terminated => "terminated",
             ProcTermReason::Faulted => "faulted",
+            ProcTermReason::TerminatedBySignal => "terminated by signal",
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum ProcSignal {
+    Kill = 1,
+    Interrupt = 2, 
+}
+
+impl ProcSignal {
+    pub const fn from_raw(code: u32) -> Option<Self> {
+        match code {
+            code if code == Self::Kill as u32 => Some(Self::Kill),
+            code if code == Self::Interrupt as u32 => Some(Self::Interrupt),
+            _ => None,
+        }
+    }
+
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::Kill => "Kill",
+            Self::Interrupt => "Interrupt",
         }
     }
 }

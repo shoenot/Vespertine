@@ -1,6 +1,6 @@
 use alloc::collections::btree_map::BTreeMap;
 
-use vespertine_abi::ProcTermReason;
+use vespertine_abi::{ProcSignal, ProcTermReason};
 use vrt::syscall::sys_close;
 use vstd::fs::resolve_from;
 use vstd::prelude::*;
@@ -60,6 +60,12 @@ impl ShellContext {
                 ProcTermReason::Exited => format!("pid: {}, exited with code {}", info.pid, info.term_code),
                 ProcTermReason::Terminated => format!("pid: {}, terminated with reason {}", info.pid, info.term_code),
                 ProcTermReason::Faulted => format!("pid: {}, faulted: {}, detail: {:#x}", info.pid, info.fault_name(), info.term_detail),
+                ProcTermReason::TerminatedBySignal => {
+                    let signal = ProcSignal::from_raw(info.term_code)
+                        .map(|signal| signal.name())
+                        .unwrap_or("unknown signal");
+                    format!("pid: {} terminated by {} ({}) from pid {}", info.pid, signal, info.term_code, info.term_detail)
+                }
             },
             _ => format!(""),
         }

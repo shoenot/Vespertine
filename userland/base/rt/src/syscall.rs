@@ -3,18 +3,7 @@ use core::arch::asm;
 pub use vespertine_abi::SysError;
 
 use vespertine_abi::{
-    ClockOp,
-    DirectoryOp,
-    FileOp,
-    FileStat,
-    HandleID,
-    Invocation,
-    MemPoolOp,
-    ProcOp,
-    Signal,
-    SocketOp,
-    VmoOp,
-    WaitOp,
+    ClockOp, DirectoryOp, FileOp, FileStat, HandleID, Invocation, MemPoolOp, ProcOp, ProcSignal, Signal, SocketOp, VmoOp, WaitOp,
 };
 
 //----------------------------------------------------------//
@@ -216,6 +205,12 @@ pub fn sys_munmap(self_handle: HandleID, vaddr: usize, len: usize) -> Result<(),
 pub fn sys_set_fsbase(self_handle: HandleID, fs_base: usize) -> Result<(), SysError> {
     let op = Invocation::Proc(ProcOp::SetFsBase { fs_base });
     sys_invoke(self_handle, &op)?;
+    Ok(())
+}
+
+pub fn sys_send_signal(process: HandleID, signal: ProcSignal) -> Result<(), SysError> {
+    let op = ProcOp::SendSignal { code: signal as u32 };
+    sys_invoke(process, &Invocation::Proc(op))?;
     Ok(())
 }
 

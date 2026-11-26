@@ -63,6 +63,7 @@ pub enum ProcOp {
     SetFsBase { fs_base: usize },
     Unmap { vaddr: usize, len: usize },
     Mprotect { vaddr: usize, len: usize, prot: usize },
+    SendSignal { code: u32 },
 }
 
 #[repr(C)]
@@ -151,3 +152,4 @@ pub enum PortalOp {
     Accept { offer_id: usize, requested_rights: AccessRights },
     Revoke { offer_id: usize },
 }
+

@@ -57,6 +57,7 @@ impl Invocation {
             Invocation::Proc(ProcOp::SetFsBase { .. }) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::Unmap { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::Mprotect { .. }) => AccessRights::MUTATE,
+            Invocation::Proc(ProcOp::SendSignal { .. }) => AccessRights::WRITE,
             Invocation::Thread(ThreadOp::Kill) => AccessRights::WRITE,
             Invocation::Thread(ThreadOp::Join) => AccessRights::READ,
             Invocation::Thread(ThreadOp::GetID) => AccessRights::READ,

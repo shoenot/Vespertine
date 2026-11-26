@@ -12,4 +12,5 @@ pub enum CommandNode {
     GetMetadata { app: String },
     Autopsy,
     NoOp,
+    SetPrompt(Vec<String>)
 }

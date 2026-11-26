@@ -8,18 +8,7 @@ use vespertine_abi::protocol::{
 };
 use vespertine_abi::tag::CAP_PROCMAN;
 use vespertine_abi::{
-    AccessRights,
-    CapabilityGrant,
-    CapabilityID,
-    HandleID,
-    Invocation,
-    ProcInfo,
-    ProcManOp,
-    ProcOp,
-    Signal,
-    SpawnCredentials,
-    UserID,
-    WaitOp,
+    AccessRights, CapabilityGrant, CapabilityID, HandleID, Invocation, ProcInfo, ProcManOp, ProcOp, ProcSignal, Signal, SpawnCredentials, UserID, WaitOp,
 };
 extern crate alloc;
 use alloc::string::String;
@@ -27,8 +16,7 @@ use alloc::vec::Vec;
 
 use vrt::once::OnceCell;
 use vrt::syscall::{
-    sys_close,
-    sys_invoke,
+    sys_close, sys_invoke, sys_send_signal,
 };
 
 use crate::broker::Broker;
@@ -121,6 +109,18 @@ impl Process {
 
     pub fn resume(&self) -> Result<(), Error> {
         sys_invoke(self.handle, &Invocation::Proc(ProcOp::Resume)).map(|_| ()).map_err(Error::from)
+    }
+
+    pub fn send_signal(&self, signal: ProcSignal) -> Result<(), Error> {
+        sys_send_signal(self.handle, signal).map_err(Error::from)
+    }
+
+    pub fn send_kill(&self) -> Result<(), Error> {
+        self.send_signal(ProcSignal::Kill)
+    }
+
+    pub fn send_interrupt(&self) -> Result<(), Error> {
+        self.send_signal(ProcSignal::Interrupt)
     }
 }
 
