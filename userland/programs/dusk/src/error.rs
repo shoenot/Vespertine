@@ -6,6 +6,7 @@ pub enum ShellError {
     ExpectedToken,
     NoCursorPosition,
     TerminalError,
+    CouldNotStartForeground,
 }
 
 impl Display for ShellError {
@@ -15,6 +16,7 @@ impl Display for ShellError {
             ShellError::ExpectedToken => write!(f, "DUSK: expected appropriate token"),
             ShellError::TerminalError => write!(f, "DUSK: terminal error"),
             ShellError::NoCursorPosition => write!(f, "DUSK: failure to get cursor position"),
+            ShellError::CouldNotStartForeground => write!(f, "DUSK: failure to start foreground worker"),
         }
     }
 }

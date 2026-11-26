@@ -100,7 +100,6 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
         return Err(e);
     }
 
-    drop(shell);
     drop(app_stdin);
     drop(app_stdout);
     drop(app_ctrl);
@@ -164,6 +163,8 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
                         if !translated.is_empty() {
                             let _ = sys_write_bytes(term_stdin.handle(), &translated);
                         }
+                        // ISIG handling
+                        //  TODO:
                     } else {
                         // canonical mode: ignore multi-byte escape sequences 
                         if translated.starts_with(b"\x1b") && translated.len() > 1 {
@@ -200,10 +201,13 @@ fn main(_pkg: &ProcessInitPackage) -> Result<(), Error> {
                                 }
 
                                 // ISIG handling
-                                if check_flag(lflag, ISIG) {
-                                    if processed_byte == grid.termios.c_cc[VINTR as usize] {
-                                        // TODO: send SIGINT
+                                if check_flag(lflag, ISIG) && processed_byte == grid.termios.c_cc[VINTR]
+                                {
+                                    grid.can_buffer.clear();
+                                    if let Err(e) = shell.send_interrupt() {
+                                        log.write_string(format!("Could not sent interrupt: {e}"))?;
                                     }
+                                    continue;
                                 }
 
                                 // ECHO / ECHONL handling

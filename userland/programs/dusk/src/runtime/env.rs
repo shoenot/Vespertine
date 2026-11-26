@@ -6,17 +6,25 @@ use vstd::fs::resolve_from;
 use vstd::prelude::*;
 
 use crate::sys::ShellResult;
+use crate::sys::foreground::Foreground;
 
 pub struct ShellContext {
     cwd: PathBuf,
     cwd_handle: HandleID,
     environment: BTreeMap<String, String>,
+    pub foreground: Foreground,
     pub last_result: ShellResult,
 }
 
 impl ShellContext {
-    pub fn new() -> Self {
-        Self { cwd: PathBuf::root(), cwd_handle: env::cwd(), environment: BTreeMap::new(), last_result: ShellResult::None }
+    pub fn new(foreground: Foreground) -> Self {
+        Self { 
+            cwd: PathBuf::root(), 
+            cwd_handle: env::cwd(), 
+            environment: BTreeMap::new(), 
+            foreground,
+            last_result: ShellResult::None 
+        }
     }
 
     pub fn cwd(&self) -> &PathBuf { &self.cwd }

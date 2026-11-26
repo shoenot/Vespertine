@@ -19,6 +19,7 @@ use crate::parser::ast::{
     CommandNode,
 };
 use crate::runtime::env::ShellContext;
+use crate::sys::foreground::Foreground;
 use crate::sys::{
     ShellResult,
     launch_base,
@@ -33,7 +34,9 @@ pub struct ShellRuntime {
 }
 
 impl ShellRuntime {
-    pub fn new() -> Self { Self { context: ShellContext::new(), prompt: PROMPT_STRING.into() } }
+    pub fn new(foreground: Foreground) -> Self { 
+        Self { context: ShellContext::new(foreground), prompt: PROMPT_STRING.into() } 
+    }
 
     pub fn eval(&mut self, line: String) -> Result<ShellResult, ShellError> {
         let mut tokenizer = Tokenizer;

@@ -25,3 +25,4 @@ pub mod sync;
 pub mod term;
 pub mod typed;
 pub mod vreg;
+pub mod notifications;

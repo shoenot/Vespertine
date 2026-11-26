@@ -84,7 +84,7 @@ pub async fn write_all_to_object(object: &dyn KernelObject, rights: AccessRights
 }
 
 pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
-    current_process().expect("No active process").handles.write().close(handle)
+    current_process().expect("No active process").close_handle(handle)
 }
 
 pub fn kernel_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result<HandleID, InvocationError> {

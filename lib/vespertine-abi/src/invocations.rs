@@ -20,6 +20,7 @@ pub enum Invocation {
     Socket(SocketOp),
     Portal(PortalOp),
     Wait(WaitOp),
+    Notification(NotificationOp),
 }
 
 impl Invocation {
@@ -58,6 +59,7 @@ impl Invocation {
             Invocation::Proc(ProcOp::Unmap { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::Mprotect { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::SendSignal { .. }) => AccessRights::WRITE,
+            Invocation::Proc(ProcOp::ClaimNotifications { .. }) => AccessRights::WRITE,
             Invocation::Thread(ThreadOp::Kill) => AccessRights::WRITE,
             Invocation::Thread(ThreadOp::Join) => AccessRights::READ,
             Invocation::Thread(ThreadOp::GetID) => AccessRights::READ,
@@ -77,6 +79,7 @@ impl Invocation {
             Invocation::Portal(PortalOp::Create { .. }) => AccessRights::CREATE,
             Invocation::Portal(..) => AccessRights::WRITE,
             Invocation::Broker(BrokerOp::Request { .. }) => AccessRights::READ,
+            Invocation::Notification(NotificationOp::TakeNotification) => AccessRights::READ,
         }
     }
 }

@@ -25,7 +25,7 @@ impl Termios {
             c_iflag: ICRNL | IXON,
             c_oflag: OPOST | ONLCR,
             c_cflag: CS8 | CREAD | CLOCAL,
-            c_lflag: ISIG | ICANON | ECHO | ECHOE,
+            c_lflag: ICANON | ECHO | ECHOE,
             c_line: 0,
             c_cc: cc,
             c_ispeed: B38400,

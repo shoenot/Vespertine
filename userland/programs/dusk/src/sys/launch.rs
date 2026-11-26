@@ -61,50 +61,82 @@ pub fn launch_command(name: &str, args: &[String], context: &ShellContext) -> Sh
                 Ok(spawned) => spawned,
                 Err(result) => return result,
             };
-            if let Err(error) = spawned.process.resume() {
-                return ShellResult::FailedToLaunch(name.into(), error);
-            }
-            wait_process(name, spawned.process)
-        }
-        AppIoMode::Typed => {
-            let spawned = match spawn_command(name, args, context, source, CommandSink::Pipe, metadata) {
-                Ok(spawned) => {
-                    if name == "stream" && matches!(args, [verb, marker] if verb == "echo" && marker == "kill-test") {
-                        if let Err(error) = spawned.process.send_kill() {
-                            return ShellResult::FailedToLaunch(name.into(), error);
-                        }
+            let process = Arc::new(spawned.process);
 
-                        return wait_process(name, spawned.process);
-                    }
-                    spawned
+            if let Err(e) = context.foreground.begin(vec![Arc::clone(&process)]) {
+                let _ = process.send_kill();
+                return ShellResult::FailedToLaunch(name.into(), e);
+            }
+
+            let res = match process.resume() {
+                Ok(()) => match process.wait() {
+                    Ok(info) => ShellResult::Launched(info),
+                    Err(e) => ShellResult::FailedToWait(name.into(), e),
                 },
+                Err(e) => {
+                    let _ = process.send_kill();
+                    ShellResult::FailedToLaunch(name.into(), e)
+                },
+            };
+
+            if let Err(e) = context.foreground.finish() {
+                println!("dusk: cannot reset terminal after {name}: {e}");
+            }
+            res
+        },
+        AppIoMode::Typed => {
+            use vespertine_abi::{ProcSignal, ProcTermReason};
+
+            let spawned = match spawn_command(name, args, context, source, CommandSink::Pipe, metadata) {
+                Ok(spawned) => spawned,
                 Err(result) => return result,
             };
 
+            let process = Arc::new(spawned.process);
             let SpawnedOutput::Piped { socket, .. } = spawned.output else {
+                let _ = process.send_kill();
                 return ShellResult::FailedToLaunch(
                     name.into(),
                     Error::invalid_argument("typed application did not produce a pipe".into()),
                 );
             };
 
-            if let Err(error) = spawned.process.resume() {
+            if let Err(error) = context.foreground.begin(vec![Arc::clone(&process)]) {
+                let _ = process.send_kill();
                 return ShellResult::FailedToLaunch(name.into(), error);
             }
 
-            let render_result = render_typed_stream(socket, HandleWriter::new(env::sink()));
-            let wait_result = spawned.process.wait();
-            let _ = unset_raw_mode();
+            let result = match process.resume() {
+                Err(error) => {
+                    let _ = process.send_kill();
+                    ShellResult::FailedToLaunch(name.into(), error)
+                }
+                Ok(()) => {
+                    let render_result = render_typed_stream(socket, HandleWriter::new(env::sink()));
 
-            match (render_result, wait_result) {
-                (Ok(()), Ok(exit)) => ShellResult::Launched(exit),
-                (_, Err(error)) => ShellResult::FailedToWait(name.into(), error),
-                (Err(error), _) => ShellResult::from_render_error(name, error),
+                    match process.wait() {
+                        Err(error) => ShellResult::FailedToWait(name.into(), error),
+                        Ok(info) if info.term_reason == ProcTermReason::TerminatedBySignal
+                            && info.term_code == ProcSignal::Interrupt as u32 => {
+                            ShellResult::Launched(info)
+                        }
+                        Ok(info) => match render_result {
+                            Ok(()) => ShellResult::Launched(info),
+                            Err(error) => ShellResult::from_render_error(name, error),
+                        },
+                    }
+                }
+            };
+
+            if let Err(error) = context.foreground.finish() {
+                println!("dusk: cannot reset terminal after {name}: {error}");
             }
-        }
+
+            result
+        },
         AppIoMode::Any => {
             ShellResult::FailedToLaunch(name.into(), Error::invalid_argument("application selected invalid launch mode".into()))
-        }
+        },
     }
 }
 

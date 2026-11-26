@@ -37,11 +37,12 @@ impl HandleTable {
 
     pub fn get(&self, id: &HandleID) -> Option<&HandleEntry> { self.entries.get(id) }
 
+    pub fn remove(&mut self, id: HandleID) -> Result<HandleEntry, InvocationError> {
+        self.entries.remove(&id).ok_or(InvocationError::InvalidHandle)
+    }
+
     pub fn close(&mut self, id: HandleID) -> Result<(), InvocationError> {
-        match self.entries.remove(&id) {
-            Some(_) => Ok(()),
-            None => Err(InvocationError::InvalidHandle),
-        }
+        self.remove(id).map(drop)
     }
 
     pub fn resolve_entry(&self, id: HandleID, required: AccessRights) -> Result<&HandleEntry, InvocationError> {

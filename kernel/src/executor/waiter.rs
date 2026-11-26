@@ -61,8 +61,14 @@ impl WaiterList {
     pub fn register(&mut self, waiter: &Arc<AsyncWaiter>, waker: &Waker) {
         waiter.register(waker);
 
-        let already_registered =
-            self.waiters.iter().any(|existing| existing.upgrade().is_some_and(|existing| Arc::ptr_eq(&existing, waiter)));
+        let mut already_registered = false;
+        self.waiters.retain(|entry| {
+            let Some(existing) = entry.upgrade() else {
+                return false;
+            };
+            already_registered |= Arc::ptr_eq(&existing, waiter);
+            true
+        });
 
         if !already_registered {
             self.waiters.push(Arc::downgrade(waiter));

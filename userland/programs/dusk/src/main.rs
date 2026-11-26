@@ -12,13 +12,13 @@ mod sys;
 use error::ShellError;
 use vespertine_abi::app::termios::*;
 use vliner::{LineState, Redraw};
-use vrt::source::read_line;
 use vstd::auth::AuthClient;
 use vstd::{HandleReader, HandleWriter, Process, prelude::*};
 use vstd::term::*;
 
 use crate::runtime::ShellRuntime;
 use crate::sys::ShellResult;
+use crate::sys::foreground::Foreground;
 
 fn cd_user_home(runtime: &mut ShellRuntime) -> Result<(), Error> {
     let user= Process::info_from_handle(env::self_handle())?.user;
@@ -28,7 +28,8 @@ fn cd_user_home(runtime: &mut ShellRuntime) -> Result<(), Error> {
 
 #[vapp::main]
 fn main(_pkg: &ProcessInitPackage) -> Result<(), ShellError> {
-    let mut runtime = ShellRuntime::new();
+    let fg = Foreground::start().map_err(|_| ShellError::CouldNotStartForeground)?;
+    let mut runtime = ShellRuntime::new(fg);
     if let Err(e) = cd_user_home(&mut runtime) {
         println!("dusk: cannot enter home directory: {e}")
     }

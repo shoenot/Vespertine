@@ -9,6 +9,7 @@ use crate::{object::{fs::directory::Directory, handle::HandleTable, namespace::D
 
 pub mod procman;
 pub mod thread_object;
+pub mod notifications;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 

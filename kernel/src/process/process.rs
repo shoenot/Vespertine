@@ -28,6 +28,7 @@ use vespertine_abi::{
 };
 use vespertine_common::lock::TicketLock;
 use crate::object::mempool::MemPool;
+use crate::process::notifications::{NotificationClaim, NotificationReceiver};
 use crate::sync::TicketLock as IrqTicketLock;
 
 use crate::executor::waiter::{
@@ -113,6 +114,7 @@ unsafe impl Sync for ProcessControlBlock {}
 struct LifecycleState {
     phase: ProcLifecycle,
     initial_thread: Option<*mut Thread>,
+    notification_claim: Option<NotificationClaim>,
 }
 
 unsafe impl Send for LifecycleState {}
@@ -237,6 +239,12 @@ impl ProcessControlBlock {
         let memory = vmm.accounting();
         let root_addr = vmm.address_space_root();
 
+        let lifecycle = IrqTicketLock::new(LifecycleState {
+            phase: ProcLifecycle::Running,
+            initial_thread: None,
+            notification_claim: None,
+        });
+
         Ok(Arc::new(Self {
             proc_id: get_new_pid(),
             proc_name: name,
@@ -252,7 +260,7 @@ impl ProcessControlBlock {
             active_threads: AtomicUsize::new(0),
             unreaped_threads: AtomicUsize::new(0),
 
-            lifecycle: IrqTicketLock::new(LifecycleState { phase: ProcLifecycle::Running, initial_thread: None }),
+            lifecycle,
             completion_waiters: TicketLock::new(WaiterList::new()),
 
             futexes: RwLock::new(BTreeMap::new()),
@@ -304,24 +312,60 @@ impl ProcessControlBlock {
         Ok(0)
     }
 
-    pub fn request_terminate(&self, termination: ProcTermination) -> bool {
-        {
-            let mut lifecycle = self.lifecycle.lock();
-            if !matches!(lifecycle.phase, ProcLifecycle::Running) { return false }
-
-            lifecycle.phase = ProcLifecycle::Terminating(termination);
-
-            if let Some(thread) = lifecycle.initial_thread.take() {
-                // the scheduler retires it before running the entry point
-                unsafe { enqueue_new_user_thread(thread) }
-            }
+    fn claim_notifications(&self) -> Result<usize, InvocationError> {
+        let caller = current_process().ok_or(InvocationError::InvalidHandle)?;
+        if !core::ptr::eq(self, Arc::as_ptr(&caller)) {
+            return Err(InvocationError::AccessDenied);
         }
+
+        let receiver = Arc::new(NotificationReceiver::new());
+
+        let mut handles = self.handles.write();
+        let mut lifecycle = self.lifecycle.lock();
+        
+        if lifecycle.phase != ProcLifecycle::Running || lifecycle.notification_claim.is_some() {
+            return Err(InvocationError::InvalidArgument);
+        }
+
+        let owner_handle = handles.insert(receiver.clone(), AccessRights::READ);
+        lifecycle.notification_claim = Some(NotificationClaim { owner_handle, receiver });
+
+        Ok(owner_handle.0)
+    }
+
+    fn begin_termination_locked(lifecycle: &mut LifecycleState, termination: ProcTermination) -> bool {
+        if lifecycle.phase != ProcLifecycle::Running {
+            return false;
+        }
+
+        lifecycle.phase = ProcLifecycle::Terminating(termination);
+
+        if let Some(thread) = lifecycle.initial_thread.take() {
+            // the scheduler retires it before running the entry point
+            unsafe { enqueue_new_user_thread(thread) }
+        }
+
+        true
+    }
+
+    pub fn request_terminate(&self, termination: ProcTermination) -> bool {
+        let started = {
+            let mut lifecycle = self.lifecycle.lock();
+            Self::begin_termination_locked(&mut lifecycle, termination)
+        };
+
+        if started {
+            self.cancel_threads_for_termination();
+        }
+
+        started
+    }
+
+    fn cancel_threads_for_termination(&self) {
         for pin in self.pinned_thread_snapshot() {
             let thread = pin.as_ptr();
 
-            if thread.is_null() {
-                continue;
-            }
+            if thread.is_null() { continue };
             unsafe {
                 (*thread).request_cancel();
                 match (*thread).state() {
@@ -335,7 +379,50 @@ impl ProcessControlBlock {
                 }
             }
         }
-        true
+    }
+
+    fn deliver_interrupt(&self, sender_pid: usize) {
+        let mut lifecycle = self.lifecycle.lock();
+        if lifecycle.phase != ProcLifecycle::Running { return };
+
+        if let Some(claim) = &lifecycle.notification_claim {
+            let wakers = claim.receiver.post(sender_pid);
+            drop(lifecycle);
+            wake_all(wakers);
+            return;
+        }
+
+        // default action if interrupt not handled
+        let reason = ProcTermination::signal_unhandled_interrupt(
+            ProcSignal::Interrupt,
+            sender_pid,
+        );
+        Self::begin_termination_locked(&mut lifecycle, reason);
+        drop(lifecycle);
+        self.cancel_threads_for_termination();
+    }
+
+    pub fn close_handle(&self, id: HandleID) -> Result<(), InvocationError> {
+        let mut handles = self.handles.write();
+        let removed = handles.remove(id)?;
+        let mut lifecycle = self.lifecycle.lock();
+
+        let owns_claim = lifecycle.notification_claim.as_ref()
+            .is_some_and(|claim| claim.owner_handle == id);
+
+        let wakers = if owns_claim {
+            let claim = lifecycle.notification_claim.take().unwrap();
+            claim.receiver.release()
+        } else {
+            Vec::new()
+        };
+
+        drop(lifecycle);
+        drop(handles);
+        drop(removed);
+
+        wake_all(wakers);
+        Ok(())
     }
 
     pub fn finish_thread_exit(&self, thread: *mut Thread, normal_exit_code: u32) -> bool {
@@ -357,7 +444,13 @@ impl ProcessControlBlock {
         };
 
         lc.phase = ProcLifecycle::Terminated(termination);
+
+        let notification_wakers = lc.notification_claim.take()
+            .map(|claim| claim.receiver.release())
+            .unwrap_or_default();
+
         drop(lc);
+        wake_all(notification_wakers);
 
         unregister_process(self.proc_id);
 
@@ -501,18 +594,19 @@ impl KernelObject for ProcessControlBlock {
             },
             Invocation::Proc(ProcOp::SendSignal { code }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
+                let sender = current_process().ok_or(InvocationError::InvalidHandle)?;
                 let signal = ProcSignal::from_raw(code).ok_or(InvocationError::InvalidArgument)?;
                 match signal {
                     ProcSignal::Kill => {
-                        let sender = current_process().ok_or(InvocationError::InvalidHandle)?;
                         self.request_terminate(ProcTermination::signal_kill(signal, sender.proc_id));
                     },
-                    ProcSignal::Interrupt => {
-                        let sender = current_process().ok_or(InvocationError::InvalidHandle)?;
-                        self.request_terminate(ProcTermination::signal_kill(signal, sender.proc_id));
-                    }
+                    ProcSignal::Interrupt => self.deliver_interrupt(sender.proc_id),
                 }
                 Ok(0)
+            },
+            Invocation::Proc(ProcOp::ClaimNotifications) => {
+                calling_rights.err_if_no(AccessRights::WRITE)?;
+                self.claim_notifications()
             }
             _ => Err(InvocationError::UnsupportedOperation),
         }
