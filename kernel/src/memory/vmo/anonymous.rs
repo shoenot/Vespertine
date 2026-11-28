@@ -1,6 +1,7 @@
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use hal::usercopy::copy_mapped_bytes;
 
 use super::{PagedBackingStore, MappingPage};
 use crate::memory::pool::{PoolReservation, PoolState};
@@ -30,7 +31,7 @@ impl AnonymousVmo {
         Arc::new(Self { size, pages: TicketLock::new(BTreeMap::new()), _reservation: reservation })
     }
 
-    pub(crate) fn get_page(&self, offset: usize) -> Result<Arc<Frame4K>, ()> {
+    pub fn get_page(&self, offset: usize) -> Result<Arc<Frame4K>, ()> {
         if offset >= self.size {
             return Err(());
         }
@@ -45,6 +46,10 @@ impl AnonymousVmo {
         let frame = Arc::new(Frame4K::allocate_zeroed().ok_or(())?);
         pages.insert(page_index, Arc::clone(&frame));
         Ok(frame)
+    }
+
+    pub fn len(&self) -> usize {
+        self.size
     }
 }
 
@@ -82,14 +87,7 @@ impl PagedBackingStore for AnonymousVmo {
                 .map_err(|_| InvocationError::OutOfMemory)?;
 
             unsafe {
-                core::arch::asm!(
-                    "cld",
-                    "rep movsb",
-                    inout("rsi") source.virt() => _,
-                    inout("rdi") dest.virt() => _,
-                    inout("rcx") count => _,
-                    options(nostack),
-                );
+                copy_mapped_bytes(source.virt() as *const u8, dest.virt() as *mut u8, count);
             }
         }
 
@@ -99,4 +97,6 @@ impl PagedBackingStore for AnonymousVmo {
     fn page_for_mapping(&self, offset: usize) -> Result<MappingPage, ()> {
         self.get_page(offset).map(MappingPage::Owned)
     }
+
+    fn as_anonymous(&self) -> Option<&AnonymousVmo> { Some(self) }
 }

@@ -9,7 +9,7 @@ use vespertine_abi::{
 };
 
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::mempool::MemPool;
 use crate::object::obj::KernelObject;
 use crate::process::current_process;
@@ -21,7 +21,7 @@ pub struct MemoryManager;
 impl KernelObject for MemoryManager {
     fn type_name(&self) -> &'static str { "Memory Manager" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::MemoryManager(MemManOp::CreatePool { limit }) => {
                 calling_rights.err_if_no(AccessRights::CREATE)?;

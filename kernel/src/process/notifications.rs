@@ -5,6 +5,7 @@ use alloc::sync::Arc;
 use async_trait::async_trait;
 use vespertine_abi::{AccessRights, HandleID, Invocation, NotificationOp, Signal, WaitOp};
 
+use crate::object::invoke::InvokeContext;
 use crate::{executor::waiter::{AsyncWaiter, WaiterList}, object::{help::RightsWrapper, invoke::InvocationError, obj::{KernelObject, ObjectWaitFuture}}, sync::TicketLock as IrqTicketLock};
 
 #[derive(Debug, Clone, Copy)]
@@ -93,12 +94,12 @@ impl KernelObject for NotificationReceiver {
         Ok(())
     }
 
-    async fn invoke(&self, invocation: Invocation, rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         rights.err_if_no(AccessRights::READ)?;
         match invocation {
             Invocation::Notification(NotificationOp::TakeNotification) => self.take(),
             Invocation::Wait(WaitOp::One(signal)) if signal == Signal::READABLE => {
-                ObjectWaitFuture::new(self, signal).await
+                ctx.wait(ObjectWaitFuture::new(self, signal)).await
             },
             _ => Err(InvocationError::UnsupportedOperation),
         }

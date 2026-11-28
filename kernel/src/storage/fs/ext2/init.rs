@@ -83,7 +83,7 @@ async fn test_ext2_sync(root: &Ext2Directory, total_sectors: u64) {
 
     use crate::drivers::virtio::blk::{DIAGNOSTIC_FAIL_FLUSH, DIAGNOSTIC_FLUSH_COUNT};
     use crate::memory::PAGE_SIZE_4K;
-    use crate::object::invoke::InvocationError;
+    use crate::object::invoke::{InvocationError, InvokeContext};
     use crate::object::obj::KernelDirectory;
 
     const NAME: &str = ".ext2-sync-test";
@@ -104,11 +104,11 @@ async fn test_ext2_sync(root: &Ext2Directory, total_sectors: u64) {
         buffer_ptr: payload.as_ptr() as usize,
         len: payload.len(),
     });
-    assert_eq!(file.invoke(write, AccessRights::WRITE).await.unwrap(), payload.len());
+    assert_eq!(file.invoke(write, AccessRights::WRITE, InvokeContext::kernel()).await.unwrap(), payload.len());
 
     let sync = || Invocation::File(FileOp::Sync);
     let completed = DIAGNOSTIC_FLUSH_COUNT.load(SeqCst);
-    assert_eq!(file.invoke(sync(), AccessRights::READ).await, Err(InvocationError::AccessDenied));
+    assert_eq!(file.invoke(sync(), AccessRights::READ, InvokeContext::kernel()).await, Err(InvocationError::AccessDenied));
 
     // Before the daemon starts, simulate an allocator with no free blocks.
     let counts: Vec<u16> = {
@@ -119,7 +119,7 @@ async fn test_ext2_sync(root: &Ext2Directory, total_sectors: u64) {
             saved
         }).collect()
     };
-    let no_space = file.invoke(sync(), AccessRights::WRITE).await;
+    let no_space = file.invoke(sync(), AccessRights::WRITE, InvokeContext::kernel()).await;
     {
         let mut groups = root.fs.bgdt.lock();
         for (group, count) in groups.iter_mut().zip(counts) {
@@ -130,11 +130,11 @@ async fn test_ext2_sync(root: &Ext2Directory, total_sectors: u64) {
     assert_eq!(DIAGNOSTIC_FLUSH_COUNT.load(SeqCst), completed);
 
     DIAGNOSTIC_FAIL_FLUSH.store(true, SeqCst);
-    assert_eq!(file.invoke(sync(), AccessRights::WRITE).await, Err(InvocationError::Io));
+    assert_eq!(file.invoke(sync(), AccessRights::WRITE, InvokeContext::kernel()).await, Err(InvocationError::Io));
     assert!(!DIAGNOSTIC_FAIL_FLUSH.load(SeqCst), "sync never submitted a device flush");
     assert_eq!(DIAGNOSTIC_FLUSH_COUNT.load(SeqCst), completed);
 
-    file.invoke(sync(), AccessRights::WRITE).await.unwrap();
+    file.invoke(sync(), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
     assert_eq!(DIAGNOSTIC_FLUSH_COUNT.load(SeqCst), completed + 1);
 
     // Read with independent inode, metadata, and file caches.
@@ -153,7 +153,7 @@ async fn test_ext2_sync(root: &Ext2Directory, total_sectors: u64) {
         buffer_ptr: actual.as_mut_ptr() as usize,
         len: actual.len(),
     });
-    assert_eq!(cold_file.invoke(read, AccessRights::READ).await.unwrap(), payload.len());
+    assert_eq!(cold_file.invoke(read, AccessRights::READ, InvokeContext::kernel()).await.unwrap(), payload.len());
     assert_eq!(&actual[..payload.len()], &payload);
 
     drop((cold_file, cold_root, file));

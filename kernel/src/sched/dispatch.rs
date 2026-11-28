@@ -1,4 +1,6 @@
 use alloc::alloc::{alloc, dealloc};
+use alloc::sync::Arc;
+use hal::interrupts::{disable_interrupts, interrupts_enabled};
 use core::alloc::Layout;
 use core::ptr::write_volatile;
 use core::sync::atomic::{
@@ -12,12 +14,10 @@ use crate::cpu::{
     NUM_CORES, current_core_id, current_core_mut, get_core_data_for, try_get_core_data_for
 };
 use crate::process::Process;
+use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::priority::ThreadPriority;
 use crate::sched::{
-    ThreadBlockState,
-    Thread,
-    ThreadError,
-    ThreadState,
+    Thread, ThreadError, ThreadPin, ThreadState
 };
 
 pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut Thread {
@@ -210,84 +210,92 @@ pub fn enqueue_ready_thread(thread: *mut Thread) {
     }
 }
 
-pub fn try_wake_thread(thread: *mut Thread) -> bool {
-    unsafe {
-        if (*thread).state() == ThreadState::Terminated {
-            return false;
-        }
+pub fn try_wake_thread(ptr: *mut Thread) -> bool {
+    let Some(thread) = (unsafe { ptr.as_ref() }) else { return false };
+    let park = thread.block_state.lock();
 
-        if (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
-            return false;
-        }
+    if park.is_some() || thread.transition(ThreadState::Blocked, ThreadState::Ready).is_err() { return false };
 
-        (*thread).clear_block_state();
-        (*thread).effective_priority = (*thread).base_priority.boosted(2);
-        true
-    }
+    unsafe { (*ptr).effective_priority = (*ptr).base_priority.boosted(2) };
+    true
 }
 
 pub fn cancel_block_if_awoken(thread: &Thread, awoken: &AtomicBool) -> bool {
-    if awoken.swap(false, Ordering::AcqRel) && thread.transition(ThreadState::Blocked, ThreadState::Running).is_ok() {
-        thread.clear_block_state();
-        true
-    } else {
-        false
-    }
+    if !awoken.swap(false, Ordering::AcqRel) { return false };
+
+    let park = thread.block_state.lock();
+    park.is_none() && thread.transition(ThreadState::Blocked, ThreadState::Running).is_ok()
 }
 
-pub fn wake_thread(thread: *mut Thread) {
-    if !try_wake_thread(thread) {
-        return;
+pub(crate) fn resume_registered_if_awoken(thread: &Thread, expected: &Arc<ThreadWakeRegistration>, awoken: &AtomicBool) -> bool {
+    if !awoken.swap(false, Ordering::AcqRel) { return false };
+
+    let mut park = thread.block_state.lock();
+    if !park.as_ref().is_some_and(|installed| Arc::ptr_eq(installed, expected)) || thread.transition(ThreadState::Blocked, ThreadState::Running).is_err() {
+        return false;
     }
-    enqueue_ready_thread(thread);
+
+    *park = None;
+    true
+}
+
+pub(crate) fn wake_registered_thread(pin: &ThreadPin, expected: &ThreadWakeRegistration) -> bool {
+    let ptr = pin.as_ptr();
+    let thread = unsafe { &*ptr };
+
+    {
+        let mut park = thread.block_state.lock();
+        if !park.as_deref().is_some_and(|installed| core::ptr::eq(installed, expected)) || thread.transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
+            return false;
+        }
+
+        *park = None;
+        unsafe { (*ptr).effective_priority = (*ptr).base_priority.boosted(2) };
+    }
+
+    enqueue_ready_thread(ptr);
+    true
 }
 
 pub fn start_thread(thread: *mut Thread) { enqueue_ready_thread(thread); }
 
-pub fn cancel_blocked_thread(thread: *mut Thread) -> bool {
-    if thread.is_null() {
-        return false;
-    }
-
-    unsafe {
-        (*thread).request_cancel();
-
-        if (*thread).state() != ThreadState::Blocked {
-            return false;
-        }
-
-        let state = (*thread).take_block_state();
-
-        let removed = match state {
-            ThreadBlockState::None => false,
-            ThreadBlockState::WaitQueue { queue } => {
-                if queue.is_null() {
-                    false
-                } else {
-                    (*queue).lock().remove(thread)
-                }
-            }
-            ThreadBlockState::Registration { registration } => registration.cancel(),
-            ThreadBlockState::Futex { addr } => {
-                let proc = (*thread).process.clone();
-                let mut futexes = proc.futexes.write();
-
-                match futexes.get_mut(&addr) {
-                    Some(queue) => queue.remove(thread),
-                    None => false,
-                }
-            }
-        };
-
-        if !removed {
-            return false;
-        }
-
-        if (*thread).transition(ThreadState::Blocked, ThreadState::Ready).is_err() {
-            return false;
-        }
-
+pub fn wake_thread(thread: *mut Thread) {
+    if try_wake_thread(thread) {
         enqueue_ready_thread(thread);
-        true
     }
+}
+
+pub(crate) fn request_thread_termination(pin: &ThreadPin) {
+    let ptr = pin.as_ptr();
+    let thread = unsafe { &*ptr };
+
+    if thread.state() == ThreadState::Terminated {
+        return;
+    }
+
+    thread.request_cancel();
+
+    if matches!(thread.state(), ThreadState::Running | ThreadState::Ready) {
+        reschedule_thread_core(ptr);
+    }
+}
+
+pub fn run_user_kernel_entry(run: impl FnOnce()) {
+    let tcb = current_core_mut().scheduler.get_current_thread();
+    let thread = unsafe { &* tcb };
+
+    debug_assert!(!interrupts_enabled());
+    debug_assert!(!thread.user_kernel_active.load(Ordering::Relaxed));
+    thread.user_kernel_active.store(true, Ordering::Release);
+
+    if !thread.cancel_requested() && !thread.process.is_terminating() {
+        run();
+    }
+
+    disable_interrupts();
+    if thread.cancel_requested() || thread.process.is_terminating() {
+        current_core_mut().scheduler.terminate_current_thread(0);
+    }
+
+    thread.user_kernel_active.store(false, Ordering::Relaxed);
 }

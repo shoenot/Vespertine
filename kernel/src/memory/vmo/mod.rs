@@ -26,5 +26,8 @@ pub trait PagedBackingStore: Send + Sync + Debug {
     }
 
     fn page_for_mapping(&self, offset: usize) -> Result<MappingPage, ()>;
+
     fn device_mapping_len(&self) -> Option<usize> { None }
+
+    fn as_anonymous(&self) -> Option<&AnonymousVmo> { None }
 }

@@ -1,7 +1,6 @@
-use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::task::Wake;
-use core::pin::Pin;
+use core::pin::pin;
 use core::sync::atomic::{
     AtomicBool,
     Ordering,
@@ -22,16 +21,12 @@ use vespertine_abi::{
 };
 
 use crate::cpu::current_core_mut;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::vfs::kernel_invoke;
 use crate::sync::TicketLock;
 use crate::sched::block::{ThreadWakeRegistration, WakeTarget};
-use crate::sched::dispatch::cancel_block_if_awoken;
+use crate::sched::dispatch::resume_registered_if_awoken;
 use crate::sched::scheduler::ScheduleReason;
-use crate::sched::{
-    ThreadBlockState,
-    ThreadState,
-};
 
 struct ThreadWaker {
     target: Arc<WakeTarget>,
@@ -57,54 +52,20 @@ impl Wake for ThreadWaker {
 
     fn wake_by_ref(self: &Arc<Self>) {
         self.awoken.store(true, Ordering::Release);
-        self.registration.lock().wake();
+        let registration = Arc::clone(&*self.registration.lock());
+        registration.wake();
     }
 }
 
 pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let tcb = current_core_mut().scheduler.get_current_thread();
-    let mut future = Box::pin(kernel_invoke(handle, invocation));
-
-    let waker_inner = ThreadWaker::new(unsafe { Arc::clone(&(*tcb).wake_target) });
-    let waker = waker_inner.clone().into();
-    let mut context = Context::from_waker(&waker);
-
-    loop {
-        waker_inner.awoken.store(false, Ordering::Release);
-        let registration = waker_inner.arm();
-
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(result) => {
-                registration.cancel();
-                return result;
-            }
-            Poll::Pending => {
-                let int_state = interrupts_enabled();
-                disable_interrupts();
-
-                let thread = unsafe { &*tcb };
-                thread.set_block_state(ThreadBlockState::Registration { registration });
-                thread.transition(ThreadState::Running, ThreadState::Blocked).expect("current thread was not running");
-
-                if cancel_block_if_awoken(thread, &waker_inner.awoken) {
-                    if int_state {
-                        enable_interrupts();
-                    }
-                    continue;
-                }
-
-                let sched = &mut current_core_mut().scheduler;
-                sched.schedule(ScheduleReason::Blocked);
-
-                if int_state {
-                    enable_interrupts();
-                }
-            }
-        }
-    }
+    let thread = unsafe { &*tcb };
+    let ctx = InvokeContext::for_thread(thread.termination_token());
+    block_on(kernel_invoke(handle, invocation, ctx))
 }
 
-pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
+pub fn block_on<F: Future>(future: F) -> F::Output {
+    let mut future = pin!(future);
     let tcb = current_core_mut().scheduler.get_current_thread();
     let waker_inner = ThreadWaker::new(unsafe { Arc::clone(&(*tcb).wake_target) });
     let waker = waker_inner.clone().into();
@@ -124,22 +85,14 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
                 disable_interrupts();
 
                 let thread = unsafe { &*tcb };
-                thread.set_block_state(ThreadBlockState::Registration { registration });
-                thread.transition(ThreadState::Running, ThreadState::Blocked).expect("current thread was not running");
+                thread.park_registration(Arc::clone(&registration));
 
-                if cancel_block_if_awoken(thread, &waker_inner.awoken) {
-                    if int_state {
-                        enable_interrupts();
-                    }
-                    continue;
+                if !resume_registered_if_awoken(thread, &registration, &waker_inner.awoken) {
+                    current_core_mut().scheduler.schedule(ScheduleReason::Blocked);
                 }
 
-                let sched = &mut current_core_mut().scheduler;
-                sched.schedule(ScheduleReason::Blocked);
-
-                if int_state {
-                    enable_interrupts();
-                };
+                registration.cancel();
+                if int_state { enable_interrupts() };
             }
         }
     }

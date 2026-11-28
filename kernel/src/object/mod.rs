@@ -13,3 +13,4 @@ pub mod clock;
 pub mod vmo;
 pub mod namespace;
 pub mod mount;
+pub mod io_queue;

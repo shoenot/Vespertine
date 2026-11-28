@@ -14,7 +14,6 @@ use crate::KERNEL_PROCESS;
 use crate::cpu::{KernelCoreData, current_core_id, current_core_mut};
 use crate::sync::TicketLock;
 use crate::sched::ThreadState;
-use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::dispatch::{cancel_block_if_awoken, create_tcb};
 use crate::sched::priority::ThreadPriority;
 use crate::time::get_time;
@@ -60,16 +59,9 @@ impl TimerRegistration {
     }
 }
 
-pub enum CalloutPayload {
-    /// used by sleep(), contains pointer to sleeping thread
-    WakeThread(Arc<ThreadWakeRegistration>),
-    /// used by sleep_async(), contains the async timer registration
-    WakeTimer(Arc<TimerRegistration>),
-}
-
 pub struct Callout {
     pub wake_time: usize,
-    pub payload: CalloutPayload,
+    pub registration: Arc<TimerRegistration>,
 }
 
 // Flip the cmp logic backwards bc we want the earliest callout to rise to the top
@@ -88,19 +80,8 @@ impl PartialOrd for Callout {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> { Some(self.cmp(other)) }
 }
 
-unsafe impl Send for Callout {}
-
-pub fn dispatch_callout_payload(payload: CalloutPayload) {
-    match payload {
-        CalloutPayload::WakeThread(registration) => {
-            registration.wake();
-        }
-        CalloutPayload::WakeTimer(registration) => {
-            if let Some(waker) = registration.fire() {
-                waker.wake();
-            }
-        }
-    }
+pub fn dispatch_timer(reg: Arc<TimerRegistration>) {
+    if let Some(waker) = reg.fire() { waker.wake() };
 }
 
 pub extern "C" fn timer_daemon(_arg: usize) -> ! {
@@ -118,7 +99,7 @@ pub extern "C" fn timer_daemon(_arg: usize) -> ! {
                     let expired = queue.pop().unwrap();
                     drop(queue);
 
-                    dispatch_callout_payload(expired.payload);
+                    dispatch_timer(expired.registration);
                     continue;
                 }
             }

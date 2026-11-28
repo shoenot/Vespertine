@@ -12,7 +12,7 @@ use vespertine_abi::{
 
 use crate::memory::vmm::{CachePolicy, MapBehavior, VmOptions, VmPermissions, VmaBacking, VmaChargeKind};
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::obj::KernelObject;
 use crate::process::current_process;
 use crate::memory::vmo::{AnonymousVmo, PagedBackingStore};
@@ -28,7 +28,7 @@ impl VmoObject {
 
 #[async_trait]
 impl KernelObject for VmoObject {
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         if let Invocation::Vmo(vmo_op) = invocation {
             match vmo_op {
                 VmoOp::GetPage { offset } => self.vmo.request_page(offset).map_err(|_| InvocationError::InvalidArgument),

@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 
+use crate::object::invoke::InvokeContext;
 use crate::storage::fs::Ext2Directory;
 
 pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
@@ -19,6 +20,7 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
                 len,
             }),
             AccessRights::READ,
+            InvokeContext::kernel(),
         ).await.expect("read Ext2 test fixture");
 
         assert_eq!(bytes, len, "short read from Ext2 test fixture");
@@ -41,7 +43,7 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
     };
 
     let truncate = |size| Invocation::File(FileOp::Truncate { size });
-    description.invoke(truncate(0), AccessRights::WRITE).await.unwrap();
+    description.invoke(truncate(0), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
 
     let data = vec![PATTERN; PAGE + 37];
     let end = GAP + data.len();
@@ -51,7 +53,7 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
         len: data.len(),
     });
     assert_eq!(
-        description.invoke(write, AccessRights::WRITE).await.unwrap(),
+        description.invoke(write, AccessRights::WRITE, InvokeContext::kernel()).await.unwrap(),
         data.len(),
     );
 
@@ -83,13 +85,13 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
     let held = file.file_vmo.cached_frame(PAGE).expect("second page is cached");
     let weak_frame = Arc::downgrade(&held);
 
-    description.invoke(truncate(KEEP), AccessRights::WRITE).await.unwrap();
+    description.invoke(truncate(KEEP), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
     assert!(file.file_vmo.cached_frame(PAGE).is_none());
     assert!(weak_frame.upgrade().is_some(), "truncate reclaimed a held frame");
     drop(held);
     assert!(weak_frame.upgrade().is_none(), "discarded frame still has an owner");
 
-    description.invoke(truncate(end), AccessRights::WRITE).await.unwrap();
+    description.invoke(truncate(end), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
     expected[KEEP..].fill(0);
 
     read_exact(description.as_ref(), &mut actual).await;
@@ -107,7 +109,7 @@ pub(crate) async fn test_ext2_owned_cache(root: &Ext2Directory) {
     read_exact(cold.as_ref(), &mut actual).await;
     assert_eq!(actual, expected, "cold shrink/re-extension failed");
 
-    cold.invoke(truncate(0), AccessRights::WRITE).await.unwrap();
+    cold.invoke(truncate(0), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
     root.fs.reap_pending().await;
     root.fs.cache.flush().await.expect("flush fixture cleanup");
 }
@@ -153,17 +155,17 @@ pub(crate) async fn test_ext2_unlink_and_truncate(root: &Ext2Directory) {
     let write = Invocation::File(FileOp::Write {
         offset: 0, buffer_ptr: payload.as_ptr() as usize, len: old_size,
     });
-    assert_eq!(description.invoke(write, AccessRights::WRITE).await.unwrap(), old_size);
+    assert_eq!(description.invoke(write, AccessRights::WRITE, InvokeContext::kernel()).await.unwrap(), old_size);
     file.flush_dirty_pages().await.unwrap();
 
     let before = free_blocks();
     let truncate = |size| Invocation::File(FileOp::Truncate { size });
-    description.invoke(truncate(keep), AccessRights::WRITE).await.unwrap();
+    description.invoke(truncate(keep), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
     assert_eq!(free_blocks(), before, "truncate released blocks before commit flush");
     fs.reap_pending().await;
     assert_eq!(free_blocks(), before + 3, "single-indirect shrink lost allocation accounting");
 
-    description.invoke(truncate(old_size), AccessRights::WRITE).await.unwrap();
+    description.invoke(truncate(old_size), AccessRights::WRITE, InvokeContext::kernel()).await.unwrap();
     file.flush_dirty_pages().await.unwrap();
     let weak = Arc::downgrade(&file);
     drop((file, description));
@@ -175,7 +177,7 @@ pub(crate) async fn test_ext2_unlink_and_truncate(root: &Ext2Directory) {
     let read = Invocation::File(FileOp::Read {
         offset: 0, buffer_ptr: output.as_mut_ptr() as usize, len: old_size,
     });
-    assert_eq!(description.invoke(read, AccessRights::READ).await.unwrap(), old_size);
+    assert_eq!(description.invoke(read, AccessRights::READ, InvokeContext::kernel()).await.unwrap(), old_size);
     assert_eq!(&output[..keep], &payload[..keep]);
     assert!(output[keep..].iter().all(|&byte| byte == 0), "cold regrowth exposed old bytes");
 
@@ -187,13 +189,13 @@ pub(crate) async fn test_ext2_unlink_and_truncate(root: &Ext2Directory) {
     let read = Invocation::File(FileOp::Read {
         offset: 0, buffer_ptr: &mut byte as *mut u8 as usize, len: 1,
     });
-    assert_eq!(description.invoke(read, AccessRights::READ).await.unwrap(), 1);
+    assert_eq!(description.invoke(read, AccessRights::READ, InvokeContext::kernel()).await.unwrap(), 1);
     assert_eq!(byte, payload[0]);
     let replacement_byte = 0x35u8;
     let write = Invocation::File(FileOp::Write {
         offset: keep, buffer_ptr: &replacement_byte as *const u8 as usize, len: 1,
     });
-    assert_eq!(description.invoke(write, AccessRights::WRITE).await.unwrap(), 1);
+    assert_eq!(description.invoke(write, AccessRights::WRITE, InvokeContext::kernel()).await.unwrap(), 1);
 
     let replacement = root.create_child_file(REPLACEMENT, UserID(0)).await.unwrap();
     assert_ne!(inode_for(REPLACEMENT).await, Some(inode), "reused an inode while it was open");

@@ -2,6 +2,9 @@ extern syscall_dispatch
 global _syscall_entry 
 global copy_from_user
 global copy_to_user
+global arch_load_user_u32_nofault
+global user_u32_nofault_fault
+global user_u32_nofault_recover
 
 section .text
 
@@ -109,6 +112,19 @@ copy_to_user:
     mov rax, 0
     ret
 
+arch_load_user_u32_nofault:
+    stac
+user_u32_nofault_fault:
+    mov eax, [rdi]
+    clac
+    mov [rsi], eax
+    mov eax, 1
+    ret
+
+user_u32_nofault_recover:
+    clac
+    xor eax, eax
+    ret
 
 section .extable
     align 8 

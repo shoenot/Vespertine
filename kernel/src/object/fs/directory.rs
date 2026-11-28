@@ -39,7 +39,7 @@ use vespertine_abi::{
 };
 
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::obj::{
     KernelDirectory,
     KernelObject,
@@ -109,7 +109,7 @@ fn register_lookup_result(object: Arc<dyn KernelObject>) -> Result<usize, Invoca
 
 #[async_trait]
 impl KernelObject for Directory {
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => {
                 calling_rights.err_if_no(AccessRights::CREATE)?;

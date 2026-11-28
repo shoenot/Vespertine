@@ -20,7 +20,6 @@ use crate::sync::TicketLock;
 use crate::sched::dispatch::wake_thread;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{
-    ThreadBlockState,
     ThreadState,
 };
 
@@ -68,7 +67,6 @@ impl<T> Mutex<T> {
 
             let current_thread = sched.get_current_thread();
             unsafe {
-                (*current_thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.wait_queue as *const _ });
                 (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("mutex waiter was not running")
             };
             wq.push(current_thread);
@@ -90,7 +88,7 @@ impl<T> Mutex<T> {
         disable_interrupts();
 
         let mut wq = self.wait_queue.lock();
-        let next_thread = wq.pop_wakeable();
+        let next_thread = wq.pop();
         drop(wq);
 
         if !next_thread.is_null() {

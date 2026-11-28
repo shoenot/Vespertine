@@ -26,7 +26,7 @@ use vespertine_abi::{
 
 use super::file::Ext2File;
 use crate::klogln;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::fs::directory::{
     FILENAME_LEN_MAX,
     Filename,
@@ -67,7 +67,7 @@ impl KernelObject for Ext2Directory {
 
     fn as_directory(&self) -> Option<&dyn KernelDirectory> { Some(self) }
 
-    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;

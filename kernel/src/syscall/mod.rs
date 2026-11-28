@@ -1,14 +1,12 @@
+pub mod futex;
+
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt::Display;
 use core::mem::zeroed;
+use core::sync::atomic::Ordering;
 
 use hal::context::SyscallFrame;
-use hal::interrupts::{
-    disable_interrupts,
-    enable_interrupts,
-    interrupts_enabled,
-};
+use hal::interrupts::disable_interrupts;
 use hal::usercopy::{
     KERNEL_BASE,
     safe_copy_from,
@@ -17,18 +15,14 @@ use hal::usercopy::{
 use vespertine_abi::Invocation;
 use vespertine_abi::SysError;
 
-use crate::executor::syscall_bridge::handle_sys_invoke;
+use crate::executor::syscall_bridge::{block_on, handle_sys_invoke};
 use crate::cpu::current_core_mut;
+use crate::executor::waiter::interruptible_wait;
 use crate::object::handle::HandleID;
 use crate::object::invoke::InvocationError;
 use crate::object::vfs::kernel_close;
-use crate::sched::dispatch::wake_thread;
+use crate::sched::dispatch::run_user_kernel_entry;
 use crate::sched::scheduler::ScheduleReason;
-use crate::sched::wait::WaitQueue;
-use crate::sched::{
-    ThreadBlockState,
-    ThreadState,
-};
 use crate::process::current_process;
 use crate::terminate_thread;
 
@@ -51,6 +45,7 @@ impl From<InvocationError> for SysError {
             InvocationError::PathNotFound | InvocationError::NotFound => SysError::NotFound,
             InvocationError::Io => SysError::Io,
             InvocationError::NoSpace => SysError::NoSpace,
+            InvocationError::Terminating => unreachable!("thread termination consumed by syscall bridge"), 
         }
     }
 }
@@ -97,8 +92,7 @@ pub fn give_user_string(user_buffer: *mut u8, kernel_string: String) -> Result<(
     Ok(())
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
+unsafe fn dispatch_syscall(frame: *mut SyscallFrame) {
     unsafe {
         let syscall_number = (*frame).rax;
         let handle_id = (*frame).rdi;
@@ -127,79 +121,48 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
             },
             2 => {
                 terminate_thread!((*frame).rdi as u32);
-            }
+            },
             3 => {
                 current_core_mut().scheduler.schedule(ScheduleReason::Yield);
                 Ok(0)
-            }
+            },
             4 => {
-                // futex wait (addr, expected)
-                let uaddr = (*frame).rdi;
+                let addr = (*frame).rdi;
                 let expected = (*frame).rsi as u32;
-                let proc = current_process().unwrap();
+                let process = current_process().unwrap();
+                let tcb = current_core_mut().scheduler.get_current_thread();
+                let thread = &*tcb;
 
-                // check the value
-                let mut val = 0u32;
-                if safe_copy_from(&mut val as *mut _ as *mut u8, uaddr as *const u8, 4) {
-                    if val == expected {
-                        let int_state = interrupts_enabled();
-                        disable_interrupts();
-
-                        let sched = &mut current_core_mut().scheduler;
-                        let mut futexes = proc.futexes.write();
-
-                        let mut current_val = 0u32;
-                        if safe_copy_from(&mut current_val as *mut _ as *mut u8, uaddr as *const u8, 4) && current_val == expected {
-                            let wq = futexes.entry(uaddr).or_insert_with(WaitQueue::new);
-                            let current = sched.get_current_thread();
-                            (*current).set_block_state(ThreadBlockState::Futex { addr: uaddr });
-                            (*current).transition(ThreadState::Running, ThreadState::Blocked).expect("futex waiter was not running");
-                            wq.push(current);
-                            drop(futexes);
-
-                            sched.schedule(ScheduleReason::Blocked);
-                        } else {
-                            drop(futexes);
-                        }
-
-                        if int_state {
-                            enable_interrupts();
-                        }
-                    }
-                    Ok(0)
-                } else {
-                    Err(InvocationError::InvalidPointer)
+                match block_on(interruptible_wait(thread.termination_token(), process.futexes.wait(addr, expected))) {
+                    Ok(res) => res.map(|()| 0),
+                    Err(term) => Err(term.into()),
                 }
-            }
+            },
             5 => {
-                let uaddr = (*frame).rdi;
+                let addr = (*frame).rdi;
                 let count = (*frame).rsi;
-                let proc = current_process().unwrap();
+                let process = current_process().unwrap();
 
-                let mut futexes = proc.futexes.write();
-                if let Some(wq) = futexes.get_mut(&uaddr) {
-                    for _ in 0..count {
-                        let thread = wq.pop_wakeable();
-                        if thread.is_null() {
-                            break;
-                        }
-                        wake_thread(thread);
-                    }
-                }
-                Ok(0)
-            }
+                process.futexes.wake(addr, count).map(|()| 0)
+            },
             _ => {
                 (*frame).rax = SysError::UnknownSyscall as usize;
                 return;
-            }
+            },
         };
 
         match ret {
             Ok(payload) => {
                 (*frame).rax = SysError::Success as usize;
                 (*frame).rdx = payload;
-            }
+            },
+            Err(InvocationError::Terminating) => return,
             Err(e) => (*frame).rax = SysError::from(e) as usize,
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
+    run_user_kernel_entry(|| unsafe { dispatch_syscall(frame) });
 }

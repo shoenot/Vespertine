@@ -3,6 +3,7 @@ use vespertine_abi::{
     AccessRights, FileOp, HandleID, Invocation
 };
 
+use crate::object::invoke::InvokeContext;
 use crate::object::vfs::{
     kernel_invoke,
     kernel_walk,
@@ -53,24 +54,24 @@ async fn test_native_vmo_rights() {
     let unmap = |vaddr| Invocation::Proc(ProcOp::Unmap { vaddr, len: PAGE });
 
     // Ext2 gives us a readable cache handle with mapping disabled.
-    let file = kernel_walk(TEST_ELF, HandleID(0), AccessRights::READ)
+    let file = kernel_walk(TEST_ELF, HandleID(0), AccessRights::READ, InvokeContext::kernel())
         .await.unwrap();
-    let raw = HandleID(kernel_invoke(file, Invocation::File(FileOp::GetVmo))
+    let raw = HandleID(kernel_invoke(file, Invocation::File(FileOp::GetVmo), InvokeContext::kernel())
         .await.unwrap());
-    assert_eq!(kernel_invoke(raw, map(USER)).await, Err(AccessDenied));
+    assert_eq!(kernel_invoke(raw, map(USER), InvokeContext::kernel()).await, Err(AccessDenied));
 
     for offset in [0, PAGE] {
         let private_copy = || Invocation::File(FileOp::GetPrivateVmo { offset, len: PAGE });
         let get_page = || Invocation::Vmo(VmoOp::GetPage { offset: 0 });
 
-        let first = HandleID(kernel_invoke(file, private_copy()).await.unwrap());
-        let second = HandleID(kernel_invoke(file, private_copy()).await.unwrap());
+        let first = HandleID(kernel_invoke(file, private_copy(), InvokeContext::kernel()).await.unwrap());
+        let second = HandleID(kernel_invoke(file, private_copy(), InvokeContext::kernel()).await.unwrap());
 
-        let addr = kernel_invoke(first, map(RW)).await.unwrap();
-        assert_eq!(kernel_invoke(first, map(RX)).await, Err(AccessDenied));
+        let addr = kernel_invoke(first, map(RW), InvokeContext::kernel()).await.unwrap();
+        assert_eq!(kernel_invoke(first, map(RX), InvokeContext::kernel()).await, Err(AccessDenied));
 
-        let first_phys = kernel_invoke(first, get_page()).await.unwrap();
-        let second_phys = kernel_invoke(second, get_page()).await.unwrap();
+        let first_phys = kernel_invoke(first, get_page(), InvokeContext::kernel()).await.unwrap();
+        let second_phys = kernel_invoke(second, get_page(), InvokeContext::kernel()).await.unwrap();
         assert_ne!(first_phys, second_phys);
 
         let direct_map = *crate::memory::DIRECT_MAP_OFFSET;
@@ -82,11 +83,11 @@ async fn test_native_vmo_rights() {
         unsafe { first_ptr.write(original ^ 0xff) };
         assert_eq!(unsafe { second_ptr.read() }, original);
 
-        let fresh = HandleID(kernel_invoke(file, private_copy()).await.unwrap());
-        let fresh_phys = kernel_invoke(fresh, get_page()).await.unwrap();
+        let fresh = HandleID(kernel_invoke(file, private_copy(), InvokeContext::kernel()).await.unwrap());
+        let fresh_phys = kernel_invoke(fresh, get_page(), InvokeContext::kernel()).await.unwrap();
         assert_eq!(unsafe { ((fresh_phys + direct_map) as *const u8).read() }, original);
 
-        kernel_invoke(SELF, unmap(addr)).await.unwrap();
+        kernel_invoke(SELF, unmap(addr), InvokeContext::kernel()).await.unwrap();
         for handle in [first, second, fresh] {
             kernel_close(handle).unwrap();
         }
@@ -101,28 +102,28 @@ async fn test_native_vmo_rights() {
         Arc::new(FileObj::new(bytes.as_ptr(), bytes.len())),
         AccessRights::READ,
     );
-    let snapshot = HandleID(kernel_invoke(file, Invocation::File(FileOp::GetVmo))
+    let snapshot = HandleID(kernel_invoke(file, Invocation::File(FileOp::GetVmo), InvokeContext::kernel())
         .await.unwrap());
     kernel_close(file).unwrap();
 
-    assert_eq!(kernel_invoke(snapshot, map(RW)).await, Err(AccessDenied));
-    assert_eq!(kernel_invoke(snapshot, map(RX)).await, Err(AccessDenied));
+    assert_eq!(kernel_invoke(snapshot, map(RW), InvokeContext::kernel()).await, Err(AccessDenied));
+    assert_eq!(kernel_invoke(snapshot, map(RX), InvokeContext::kernel()).await, Err(AccessDenied));
 
     let resize = Invocation::Vmo(VmoOp::Resize { new_size: 0 });
-    assert_eq!(kernel_invoke(snapshot, resize).await, Err(UnsupportedOperation));
+    assert_eq!(kernel_invoke(snapshot, resize, InvokeContext::kernel()).await, Err(UnsupportedOperation));
 
     let clone = Invocation::Vmo(VmoOp::Clone { offset: 0, len: PAGE });
-    let child = HandleID(kernel_invoke(snapshot, clone).await.unwrap());
+    let child = HandleID(kernel_invoke(snapshot, clone, InvokeContext::kernel()).await.unwrap());
     kernel_close(snapshot).unwrap();
 
-    assert_eq!(kernel_invoke(child, map(RW)).await, Err(AccessDenied));
-    assert_eq!(kernel_invoke(child, map(RX)).await, Err(AccessDenied));
+    assert_eq!(kernel_invoke(child, map(RW), InvokeContext::kernel()).await, Err(AccessDenied));
+    assert_eq!(kernel_invoke(child, map(RX), InvokeContext::kernel()).await, Err(AccessDenied));
 
-    let addr = kernel_invoke(child, map(USER)).await.unwrap();
+    let addr = kernel_invoke(child, map(USER), InvokeContext::kernel()).await.unwrap();
     kernel_close(child).unwrap();
-    assert_eq!(kernel_invoke(SELF, protect(addr, RW)).await, Err(AccessDenied));
-    assert_eq!(kernel_invoke(SELF, protect(addr, RX)).await, Err(AccessDenied));
-    kernel_invoke(SELF, unmap(addr)).await.unwrap();
+    assert_eq!(kernel_invoke(SELF, protect(addr, RW), InvokeContext::kernel()).await, Err(AccessDenied));
+    assert_eq!(kernel_invoke(SELF, protect(addr, RX), InvokeContext::kernel()).await, Err(AccessDenied));
+    kernel_invoke(SELF, unmap(addr), InvokeContext::kernel()).await.unwrap();
 
     // A backed no-access mapping keeps the RW ceiling after handle closure.
     let backing = AnonymousVmo::new(PAGE);
@@ -131,7 +132,7 @@ async fn test_native_vmo_rights() {
         Arc::new(VmoObject::new(backing)),
         AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE,
     );
-    let addr = kernel_invoke(vmo, map(NONE)).await.unwrap();
+    let addr = kernel_invoke(vmo, map(NONE), InvokeContext::kernel()).await.unwrap();
     kernel_close(vmo).unwrap();
 
     let proc = current_process().unwrap();
@@ -143,20 +144,20 @@ async fn test_native_vmo_rights() {
     };
     assert_eq!(fault(), Err(FaultError::AccessDenied));
 
-    kernel_invoke(SELF, protect(addr, RW)).await.unwrap();
+    kernel_invoke(SELF, protect(addr, RW), InvokeContext::kernel()).await.unwrap();
     assert_eq!(fault(), Ok(()));
     assert_eq!(Arc::strong_count(&frame), 3);
     unsafe { (frame.virt() as *mut u8).write(0x5a) };
 
-    kernel_invoke(SELF, protect(addr, NONE)).await.unwrap();
+    kernel_invoke(SELF, protect(addr, NONE), InvokeContext::kernel()).await.unwrap();
     assert_eq!(Arc::strong_count(&frame), 2);
     assert_eq!(fault(), Err(FaultError::AccessDenied));
 
-    kernel_invoke(SELF, protect(addr, RW)).await.unwrap();
+    kernel_invoke(SELF, protect(addr, RW), InvokeContext::kernel()).await.unwrap();
     assert_eq!(fault(), Ok(()));
     assert_eq!(unsafe { (frame.virt() as *const u8).read() }, 0x5a);
 
-    kernel_invoke(SELF, unmap(addr)).await.unwrap();
+    kernel_invoke(SELF, unmap(addr), InvokeContext::kernel()).await.unwrap();
     assert_eq!(Arc::strong_count(&frame), 1);
 }
 
@@ -175,18 +176,18 @@ async fn test_pool_reservation_lifetime() {
         AccessRights::WRITE | AccessRights::CREATE,
     );
     let new_subpool = || Invocation::MemPool(MemPoolOp::CreateSubPool { limit: PAGE });
-    let left = HandleID(kernel_invoke(parent, new_subpool()).await.unwrap());
-    let right = HandleID(kernel_invoke(parent, new_subpool()).await.unwrap());
+    let left = HandleID(kernel_invoke(parent, new_subpool(), InvokeContext::kernel()).await.unwrap());
+    let right = HandleID(kernel_invoke(parent, new_subpool(), InvokeContext::kernel()).await.unwrap());
 
     let allocate = || Invocation::MemPool(MemPoolOp::AllocateVmo { size: 1 });
-    let vmo = HandleID(kernel_invoke(left, allocate()).await.unwrap());
+    let vmo = HandleID(kernel_invoke(left, allocate(), InvokeContext::kernel()).await.unwrap());
 
     let map = Invocation::Vmo(VmoOp::MapIntoProc {
         vaddr: 0,
         len: 1,
         vm_flags: 0b101, // USER | WRITE
     });
-    let addr = kernel_invoke(vmo, map).await.unwrap();
+    let addr = kernel_invoke(vmo, map, InvokeContext::kernel()).await.unwrap();
 
     // Install a writable PTE so unmap also goes through frame retirement.
     {
@@ -199,19 +200,19 @@ async fn test_pool_reservation_lifetime() {
 
     kernel_close(vmo).unwrap();
     assert_eq!(
-        kernel_invoke(right, allocate()).await,
+        kernel_invoke(right, allocate(), InvokeContext::kernel()).await,
         Err(InvocationError::PoolExhausted),
         "the live mapping still owns the parent's page reservation",
     );
 
     let unmap = Invocation::Proc(ProcOp::Unmap { vaddr: addr, len: PAGE });
-    kernel_invoke(HandleID(1), unmap).await.unwrap();
+    kernel_invoke(HandleID(1), unmap, InvokeContext::kernel()).await.unwrap();
 
-    let recycled = HandleID(kernel_invoke(right, allocate()).await.unwrap());
+    let recycled = HandleID(kernel_invoke(right, allocate(), InvokeContext::kernel()).await.unwrap());
     kernel_close(recycled).unwrap();
 
     // Check that the original leaf pool got its quota back too.
-    let recycled = HandleID(kernel_invoke(left, allocate()).await.unwrap());
+    let recycled = HandleID(kernel_invoke(left, allocate(), InvokeContext::kernel()).await.unwrap());
     kernel_close(recycled).unwrap();
 
     for handle in [left, right, parent] {
@@ -232,19 +233,19 @@ async fn test_private_copy_pool_charge() {
         .allocate_backing(DEFAULT_PROCESS_MEMORY_LIMIT - PAGE)
         .expect("leave one page available in the kernel test pool");
 
-    let file = kernel_walk(TEST_ELF, HandleID(0), AccessRights::READ)
+    let file = kernel_walk(TEST_ELF, HandleID(0), AccessRights::READ, InvokeContext::kernel())
         .await.unwrap();
 
     let copy = |len| Invocation::File(FileOp::GetPrivateVmo { offset: 0, len });
     let allocate = || Invocation::MemPool(MemPoolOp::AllocateVmo { size: 1 });
 
     assert_eq!(
-        kernel_invoke(file, copy(PAGE + 1)).await,
+        kernel_invoke(file, copy(PAGE + 1), InvokeContext::kernel()).await,
         Err(InvocationError::PoolExhausted),
         "a two-page copy must fail with one page of quota left",
     );
 
-    let private = HandleID(kernel_invoke(file, copy(1)).await.unwrap());
+    let private = HandleID(kernel_invoke(file, copy(1), InvokeContext::kernel()).await.unwrap());
     let addr = kernel_invoke(
         private,
         Invocation::Vmo(VmoOp::MapIntoProc {
@@ -252,11 +253,12 @@ async fn test_private_copy_pool_charge() {
             len: 1,
             vm_flags: 0b101, // USER | WRITE
         }),
+        InvokeContext::kernel(),
     ).await.unwrap();
     kernel_close(private).unwrap();
 
     assert_eq!(
-        kernel_invoke(HandleID(4), allocate()).await,
+        kernel_invoke(HandleID(4), allocate(), InvokeContext::kernel()).await,
         Err(InvocationError::PoolExhausted),
         "the private mapping must still hold the default pool's last page",
     );
@@ -264,9 +266,10 @@ async fn test_private_copy_pool_charge() {
     kernel_invoke(
         HandleID(1),
         Invocation::Proc(ProcOp::Unmap { vaddr: addr, len: PAGE }),
+        InvokeContext::kernel(),
     ).await.unwrap();
 
-    let recycled = HandleID(kernel_invoke(HandleID(4), allocate()).await.unwrap());
+    let recycled = HandleID(kernel_invoke(HandleID(4), allocate(), InvokeContext::kernel()).await.unwrap());
     kernel_close(recycled).unwrap();
     kernel_close(file).unwrap();
 }
@@ -286,6 +289,7 @@ async fn test_failed_spawn_releases_child() {
         TEST_ELF,
         HandleID(0),
         AccessRights::READ | AccessRights::EXECUTE,
+        InvokeContext::kernel(),
     ).await.expect("open valid ELF for rollback test");
 
     let marker = Arc::new(Directory::new());
@@ -315,7 +319,7 @@ async fn test_failed_spawn_releases_child() {
     };
 
     assert_eq!(
-        kernel_invoke(pm, Invocation::ProcessManager(op)).await,
+        kernel_invoke(pm, Invocation::ProcessManager(op), InvokeContext::kernel()).await,
         Err(InvocationError::OutOfMemory),
         "spawn must fail during initial stack setup",
     );

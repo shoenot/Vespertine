@@ -18,7 +18,7 @@ use vespertine_abi::{
 };
 
 use crate::executor::waiter::AsyncWaiter;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::security::permissions::FilePermissions;
 
 use crate::memory::vmo::AnonymousVmo;
@@ -44,7 +44,7 @@ pub trait KernelDirectory: Send + Sync {
 
 #[async_trait]
 pub trait KernelObject: Send + Sync + Debug {
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError>;
 
     fn type_name(&self) -> &'static str { "Unknown" }
 

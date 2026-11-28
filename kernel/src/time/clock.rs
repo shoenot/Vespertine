@@ -1,26 +1,13 @@
 use core::sync::atomic::Ordering;
 
-use alloc::sync::Arc;
-use hal::interrupts::{
-    disable_interrupts,
-    enable_interrupts,
-};
 use vespertine_common::datetime::datetime_to_epoch;
 
 use crate::cpu::current_core_mut;
+use crate::executor::async_sleep::sleep_async_ns;
+use crate::executor::syscall_bridge::block_on;
 use crate::sync::KernelOnceCell;
-use crate::sched::block::ThreadWakeRegistration;
 use crate::sched::dispatch::wake_thread;
 use crate::sched::priority::ThreadPriority;
-use crate::sched::scheduler::ScheduleReason;
-use crate::sched::{
-    ThreadBlockState,
-    ThreadState,
-};
-use crate::time::callout::{
-    Callout,
-    CalloutPayload,
-};
 
 static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
 static BOOT_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
@@ -107,30 +94,4 @@ pub fn update_hardware_timer() {
     }
 }
 
-pub fn sleep(ns: usize) {
-    let target_time = get_time() + ns_to_ticks(ns);
-
-    disable_interrupts();
-
-    let sched = &mut current_core_mut().scheduler;
-    let current_thread = sched.get_current_thread();
-    let target = unsafe { Arc::clone(&(*current_thread).wake_target) };
-    let registration = ThreadWakeRegistration::new(target);
-
-    unsafe {
-        (*current_thread).wake_time = target_time;
-        (*current_thread).set_block_state(ThreadBlockState::Registration { registration: registration.clone() });
-    }
-
-    let callout = Callout { wake_time: target_time, payload: CalloutPayload::WakeThread(registration) };
-
-    {
-        let mut queue = current_core_mut().callout_queue.lock();
-        queue.push(callout);
-        unsafe { (*current_thread).transition(ThreadState::Running, ThreadState::Blocked) }.expect("sleeping thread was not running");
-    }
-
-    sched.schedule(ScheduleReason::Blocked);
-
-    enable_interrupts();
-}
+pub fn sleep(ns: usize) { block_on(sleep_async_ns(ns)) }

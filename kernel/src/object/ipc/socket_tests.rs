@@ -12,7 +12,7 @@ use core::task::{
     Poll,
 };
 
-use vespertine_abi::Signal;
+use vespertine_abi::{AccessRights, Invocation, Signal, WaitOp};
 
 use super::{
     BUFFER_SIZE,
@@ -21,12 +21,13 @@ use super::{
     SocketWaitFuture,
     SocketWriteFuture,
 };
-use crate::executor::waiter::AsyncWaiter;
+use crate::executor::waiter::{AsyncWaiter, TerminationToken, wake_all};
+use crate::object::invoke::{InvocationError, InvokeContext};
+use crate::object::obj::KernelObject;
 use crate::cpu::current_core_mut;
 use crate::time::callout::{
-    CalloutPayload,
     TimerRegistration,
-    dispatch_callout_payload,
+    dispatch_timer,
 };
 
 struct CountingWaker {
@@ -52,10 +53,8 @@ fn remove_timer_registrations(registrations: &[Arc<TimerRegistration>]) {
     let mut retained = vec![];
 
     while let Some(callout) = queue.pop() {
-        let keep = match &callout.payload {
-            CalloutPayload::WakeTimer(registration) => !registrations.iter().any(|target| Arc::ptr_eq(registration, target)),
-            _ => true,
-        };
+        let keep = !registrations.iter()
+            .any(|target| Arc::ptr_eq(&callout.registration, target));
 
         if keep {
             retained.push(callout);
@@ -217,10 +216,10 @@ fn test_timed_read_restarts_timer_without_stale_wake() {
     let new_registration = read.timer.as_ref().expect("replacement timer missing").registration();
     assert!(!Arc::ptr_eq(&old_registration, &new_registration), "timer was not replaced");
 
-    dispatch_callout_payload(CalloutPayload::WakeTimer(old_registration.clone()));
+    dispatch_timer(old_registration.clone());
     assert_eq!(counter.wakes.load(Ordering::Acquire), 0, "stale timer wake escaped cancellation");
 
-    dispatch_callout_payload(CalloutPayload::WakeTimer(new_registration.clone()));
+    dispatch_timer(new_registration.clone());
     assert_eq!(counter.wakes.load(Ordering::Acquire), 1, "replacement timer did not wake");
 
     assert_eq!(poll(&mut read, &mut context), Poll::Ready(Ok(2)));
@@ -229,7 +228,36 @@ fn test_timed_read_restarts_timer_without_stale_wake() {
     remove_timer_registrations(&[old_registration, new_registration]);
 }
 
+fn test_termination_only_wakes_its_own_socket_wait() {
+    let (reader, writer) = SocketEndpoint::new_pair();
+    let stopped = TerminationToken::new();
+    let live = TerminationToken::new();
+    let readable = || Invocation::Wait(WaitOp::One(Signal::READABLE));
+    let mut first = reader.invoke(readable(), AccessRights::READ, InvokeContext::for_thread(&stopped));
+    let mut second = reader.invoke(readable(), AccessRights::READ, InvokeContext::for_thread(&live));
+    let (first_count, first_waker) = context();
+    let (second_count, second_waker) = context();
+    let mut first_cx = Context::from_waker(&first_waker);
+    let mut second_cx = Context::from_waker(&second_waker);
+
+    assert!(first.as_mut().poll(&mut first_cx).is_pending());
+    assert!(second.as_mut().poll(&mut second_cx).is_pending());
+
+    wake_all(stopped.request_and_take_wakers());
+    assert_eq!(first_count.wakes.load(Ordering::Acquire), 1);
+    assert_eq!(second_count.wakes.load(Ordering::Acquire), 0);
+    assert_eq!(first.as_mut().poll(&mut first_cx), Poll::Ready(Err(InvocationError::Terminating)));
+    assert!(second.as_mut().poll(&mut second_cx).is_pending());
+
+    writer.write_bus.inner.lock().buffer.push_slice(&[1]);
+    writer.write_bus.notify_readable();
+    assert_eq!(second_count.wakes.load(Ordering::Acquire), 1);
+    assert_eq!(second.as_mut().poll(&mut second_cx), Poll::Ready(Ok(0)));
+}
+
 pub(super) fn run() {
+    crate::klogln!(Info, "Test/Socket", "Termination is scoped to the calling thread");
+    test_termination_only_wakes_its_own_socket_wait();
     crate::klogln!(Info, "Test/Socket", "Multiple readers");
     test_two_readers_are_woken();
     crate::klogln!(Info, "Test/Socket", "Multiple writers");

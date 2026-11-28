@@ -41,6 +41,22 @@ pub enum FileOp {
     Truncate { size: usize },
     GetPrivateVmo { offset: usize, len: usize },
     Sync,
+    SubmitReadAt {
+        queue: HandleID,
+        file_offset: usize,
+        buffer: HandleID,
+        buffer_offset: usize,
+        len: usize,
+        cookie: usize,
+    },
+    SubmitWriteAt {
+        queue: HandleID,
+        file_offset: usize,
+        buffer: HandleID,
+        buffer_offset: usize,
+        len: usize,
+        cookie: usize,
+    },
 }
 
 #[repr(C)]
@@ -123,6 +139,7 @@ pub enum MemPoolOp {
     AllocateVmo { size: usize },
     CreateSubPool { limit: usize },
     RequestExpansion { additional_bytes: usize },
+    CreateIoQueue { entries: usize },
 }
 
 #[repr(C)]
@@ -158,5 +175,12 @@ pub enum PortalOp {
 #[derive(Debug)]
 pub enum NotificationOp {
     TakeNotification,
+}
+
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum IoQueueOp {
+    Pop { completion_ptr: usize },
 }
 

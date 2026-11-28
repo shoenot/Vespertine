@@ -15,7 +15,6 @@ use crate::sched::dispatch::wake_thread;
 use crate::sched::scheduler::ScheduleReason;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{
-    ThreadBlockState,
     ThreadState,
 };
 
@@ -32,7 +31,6 @@ impl CondVar {
         let mut queue = self.wait_queue.lock();
         let current_thread = current_core_mut().scheduler.get_current_thread();
         unsafe {
-            (*current_thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.wait_queue as *const _ });
             (*current_thread).transition(ThreadState::Running, ThreadState::Blocked).expect("condvar waiter was not running")
         };
         queue.push(current_thread);
@@ -56,7 +54,7 @@ impl CondVar {
         let int_state = interrupts_enabled();
         disable_interrupts();
         let mut queue = self.wait_queue.lock();
-        let current_thread = queue.pop_wakeable();
+        let current_thread = queue.pop();
         if !current_thread.is_null() {
             wake_thread(current_thread);
         }
@@ -70,7 +68,7 @@ impl CondVar {
         disable_interrupts();
         let mut queue = self.wait_queue.lock();
         loop {
-            let current_thread = queue.pop_wakeable();
+            let current_thread = queue.pop();
             if current_thread.is_null() {
                 break;
             }

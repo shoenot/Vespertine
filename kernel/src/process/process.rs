@@ -39,7 +39,7 @@ use crate::executor::waiter::{
 use crate::cpu::current_core_mut;
 use crate::object::handle::HandleTable;
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::process::thread_object::ThreadObject;
 use crate::object::obj::{
     KernelObject,
@@ -49,13 +49,14 @@ use crate::object::obj::{
 use crate::security::credentials::Credentials;
 use crate::sync::RwLock;
 use crate::sched::dispatch::{
-    cancel_blocked_thread, create_user_tcb, enqueue_new_user_thread, reschedule_thread_core, spawn_user_thread, start_thread,
+    create_user_tcb, enqueue_new_user_thread, request_thread_termination, reschedule_thread_core, spawn_user_thread, start_thread
 };
 use crate::sched::priority::ThreadPriority;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{
     Thread, ThreadPin, ThreadState,
 };
+use crate::syscall::futex::FutexTable;
 use super::current_process;
 use crate::memory::vmm::{
     VirtMemManager, VmAccounting, VmError, VmPermissions,
@@ -104,7 +105,7 @@ pub struct ProcessControlBlock {
     pub lifecycle: IrqTicketLock<LifecycleState>,
     pub completion_waiters: TicketLock<WaiterList>,
 
-    pub futexes: RwLock<BTreeMap<usize, WaitQueue>>,
+    pub futexes: FutexTable,
 }
 
 unsafe impl Send for ProcessControlBlock {}
@@ -263,7 +264,7 @@ impl ProcessControlBlock {
             lifecycle,
             completion_waiters: TicketLock::new(WaiterList::new()),
 
-            futexes: RwLock::new(BTreeMap::new()),
+            futexes: FutexTable::new(),
         }))
     }
 
@@ -363,21 +364,7 @@ impl ProcessControlBlock {
 
     fn cancel_threads_for_termination(&self) {
         for pin in self.pinned_thread_snapshot() {
-            let thread = pin.as_ptr();
-
-            if thread.is_null() { continue };
-            unsafe {
-                (*thread).request_cancel();
-                match (*thread).state() {
-                    ThreadState::Blocked => {
-                        cancel_blocked_thread(thread);
-                    }
-                    ThreadState::Running | ThreadState::Ready => {
-                        reschedule_thread_core(thread);
-                    }
-                    ThreadState::Terminated => {}
-                }
-            }
+            request_thread_termination(&pin);
         }
     }
 
@@ -526,7 +513,7 @@ impl ProcessControlBlock {
 impl KernelObject for ProcessControlBlock {
     fn type_name(&self) -> &'static str { "Process" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Proc(ProcOp::Resume) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
@@ -560,12 +547,12 @@ impl KernelObject for ProcessControlBlock {
                 unsafe { enqueue_new_user_thread(thread) };
                 Ok(id.0)
             },
-            Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
+            Invocation::Wait(WaitOp::One(signal)) => ctx.wait(ObjectWaitFuture::new(self, signal)).await,
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 if count == 0 || count > 64 {
                     return Err(InvocationError::InvalidArgument);
                 }
-                WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }.await
+                ctx.wait(WaitManyFuture { process: self, items_ptr, count, waiter: AsyncWaiter::new() }).await
             },
             Invocation::Proc(ProcOp::SetFsBase { fs_base }) => {
                 let current_thread = current_core_mut().scheduler.get_current_thread();

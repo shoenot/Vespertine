@@ -3,6 +3,7 @@ use core::sync::atomic::AtomicBool;
 use alloc::sync::Arc;
 use vespertine_abi::{ProcState, ProcTermReason};
 
+use crate::object::invoke::InvokeContext;
 use crate::object::handle::HandleTable;
 use crate::process::{register_process, ProcTermination, Process, ProcessControlBlock};
 use crate::security::credentials::Credentials;
@@ -426,6 +427,7 @@ fn test_smp_address_space_reap() {
         block_on(Box::pin(kernel_invoke(
             handle,
             Invocation::Proc(ProcOp::Terminate { reason: REASON }),
+            InvokeContext::kernel(),
         ))).unwrap();
 
         wait_for_phase(FREED); // The unpinned worker is gone.
@@ -454,6 +456,7 @@ fn test_smp_address_space_reap() {
             Invocation::Proc(ProcOp::GetInfo {
                 info_ptr: (&mut info as *mut ProcInfo) as usize,
             }),
+            InvokeContext::kernel(),
         ))).unwrap();
 
         assert_eq!(info.state, ProcState::Terminated);

@@ -16,7 +16,7 @@ use vespertine_abi::{
 
 use crate::executor::waiter::AsyncWaiter;
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::process::Process;
 use crate::object::ipc::socket::SocketEndpoint;
 use crate::object::obj::KernelObject;
@@ -176,7 +176,7 @@ impl PortalSession {
 
 #[async_trait]
 impl KernelObject for Portal {
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         calling_rights.err_if_no(AccessRights::READ)?;
         let Invocation::Broker(BrokerOp::Request { capability, requested_rights }) = invocation else {
             return Err(InvocationError::UnsupportedOperation);
@@ -200,9 +200,13 @@ impl KernelObject for Portal {
 
         let caller_process_handle = self.owner.handles.write().insert(caller.clone(), AccessRights::READ);
 
-        if let Err(error) = write_accept_message(&self.accept_tx, server_handle, caller_process_handle).await {
-            let _ = caller.handles.write().close(client_handle);
-            let _ = self.owner.handles.write().close(server_handle);
+        if let Err(error) = write_accept_message(&self.accept_tx, server_handle, caller_process_handle, ctx).await {
+            let client = caller.handles.write().remove(client_handle);
+            let (server, caller_process) = {
+                let mut handles = self.owner.handles.write();
+                (handles.remove(server_handle), handles.remove(caller_process_handle))
+            };
+            drop((client, server, caller_process));
             return Err(error);
         }
         Ok(client_handle.0)
@@ -216,7 +220,7 @@ pub struct PortalFactory;
 impl KernelObject for PortalFactory {
     fn type_name(&self) -> &'static str { "PortalFactory" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         calling_rights.err_if_no(AccessRights::CREATE)?;
         let Invocation::Portal(PortalOp::Create { capability, max_rights }) = invocation else {
             return Err(InvocationError::UnsupportedOperation);
@@ -235,20 +239,20 @@ impl KernelObject for PortalFactory {
     }
 }
 
-async fn write_accept_message(socket: &SocketEndpoint, session: HandleID, caller_process: HandleID) -> Result<(), InvocationError> {
+async fn write_accept_message(socket: &SocketEndpoint, session: HandleID, caller_process: HandleID, ctx: InvokeContext<'_>) -> Result<(), InvocationError> {
     let mut bytes = [0u8; 8];
 
     bytes[0..4].copy_from_slice(&(session.0 as u32).to_le_bytes());
     bytes[4..8].copy_from_slice(&(caller_process.0 as u32).to_le_bytes());
 
-    socket.write_all_internal(&bytes).await
+    socket.write_record(&bytes, ctx).await
 }
 
 #[async_trait]
 impl KernelObject for PortalSession {
     fn type_name(&self) -> &'static str { "PortalSession" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Portal(PortalOp::Offer { handle, max_rights }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
@@ -263,7 +267,7 @@ impl KernelObject for PortalSession {
                 self.revoke(offer_id)
             }
             Invocation::Portal(PortalOp::Create { .. }) => Err(InvocationError::UnsupportedOperation),
-            other => self.endpoint.invoke(other, calling_rights).await,
+            other => self.endpoint.invoke(other, calling_rights, ctx).await,
         }
     }
 
@@ -272,4 +276,13 @@ impl KernelObject for PortalSession {
     fn register_waiter(&self, requested: Signal, waiter: &Arc<AsyncWaiter>, waker: &Waker) -> Result<(), InvocationError> {
         KernelObject::register_waiter(self.endpoint.as_ref(), requested, waiter, waker)
     }
+}
+
+#[cfg(feature = "diagnostics")]
+#[path = "portal_tests.rs"]
+mod tests;
+
+#[cfg(feature = "diagnostics")]
+pub(crate) fn run_diagnostic_tests() {
+    tests::run();
 }

@@ -16,7 +16,7 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::process::Process;
 use crate::object::obj::KernelObject;
 use crate::object::vfs::kernel_walk;
@@ -40,6 +40,7 @@ pub enum LoaderError {
     UnsupportedArch(u16),
     UnsupportedABI(u8),
     FileReadError,
+    Terminating,
     OutOfMemory,
 }
 
@@ -53,6 +54,7 @@ impl fmt::Display for LoaderError {
             LoaderError::UnsupportedElfType(t) => write!(f, "Unsupported ELF type: 0x{:X}", t),
             LoaderError::UnsupportedArch(t) => write!(f, "Unsupported architechture: 0x{:X}", t),
             LoaderError::UnsupportedABI(t) => write!(f, "Unsupported ABI: 0x{:X}", t),
+            LoaderError::Terminating => write!(f, "Calling thread is terminating"),
             LoaderError::FileReadError => write!(f, "File read or map error"),
             LoaderError::OutOfMemory => write!(f, "Out of memory"),
         }
@@ -63,6 +65,7 @@ impl From<InvocationError> for LoaderError {
     fn from(value: InvocationError) -> Self {
         match value {
             InvocationError::OutOfMemory => Self::OutOfMemory,
+            InvocationError::Terminating => Self::Terminating,
             _ => Self::FileReadError,
         }
     }
@@ -76,13 +79,11 @@ pub struct ElfLoadResult {
     pub interpreter_entry: Option<usize>,
 }
 
-async fn read_elf_header(file_obj: &Arc<dyn KernelObject>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError> {
+async fn read_elf_header(file_obj: &Arc<dyn KernelObject>, ctx: InvokeContext<'_>) -> Result<(Vec<u8>, Elf64_Ehdr), LoaderError> {
     let mut stat = MaybeUninit::<FileStat>::zeroed();
-    file_obj.invoke(Invocation::File(
-        FileOp::Stat { stat_ptr: stat.as_mut_ptr() as usize }),
-        AccessRights::READ,
-    ).await
+    file_obj.invoke(Invocation::File(FileOp::Stat { stat_ptr: stat.as_mut_ptr() as usize }), AccessRights::READ, ctx).await
         .map_err(|error| {
+            if error == InvocationError::Terminating { return LoaderError::Terminating; }
             klogln!("[ERROR] read_elf_header: Stat failed: {:?}", error);
             LoaderError::FileReadError
         })?;
@@ -221,8 +222,8 @@ async fn map_elf_segments(file_obj: &Arc<dyn KernelObject>, header: &Elf64_Ehdr,
     Ok(phdr_addr)
 }
 
-pub async fn load_elf(file_obj: Arc<dyn KernelObject>, proc: &Process) -> Result<ElfLoadResult, LoaderError> {
-    let (file_bytes, header) = read_elf_header(&file_obj).await?;
+pub async fn load_elf(file_obj: Arc<dyn KernelObject>, proc: &Process, ctx: InvokeContext<'_>) -> Result<ElfLoadResult, LoaderError> {
+    let (file_bytes, header) = read_elf_header(&file_obj, ctx).await?;
 
     // check if there is an interpreter (PT_INTERP) segment
     let ph_iter = header.prog_headers(&file_bytes).ok_or(LoaderError::InvalidBuffer)?;
@@ -252,7 +253,8 @@ pub async fn load_elf(file_obj: Arc<dyn KernelObject>, proc: &Process) -> Result
     };
 
     if let Some(path) = interpreter_path {
-        let interp_handle = kernel_walk(&path, HandleID(0), AccessRights::READ).await.map_err(|e| {
+        let interp_handle = kernel_walk(&path, HandleID(0), AccessRights::READ, ctx).await.map_err(|e| {
+            if e == InvocationError::Terminating { return LoaderError::Terminating; }
             klogln!("[ERROR] load_elf: Failed to resolve interpreter path {}: {:?}", path, e);
             LoaderError::FileReadError
         })?;
@@ -267,7 +269,7 @@ pub async fn load_elf(file_obj: Arc<dyn KernelObject>, proc: &Process) -> Result
             object.map_err(|_| LoaderError::FileReadError)?
         };
 
-        let (interp_bytes, interp_header) = read_elf_header(&interp_obj).await?;
+        let (interp_bytes, interp_header) = read_elf_header(&interp_obj, ctx).await?;
 
         let interp_base = 0x40_0000_0000;
         let _interp_phdr_addr = map_elf_segments(&interp_obj, &interp_header, &interp_bytes, proc, interp_base).await?;

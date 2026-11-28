@@ -17,7 +17,7 @@ use vespertine_abi::{
 };
 
 use crate::memory::vmo::AnonymousVmo;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::mount::mount;
 use crate::object::namespace::DirLocation;
 use crate::process::Process;
@@ -33,7 +33,7 @@ pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights
     current_process().expect("No active process").handles.write().insert(obj, init_rights)
 }
 
-pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
+pub async fn kernel_invoke(handle: HandleID, invocation: Invocation, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
     let required = invocation.required_rights();
     let process = current_process().expect("No active process");
     let (obj, rights) = {
@@ -61,7 +61,7 @@ pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<u
             },
         }
     }; // drop the lock 
-    obj.invoke(invocation, rights).await
+    obj.invoke(invocation, rights, ctx).await
 }
 
 pub async fn write_all_to_object(object: &dyn KernelObject, rights: AccessRights, mut bytes: &[u8]) -> Result<(), InvocationError> {
@@ -72,7 +72,7 @@ pub async fn write_all_to_object(object: &dyn KernelObject, rights: AccessRights
             len: bytes.len(),
         };
 
-        let count = object.invoke(Invocation::File(op), rights).await?;
+        let count = object.invoke(Invocation::File(op), rights, InvokeContext::kernel()).await?;
         if count == 0 {
             return Err(InvocationError::UnsupportedOperation);
         }
@@ -106,12 +106,13 @@ pub async fn link_kernel_object(parent: Arc<dyn KernelObject>, name: &str, objec
     parent.as_directory().ok_or(InvocationError::UnsupportedOperation)?.link_child(name, object).await
 }
 
-pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights) -> Result<HandleID, InvocationError> {
+pub async fn kernel_walk(path: &str, start: HandleID, rights: AccessRights, ctx: InvokeContext<'_>) -> Result<HandleID, InvocationError> {
     let root = HandleID(0);
 
     kernel_invoke(
         root,
         Invocation::Directory(DirectoryOp::Resolve { start, path_ptr: path.as_ptr() as usize, path_len: path.len(), rights }),
+        ctx,
     )
     .await
     .map(HandleID)
@@ -153,7 +154,7 @@ impl FileDescription {
 
 #[async_trait]
 impl KernelObject for FileDescription {
-    async fn invoke(&self, mut invocation: Invocation, rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, mut invocation: Invocation, rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match &mut invocation {
             Invocation::File(FileOp::Read { offset, .. }) => {
                 let use_cursor = *offset == usize::MAX; // (uintptr_t)-1 from mlibc
@@ -162,7 +163,7 @@ impl KernelObject for FileDescription {
                 }
 
                 // Delegate to Ext2File with the explicit offset
-                let bytes = self.inner.invoke(invocation, rights).await?;
+                let bytes = self.inner.invoke(invocation, rights, ctx).await?;
 
                 if use_cursor {
                     self.cursor.fetch_add(bytes, Ordering::SeqCst);
@@ -175,7 +176,7 @@ impl KernelObject for FileDescription {
                     *offset = self.cursor.load(Ordering::SeqCst);
                 }
 
-                let bytes = self.inner.invoke(invocation, rights).await?;
+                let bytes = self.inner.invoke(invocation, rights, ctx).await?;
 
                 if use_cursor {
                     self.cursor.fetch_add(bytes, Ordering::SeqCst);
@@ -186,7 +187,7 @@ impl KernelObject for FileDescription {
                 let current = self.cursor.load(Ordering::SeqCst) as i64;
                 let file_size = if *whence == 2 {
                     let mut stat = MaybeUninit::<FileStat>::uninit();
-                    self.inner.invoke(Invocation::File(FileOp::Stat { stat_ptr: stat.as_mut_ptr() as usize }), rights).await?;
+                    self.inner.invoke(Invocation::File(FileOp::Stat { stat_ptr: stat.as_mut_ptr() as usize }), rights, ctx).await?;
                     unsafe { stat.assume_init().size as i64 }
                 } else {
                     0
@@ -207,7 +208,7 @@ impl KernelObject for FileDescription {
                 Ok(new_cursor as usize)
             }
             // Transparently pass through GetVmo, Stat, etc. directly to Ext2File
-            _ => self.inner.invoke(invocation, rights).await,
+            _ => self.inner.invoke(invocation, rights, ctx).await,
         }
     }
 

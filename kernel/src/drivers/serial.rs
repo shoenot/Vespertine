@@ -10,7 +10,7 @@ use hal::io::{
 };
 use vespertine_abi::{AccessRights, BrokerOp, Invocation, SYSTEM_USER, tag::CAP_SERIAL_WRITE};
 
-use crate::{executor::{Executor, async_sleep::sleep_async}, object::{help::RightsWrapper, invoke::InvocationError, ipc::socket::SocketEndpoint, obj::KernelObject}, process::current_process, security::permissions::FilePermissions, sync::TicketLock};
+use crate::{executor::{Executor, async_sleep::sleep_async}, object::{help::RightsWrapper, invoke::{InvocationError, InvokeContext}, ipc::socket::SocketEndpoint, obj::KernelObject}, process::current_process, security::permissions::FilePermissions, sync::TicketLock};
 
 //////////////
 /// DRIVER ///
@@ -114,7 +114,7 @@ impl KernelObject for SerialDevice {
         })
     }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Broker(BrokerOp::Request { capability, requested_rights }) => {
                 calling_rights.err_if_no(AccessRights::CREATE)?;

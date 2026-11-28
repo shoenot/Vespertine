@@ -1,8 +1,38 @@
 use core::fmt;
 use core::str::Utf8Error;
 
+use crate::executor::waiter::{Terminating, TerminationToken, interruptible_wait};
 use crate::memory::vmm::VmError;
 use crate::sched::ThreadError;
+
+#[derive(Clone, Copy)] 
+pub struct InvokeContext<'a> {
+    termination: Option<&'a TerminationToken>,
+    user_pointers: bool, 
+}
+
+impl<'a> InvokeContext<'a> {
+    pub fn for_thread(token: &'a TerminationToken) -> Self {
+        Self { termination: Some(token), user_pointers: true }
+    }
+
+    pub fn kernel() -> Self {
+        Self { termination: None, user_pointers: false }
+    }
+
+    pub async fn wait<T, F>(self, future: F) 
+        -> Result<T, InvocationError> where F: Future<Output = Result<T, InvocationError>> {
+            match self.termination {
+                Some(token) => interruptible_wait(token, future).await?,
+                None => future.await,
+            }
+    }
+
+    pub fn uses_user_pointers(self) -> bool {
+        self.user_pointers
+    }
+}
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InvocationError {
@@ -23,6 +53,7 @@ pub enum InvocationError {
     NotFound,
     Io,
     NoSpace,
+    Terminating,
 }
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -44,6 +75,7 @@ impl fmt::Display for InvocationError {
             Self::NotFound => write!(f, "INVOCATION ERROR: Not found."),
             Self::Io => write!(f, "INVOCATION ERROR: I/O error."),
             Self::NoSpace => write!(f, "INVOCATION ERROR: No space."),
+            Self::Terminating => write!(f, "INVOCATION ERROR: Calling thread is terminating."),
         }
     }
 }
@@ -68,5 +100,11 @@ impl From<ThreadError> for InvocationError {
             ThreadError::AllocationFailed => Self::OutOfMemory,
             ThreadError::SpawnAllocationError(_) => Self::ThreadSpawnFail,
         }
+    }
+}
+
+impl From<Terminating> for InvocationError {
+    fn from(_value: Terminating) -> Self {
+        Self::Terminating
     }
 }

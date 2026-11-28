@@ -1,6 +1,8 @@
+use core::{future::poll_fn, task::Poll};
+
 use alloc::{boxed::Box, collections::BTreeMap, sync::{Arc, Weak}, vec::Vec};
 
-use crate::{executor::async_mutex::AsyncMutex, memory::{Frame4K, PAGE_SIZE_4K, vmo::MappingPage}, sync::TicketLock};
+use crate::{executor::{Executor, async_mutex::AsyncMutex, waiter::{AsyncWaiter, WaiterList, wake_all}}, memory::{Frame4K, PAGE_SIZE_4K, vmo::MappingPage}, object::invoke::InvocationError, sync::TicketLock};
 
 use crate::{executor::syscall_bridge::block_on, memory::vmo::PagedBackingStore, storage::fs::{VfsNode, VfsReadError}};
 
@@ -8,6 +10,49 @@ use crate::{executor::syscall_bridge::block_on, memory::vmo::PagedBackingStore, 
 pub enum FilePageWriteback {
     Page,
     TailBlock { offset: usize },
+}
+
+#[derive(Debug)]
+struct FillState {
+    result: Option<Result<(), VfsReadError>>,
+    waiters: WaiterList,
+}
+
+#[derive(Debug)]
+pub struct PageFill {
+    state: TicketLock<FillState>,
+}
+
+impl PageFill {
+    fn new() -> Self {
+        Self { state: TicketLock::new(FillState { result: None, waiters: WaiterList::new() }) }
+    }
+
+    pub async fn wait(&self) -> Result<(), InvocationError> {
+        let mut waiter = None;
+
+        poll_fn(|cx| {
+            let mut state = self.state.lock();
+            if let Some(result) = state.result {
+                return Poll::Ready(result.map_err(InvocationError::from));
+            }
+
+            let waiter = waiter.get_or_insert_with(AsyncWaiter::new);
+            state.waiters.register(waiter, cx.waker());
+            Poll::Pending
+        }).await
+    }
+
+    fn finish(&self, result: Result<(), VfsReadError>) {
+        let wakers = {
+            let mut state = self.state.lock();
+            debug_assert!(state.result.is_none());
+            state.result = Some(result);
+            state.waiters.take_wakers()
+        };
+
+        wake_all(wakers);
+    }
 }
 
 #[derive(Debug)]
@@ -20,12 +65,18 @@ struct CachedPage {
 pub struct FileVmo {
     node: Weak<dyn VfsNode>,
     pages: TicketLock<BTreeMap<usize, CachedPage>>,
+    fills: TicketLock<BTreeMap<usize, Arc<PageFill>>>,
     pub io_lock: AsyncMutex<()>,
 }
 
 impl FileVmo {
     pub fn new(node: Weak<dyn VfsNode>) -> Arc<Self> {
-        Arc::new(Self { node, pages: TicketLock::new(BTreeMap::new()), io_lock: AsyncMutex::new(()) })
+        Arc::new(Self { 
+            node, 
+            pages: TicketLock::new(BTreeMap::new()), 
+            fills: TicketLock::new(BTreeMap::new()),
+            io_lock: AsyncMutex::new(()),
+        })
     }
 
     pub fn cached_frame(&self, offset: usize) -> Option<Arc<Frame4K>> {
@@ -95,6 +146,52 @@ impl FileVmo {
         }
     }
 
+    pub fn pending_fill(&self, page_offset: usize) -> Option<Arc<PageFill>> {
+        self.fills.lock().get(&page_offset).cloned()
+    }
+
+    pub fn start_or_join_fill_locked(self: &Arc<Self>, page_offset: usize) -> Result<Arc<PageFill>, VfsReadError> {
+        debug_assert_eq!(page_offset % PAGE_SIZE_4K, 0);
+
+        let (fill, node) = {
+            let mut fills = self.fills.lock();
+            if let Some(fill) = fills.get(&page_offset) {
+                return Ok(Arc::clone(fill));
+            }
+
+            let node = self.node.upgrade().ok_or(VfsReadError::Io)?;
+            let fill = Arc::new(PageFill::new());
+            fills.insert(page_offset, Arc::clone(&fill));
+            (fill, node)
+        };
+
+        let cache = Arc::clone(self);
+        let producer = Arc::clone(&fill);
+        Executor::new().spawn(async move {
+            let result = {
+                let _io = cache.io_lock.lock().await;
+                let file_size = node.size();
+
+                let result = if page_offset < file_size {
+                    cache.get_frame_locked(page_offset, file_size).await.map(|_| ())
+                } else {
+                    // truncate moved eof while this task was waiting for io_lock.
+                    // the readers will recheck the current size.
+                    Ok(())
+                };
+
+                let removed = cache.fills.lock().remove(&page_offset);
+                debug_assert!(removed.as_ref()
+                    .is_some_and(|entry| Arc::ptr_eq(entry, &producer)));
+
+                result
+            };
+
+            producer.finish(result);
+        });
+
+        Ok(fill)
+    }
 }
 
 impl PagedBackingStore for FileVmo {

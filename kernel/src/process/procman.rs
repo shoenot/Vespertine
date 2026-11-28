@@ -35,7 +35,7 @@ use crate::executor::Executor;
 use crate::memory::PAGE_SIZE_4K;
 use crate::object::handle::HandleTable;
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::mempool::MemPool;
 use crate::object::vfs::write_all_to_object;
 use crate::process::{
@@ -65,7 +65,7 @@ pub struct ProcessManager {}
 impl KernelObject for ProcessManager {
     fn type_name(&self) -> &'static str { "Process Manager" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::ProcessManager(ProcManOp::Spawn {
                 name_ptr,
@@ -186,9 +186,10 @@ impl KernelObject for ProcessManager {
                 let new_proc = ProcessControlBlock::new_unregistered(new_proc_table, name_str, child_credentials)?;
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
-                let load_result = load_elf(executable, &new_proc).await
+                let load_result = load_elf(executable, &new_proc, ctx).await
                     .map_err(|error| match error {
                         LoaderError::OutOfMemory => InvocationError::OutOfMemory,
+                        LoaderError::Terminating => InvocationError::Terminating,
                         _ => InvocationError::InvalidHandle,
                     })?;
 

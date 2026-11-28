@@ -20,7 +20,6 @@ use crate::sync::TicketLock;
 use crate::sched::dispatch::wake_thread;
 use crate::sched::wait::WaitQueue;
 use crate::sched::{
-    ThreadBlockState,
     ThreadState,
 };
 
@@ -73,7 +72,6 @@ impl<T> RwLock<T> {
                 if (self.state.load(Ordering::Acquire) & WRITER_BIT) != 0 || self.writers_waiting.load(Ordering::Relaxed) != 0 {
                     let thread = current_core_mut().scheduler.get_current_thread();
                     unsafe {
-                        (*thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.reader_queue as *const _ });
                         (*thread).transition(ThreadState::Running, ThreadState::Blocked).expect("rwlock reader was not running")
                     };
                     rq.push(thread);
@@ -112,7 +110,6 @@ impl<T> RwLock<T> {
                 if self.state.load(Ordering::Acquire) != 0 {
                     let thread = current_core_mut().scheduler.get_current_thread();
                     unsafe {
-                        (*thread).set_block_state(ThreadBlockState::WaitQueue { queue: &self.writer_queue as *const _ });
                         (*thread).transition(ThreadState::Running, ThreadState::Blocked).expect("rwlock writer was not running")
                     };
                     wq.push(thread);
@@ -157,7 +154,7 @@ impl<'a, T> Drop for RwLockReadGuard<'a, T> {
             disable_interrupts();
 
             let mut wq = self.lock.writer_queue.lock();
-            let thread = wq.pop_wakeable();
+            let thread = wq.pop();
             drop(wq);
 
             if !thread.is_null() {
@@ -178,7 +175,7 @@ impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
         disable_interrupts();
 
         let mut wq = self.lock.writer_queue.lock();
-        let wthread = wq.pop_wakeable();
+        let wthread = wq.pop();
         drop(wq);
 
         if !wthread.is_null() {

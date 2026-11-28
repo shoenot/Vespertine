@@ -12,7 +12,7 @@ use vespertine_abi::{
 };
 
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::vmo::VmoObject;
 use crate::object::obj::KernelObject;
 use crate::sync::TicketLock;
@@ -29,7 +29,7 @@ pub struct FramebufferDevice {
 impl KernelObject for FramebufferDevice {
     fn type_name(&self) -> &'static str { "Framebuffer Device" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
                 calling_rights.err_if_no(AccessRights::READ)?;
@@ -78,7 +78,7 @@ impl KernelObject for FramebufferDevice {
                 Ok(*cursor)
             }
             // forward vmo ops straight to the framebuffer vmo
-            Invocation::Vmo(op) => self.vmo.invoke(Invocation::Vmo(op), calling_rights).await,
+            Invocation::Vmo(op) => self.vmo.invoke(Invocation::Vmo(op), calling_rights, ctx).await,
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

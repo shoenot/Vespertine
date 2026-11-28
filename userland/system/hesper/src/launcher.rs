@@ -105,7 +105,6 @@ pub fn handle_request(
             }
         },
         HesperRequest::Execute { request_id, request } => {
-            log.write_string(format!("execute requested: {} with {} arguments", request.app_name, request.arguments.len()))?;
             handle_execute(socket, request_id, request, log, policy, caller_user)
         }
     }

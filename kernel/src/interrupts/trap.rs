@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use hal::usercopy::fixup_nofault_user_access;
 use core::sync::atomic::Ordering;
 
 use hal::io;
@@ -20,7 +21,7 @@ use vespertine_abi::{
 use crate::cpu::current_core_mut;
 use crate::process::ProcTermination;
 use crate::sync::TicketLock;
-use crate::sched::dispatch::wake_thread;
+use crate::sched::dispatch::{run_user_kernel_entry, wake_thread};
 use crate::process::current_process;
 use crate::sched::scheduler::ScheduleReason;
 use crate::time::get_time;
@@ -85,7 +86,16 @@ fn terminate_user_fault(frame: &TrapFrame, code: u32, detail: usize) -> ! {
 }
 
 pub fn page_fault_handler(frame: &mut TrapFrame) {
+    if frame.user_mode() {
+        run_user_kernel_entry(|| resolve_page_fault(frame));
+    } else {
+        resolve_page_fault(frame);
+    }
+}
+
+fn resolve_page_fault(frame: &mut TrapFrame) {
     let cr2 = page_fault_address();
+    if fixup_nofault_user_access(frame) { return };
 
     let int_state = (frame.cpu_flags & (1 << 9)) != 0;
     if int_state {

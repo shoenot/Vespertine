@@ -8,6 +8,7 @@ use core::sync::atomic::{
 };
 
 use super::priority::ThreadPriority;
+use crate::executor::waiter::{TerminationToken, wake_all};
 use crate::process::thread_object::ThreadObject;
 use crate::process::{
     Process,
@@ -39,17 +40,6 @@ impl ThreadState {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum ThreadBlockState {
-    None,
-    WaitQueue { queue: *const TicketLock<WaitQueue> },
-    Registration { registration: Arc<ThreadWakeRegistration> },
-    Futex { addr: usize },
-}
-
-unsafe impl Send for ThreadBlockState {}
-unsafe impl Sync for ThreadBlockState {}
-
 #[repr(C)]
 #[derive(Debug)]
 pub struct Thread {
@@ -57,7 +47,8 @@ pub struct Thread {
     pub state: AtomicU8,
     pub handle: Option<Arc<ThreadObject>>,
 
-    pub cancel_requested: AtomicBool,
+    pub termination: TerminationToken,
+    pub user_kernel_active: AtomicBool,
 
     pub base_priority: ThreadPriority,
     pub effective_priority: ThreadPriority,
@@ -76,7 +67,7 @@ pub struct Thread {
 
     pub assigned_core: AtomicUsize,
     pub migration_disabled: AtomicBool,
-    pub block_state: TicketLock<ThreadBlockState>,
+    pub block_state: TicketLock<Option<Arc<ThreadWakeRegistration>>>,
 
     pub wake_target: Arc<WakeTarget>,
     pub reap_pins: AtomicUsize,
@@ -100,7 +91,8 @@ impl Thread {
             ptr::write(&mut self.state, AtomicU8::new(ThreadState::Ready as u8));
             ptr::write(&mut self.handle, None);
 
-            ptr::write(&mut self.cancel_requested, AtomicBool::new(false));
+            ptr::write(&mut self.termination, TerminationToken::new());
+            ptr::write(&mut self.user_kernel_active, AtomicBool::new(false));
 
             ptr::write(&mut self.base_priority, priority);
             ptr::write(&mut self.effective_priority, priority);
@@ -119,7 +111,7 @@ impl Thread {
 
             ptr::write(&mut self.assigned_core, AtomicUsize::new(assigned_core));
             ptr::write(&mut self.migration_disabled, AtomicBool::new(false));
-            ptr::write(&mut self.block_state, TicketLock::new(ThreadBlockState::None));
+            ptr::write(&mut self.block_state, TicketLock::new(None));
 
             ptr::write(&mut self.wake_target, WakeTarget::new(thread_ptr));
             ptr::write(&mut self.reap_pins, AtomicUsize::new(0));
@@ -147,15 +139,22 @@ impl Thread {
         self.migration_disabled.store(true, Ordering::Release);
     }
 
-    pub fn request_cancel(&self) { self.cancel_requested.store(true, Ordering::Release); }
+    pub fn termination_token(&self) -> &TerminationToken { &self.termination }
 
-    pub fn cancel_requested(&self) -> bool { self.cancel_requested.load(Ordering::Acquire) }
+    pub fn cancel_requested(&self) -> bool { self.termination.is_requested() }
 
-    pub fn set_block_state(&self, state: ThreadBlockState) { *self.block_state.lock() = state; }
+    pub fn request_cancel(&self) {
+        wake_all(self.termination.request_and_take_wakers());
+    }
 
-    pub fn take_block_state(&self) -> ThreadBlockState { core::mem::replace(&mut *self.block_state.lock(), ThreadBlockState::None) }
+    pub fn park_registration(&self, registration: Arc<ThreadWakeRegistration>) {
+        let mut park = self.block_state.lock();
+        debug_assert!(park.is_none());
 
-    pub fn clear_block_state(&self) { *self.block_state.lock() = ThreadBlockState::None; }
+        *park = Some(registration);
+        self.transition(ThreadState::Running, ThreadState::Blocked)
+            .expect("invocation parked a thread that was not running");
+    }
 }
 
 unsafe impl Send for Thread {}

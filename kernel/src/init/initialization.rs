@@ -13,6 +13,7 @@ use vespertine_abi::{
     SpawnCredentials,
 };
 
+use crate::object::invoke::InvokeContext;
 use crate::cpu::current_core_mut;
 use crate::drivers::serial::SerialDevice;
 use crate::executor::{
@@ -71,7 +72,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         #[cfg(feature = "diagnostics")]
         tests::run_post_vfs_tests().await;
 
-        let pm_broker_handle = kernel_walk("/System/Services/ProcManager", HandleID(0), AccessRights::READ)
+        let pm_broker_handle = kernel_walk("/System/Services/ProcManager", HandleID(0), AccessRights::READ, InvokeContext::kernel())
             .await
             .expect("[FATAL] No Process Manager broker found");
 
@@ -82,6 +83,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
                     capability: CAP_PROCMAN,
                     requested_rights: AccessRights::CREATE | AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE,
                 }),
+                InvokeContext::kernel(),
             )
             .await
             .expect("[FATAL] Failed to request Process Manager capability"),
@@ -94,7 +96,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
 
         // init package
-        let exec_handle = kernel_walk("/System/Core/hesper", HandleID(0), AccessRights::READ | AccessRights::EXECUTE)
+        let exec_handle = kernel_walk("/System/Core/hesper", HandleID(0), AccessRights::READ | AccessRights::EXECUTE, InvokeContext::kernel())
             .await
             .expect("[FATAL] No program found");
         let root_handle = HandleID(0);
@@ -126,7 +128,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
             start_suspended: false,
         };
 
-        kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
+        kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op), InvokeContext::kernel())
             .await
             .expect("Failed to spawn userspace init");
         let _ = kernel_close(serial_opener);

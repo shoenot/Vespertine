@@ -6,7 +6,7 @@ use core::sync::atomic::{
 };
 
 use crate::sched::{Thread, ThreadPin};
-use crate::sched::dispatch::wake_thread;
+use crate::sched::dispatch::{wake_registered_thread, wake_thread};
 use crate::sync::TicketLock;
 
 #[derive(Debug)]
@@ -64,10 +64,11 @@ impl ThreadWakeRegistration {
 
     fn wake_irqs_off(&self) -> bool {
         if !self.active.swap(false, Ordering::AcqRel) { return false };
+
         let Some(pin) = self.target.try_pin() else { return false };
 
         self.fired.store(true, Ordering::Release);
-        wake_thread(pin.as_ptr());
+        wake_registered_thread(&pin, self);
         true
     }
 

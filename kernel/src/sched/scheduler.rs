@@ -452,7 +452,10 @@ fn thread_should_exit(thread: *mut Thread) -> bool {
     if thread.is_null() {
         return false;
     }
-    unsafe { (*thread).cancel_requested() || (*thread).process.is_terminating() }
+
+    let thread = unsafe { &*thread };
+    !thread.user_kernel_active.load(Ordering::Acquire)
+        && (thread.cancel_requested() || thread.process.is_terminating())
 }
 
 fn retire_queued_thread(thread: *mut Thread, exit_code: u32) -> bool {

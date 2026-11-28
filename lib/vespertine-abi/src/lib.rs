@@ -39,6 +39,9 @@ pub mod key;
 mod log;
 pub use log::LogLevel;
 
+mod io;
+pub use io::IoCompletion;
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HandleID(pub usize);

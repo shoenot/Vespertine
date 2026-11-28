@@ -23,7 +23,7 @@ use vespertine_common::path::{
 };
 
 use crate::object::fs::directory::Filename;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::mount::follow_mount;
 use crate::object::obj::KernelObject;
 use crate::security::permissions::{
@@ -235,7 +235,7 @@ impl KernelObject for DirLocation {
 
     fn as_any(&self) -> &dyn core::any::Any { self }
 
-    async fn invoke(&self, invocation: Invocation, rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Directory(DirectoryOp::Resolve { start, path_ptr, path_len, rights: requested_rights }) => {
                 let path = copy_path(path_ptr, path_len)?;
@@ -243,7 +243,7 @@ impl KernelObject for DirLocation {
             }
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len, rights).await,
             Invocation::Directory(DirectoryOp::CreateDir { name, name_len }) => self.create_dir(name, name_len).await,
-            other => self.directory().invoke(other, rights).await,
+            other => self.directory().invoke(other, rights, ctx).await,
         }
     }
 

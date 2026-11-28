@@ -1,4 +1,5 @@
 use alloc::sync::Arc;
+use hal::interrupts::{disable_interrupts, enable_interrupts, interrupts_enabled};
 use core::pin::Pin;
 use core::task::{
     Context,
@@ -8,7 +9,6 @@ use core::task::{
 use crate::cpu::current_core_mut;
 use crate::time::callout::{
     Callout,
-    CalloutPayload,
     TimerRegistration,
 };
 use crate::time::{
@@ -39,10 +39,16 @@ impl Future for AsyncSleep {
 
             // AsyncSleep callouts are armed on the polling CPU.
             // Futures using AsyncSleep must not migrate between executors.
-            let callout = Callout { wake_time: self.target_ticks, payload: CalloutPayload::WakeTimer(self.registration.clone()) };
+            let callout = Callout { 
+                wake_time: self.target_ticks, 
+                registration: Arc::clone(&self.registration),
+            };
 
+            let interrupts_enabled = interrupts_enabled();
+            disable_interrupts();
             current_core_mut().callout_queue.lock().push(callout);
             update_hardware_timer();
+            if interrupts_enabled { enable_interrupts() };
         }
 
         Poll::Pending
@@ -50,9 +56,15 @@ impl Future for AsyncSleep {
 }
 
 pub fn sleep_async(ms: usize) -> AsyncSleep {
-    let ticks = ns_to_ticks(ms.saturating_mul(1_000_000));
+    sleep_async_ns(ms.saturating_mul(1_000_000))
+}
 
-    AsyncSleep { target_ticks: get_time().saturating_add(ticks), armed: false, registration: TimerRegistration::new() }
+pub fn sleep_async_ns(ns: usize) -> AsyncSleep {
+    AsyncSleep {
+        target_ticks: get_time().saturating_add(ns_to_ticks(ns)),
+        armed: false,
+        registration: TimerRegistration::new(),
+    }
 }
 
 impl Drop for AsyncSleep {

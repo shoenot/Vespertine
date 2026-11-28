@@ -8,7 +8,8 @@ use vespertine_abi::{
     Invocation,
 };
 
-use crate::object::invoke::InvocationError;
+use crate::executor::async_sleep::sleep_async_ns;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::obj::KernelObject;
 use crate::time::{
     get_realtime,
@@ -22,7 +23,7 @@ pub struct Clock {}
 impl KernelObject for Clock {
     fn type_name(&self) -> &'static str { "Clock" }
 
-    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Clock(ClockOp::GetTimestamp { s_ptr, ns_ptr }) => {
                 let (s, ns) = get_realtime();
@@ -34,7 +35,10 @@ impl KernelObject for Clock {
                 Ok(0)
             }
             Invocation::Clock(ClockOp::Sleep { ns }) => {
-                sleep(ns);
+                ctx.wait(async move {
+                    sleep_async_ns(ns).await;
+                    Ok(())
+                }).await?;
                 Ok(0)
             }
             _ => Err(InvocationError::UnsupportedOperation),

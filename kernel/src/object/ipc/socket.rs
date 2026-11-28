@@ -42,7 +42,7 @@ use crate::executor::waiter::{
     wake_all,
 };
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::obj::{
     KernelObject,
     ObjectWaitFuture,
@@ -100,6 +100,7 @@ pub struct SocketBusInner {
     pub write_waiters: WaiterList,
     pub readable_signal_waiters: WaiterList,
     pub writable_signal_waiters: WaiterList,
+    pub reader_closed: bool,
 }
 
 #[derive(Debug)]
@@ -119,6 +120,7 @@ impl SocketBus {
                 write_waiters: WaiterList::new(),
                 readable_signal_waiters: WaiterList::new(),
                 writable_signal_waiters: WaiterList::new(),
+                reader_closed: false,
             }),
             is_closed: AtomicBool::new(false),
             read_min: AtomicUsize::new(1),
@@ -380,7 +382,7 @@ pub struct SocketEndpoint {
 impl KernelObject for SocketEndpoint {
     fn type_name(&self) -> &'static str { "Socket" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { buffer_ptr, len, .. }) => {
                 calling_rights.err_if_no(AccessRights::READ)?;
@@ -389,14 +391,14 @@ impl KernelObject for SocketEndpoint {
                 }
                 let requested_min = min(self.read_bus.read_min.load(Ordering::Acquire), len);
                 let timeout_ds = self.read_bus.read_timeout_ds.load(Ordering::Acquire);
-                SocketReadFuture::new(self, buffer_ptr, len, requested_min, timeout_ds).await
+                ctx.wait(SocketReadFuture::new(self, buffer_ptr, len, requested_min, timeout_ds)).await
             }
             Invocation::File(FileOp::Write { buffer_ptr, len, .. }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
                 if len == 0 {
                     return Ok(0);
                 }
-                SocketWriteFuture::new(self, buffer_ptr, len).await
+                ctx.wait(SocketWriteFuture::new(self, buffer_ptr, len)).await
             }
             Invocation::Socket(SocketOp::SetNB { nb }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
@@ -412,7 +414,7 @@ impl KernelObject for SocketEndpoint {
                 self.write_bus.notify_readers();
                 Ok(0)
             }
-            Invocation::Wait(WaitOp::One(signal)) => ObjectWaitFuture::new(self, signal).await,
+            Invocation::Wait(WaitOp::One(signal)) => ctx.wait(ObjectWaitFuture::new(self, signal)).await,
             Invocation::Wait(WaitOp::Many { items_ptr: _, count: _ }) => {
                 // invoke through ProcessControlBlock::invoke, not here manually
                 Err(InvocationError::UnsupportedOperation)
@@ -443,6 +445,12 @@ impl KernelObject for SocketEndpoint {
 
 impl Drop for SocketEndpoint {
     fn drop(&mut self) {
+        {
+            let mut inner = self.read_bus.inner.lock();
+            inner.reader_closed = true;
+        }
+        self.read_bus.notify_writable();
+
         self.write_bus.is_closed.store(true, Ordering::Release);
         self.write_bus.notify_readable();
     }
@@ -515,6 +523,32 @@ impl SocketEndpoint {
             ObjectWaitFuture::new(self, Signal::READABLE).await?;
         }
     }
+
+    pub(crate) async fn write_record(&self, data: &[u8], ctx: InvokeContext<'_>) -> Result<(), InvocationError> {
+        if data.len() > BUFFER_SIZE - 1 { return Err(InvocationError::InvalidArgument) };
+
+        let waiter = AsyncWaiter::new();
+        let result = ctx.wait(core::future::poll_fn(|cx| {
+            let mut inner = self.write_bus.inner.lock();
+
+            if inner.reader_closed || self.write_bus.is_closed.load(Ordering::Acquire) {
+                return Poll::Ready(Err(InvocationError::UnsupportedOperation));
+            }
+            if inner.buffer.available_space() < data.len() {
+                inner.write_waiters.register(&waiter, cx.waker());
+                return Poll::Pending;
+            }
+
+            let written = inner.buffer.push_slice(data);
+            debug_assert_eq!(written, data.len());
+            drop(inner);
+            self.write_bus.notify_readable();
+            Poll::Ready(Ok(()))
+        })).await;
+
+        waiter.deactivate();
+        result
+    }
 }
 
 pub struct InternalSocketWrite<'a> {
@@ -556,7 +590,7 @@ pub struct SocketFactory {}
 impl KernelObject for SocketFactory {
     fn type_name(&self) -> &'static str { "SocketFactory" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Socket(SocketOp::Create { .. }) => {
                 calling_rights.err_if_no(AccessRights::CREATE)?;

@@ -33,7 +33,7 @@ SECTIONS {
         *(.rodata .rodata.*)
         . = ALIGN(8);
         __extable_start = .;
-        *(.extable)
+        KEEP(*(.extable))
         __extable_end = .;
         RODATA_END = .;
     } :rodata

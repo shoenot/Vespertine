@@ -21,6 +21,7 @@ pub enum Invocation {
     Portal(PortalOp),
     Wait(WaitOp),
     Notification(NotificationOp),
+    IoQueue(IoQueueOp),
 }
 
 impl Invocation {
@@ -46,6 +47,8 @@ impl Invocation {
             Invocation::File(FileOp::Truncate { .. }) => AccessRights::WRITE,
             Invocation::File(FileOp::GetPrivateVmo { .. }) => AccessRights::READ,
             Invocation::File(FileOp::Sync) => AccessRights::WRITE,
+            Invocation::File(FileOp::SubmitReadAt { .. }) => AccessRights::READ,
+            Invocation::File(FileOp::SubmitWriteAt { .. }) => AccessRights::WRITE,
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
@@ -70,6 +73,7 @@ impl Invocation {
             Invocation::MemPool(MemPoolOp::AllocateVmo { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::CreateSubPool { .. }) => AccessRights::CREATE,
             Invocation::MemPool(MemPoolOp::RequestExpansion { .. }) => AccessRights::MUTATE,
+            Invocation::MemPool(MemPoolOp::CreateIoQueue { .. }) => AccessRights::CREATE,
             Invocation::Clock(ClockOp::GetTimestamp { .. }) => AccessRights::READ,
             Invocation::Clock(ClockOp::Sleep { .. }) => AccessRights::WRITE,
             Invocation::Socket(SocketOp::Create { .. }) => AccessRights::CREATE,
@@ -80,6 +84,7 @@ impl Invocation {
             Invocation::Portal(..) => AccessRights::WRITE,
             Invocation::Broker(BrokerOp::Request { .. }) => AccessRights::READ,
             Invocation::Notification(NotificationOp::TakeNotification) => AccessRights::READ,
+            Invocation::IoQueue(IoQueueOp::Pop { .. }) => AccessRights::READ,
         }
     }
 }

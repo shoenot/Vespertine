@@ -9,15 +9,14 @@ pub use types::*;
 pub use accounting::*;
 
 use crate::{memory::{PAGER, PCAllocator, range_tree::{RangeEntry, RangeMap}, vmm::transaction::{AccountingDelta, VmaTransaction}}, sync::TicketLock};
-use hal::mmu::{DIRECT_MAP_OFFSET, PageFlags, PhysAddr, VirtAddr, pager::{PageTable, Pager, PagerError}};
+use hal::{mmu::{PageFlags, PhysAddr, VirtAddr, pager::{PageTable, Pager, PagerError}}};
+pub use hal::usercopy::USER_SPACE_LIMIT;
 
 pub const USER_NULL_GUARD_END:      usize = 0x0000_0000_0001_0000; // 64 KiB
 pub const USER_IMAGE_BASE:          usize = 0x0000_0000_0040_0000; // normal ELF image area
 pub const USER_DYNAMIC_BASE:        usize = 0x0000_0000_4000_0000; // mmap/reserve search base
 pub const USER_INTERPRETER_BASE:    usize = 0x0000_0040_0000_0000; // current ld.so base
 pub const USER_STACK_TOP:           usize = 0x0000_7000_0000_0000;
-pub const USER_SPACE_LIMIT:         usize = 0x0000_8000_0000_0000; // exclusive
-
 
 #[derive(Debug, Clone, Copy)]
 struct NormalizedMap {

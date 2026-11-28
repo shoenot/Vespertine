@@ -12,10 +12,11 @@ use vespertine_abi::{
 use crate::cpu::current_core_id;
 use crate::klogln;
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::obj::KernelObject;
+use crate::sched::dispatch::request_thread_termination;
 use crate::sync::TicketLock;
-use crate::sched::{Thread, ThreadState};
+use crate::sched::{Thread, ThreadPin, ThreadState};
 
 #[derive(Debug)]
 struct LiveTcb(*mut Thread);
@@ -29,8 +30,7 @@ pub struct ThreadObject {
 }
 
 impl ThreadObject {
-    /// the caller must supply a valid tcb that has never been enqueued and attach at most one obj
-    /// to it.
+    /// the caller must supply a valid tcb that has never been enqueued and attach at most one obj to it
     pub unsafe fn attach(tcb: *mut Thread) -> Arc<Self> {
         let object = Arc::new(Self {
             tid: unsafe { (*tcb).thread_id },
@@ -46,31 +46,18 @@ impl ThreadObject {
     }
 
     fn request_kill(&self) {
-        let target_core = {
+        let pin = {
             let live = self.live.lock();
-            let Some(tcb) = live.as_ref() else {
-                return;
-            };
-
-            unsafe {
-                if (*tcb.0).state() == ThreadState::Terminated {
-                    return;
-                }
-
-                (*tcb.0).request_cancel();
-                (*tcb.0).assigned_core()
-            }
+            let Some(tcb) = live.as_ref() else { return };
+            unsafe { ThreadPin::acquire_protected(tcb.0) }
         };
-
-        if target_core != current_core_id() {
-            send_reschedule_ipi(target_core);
-        }
+        request_thread_termination(&pin);
     }
 }
 
 #[async_trait]
 impl KernelObject for ThreadObject {
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Thread(ThreadOp::Kill) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;

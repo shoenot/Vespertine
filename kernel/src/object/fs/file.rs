@@ -12,7 +12,7 @@ use vespertine_abi::{
     ObjectType,
 };
 
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::vmo::{VmoObject, install_private_file_vmo, new_private_file_vmo};
 use crate::object::obj::KernelObject;
 use crate::sync::TicketLock;
@@ -35,7 +35,7 @@ unsafe impl Sync for FileObj {}
 impl KernelObject for FileObj {
     fn object_type(&self) -> ObjectType { ObjectType::File }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
                 let mut current_offset = offset;

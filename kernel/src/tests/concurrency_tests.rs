@@ -315,7 +315,108 @@ fn test_stolen_thread_wakeup_routes_to_assigned_cpu() {
     assert_eq!(MIGRATED_SECOND_CORE.load(Ordering::Acquire), first_core, "stolen thread woke on the wrong assigned CPU");
 }
 
+fn test_registered_wake_before_park() {
+    use alloc::sync::Arc;
+    use crate::sched::block::ThreadWakeRegistration;
+    use crate::sched::dispatch::resume_registered_if_awoken;
+
+    let restore = interrupts_enabled();
+    disable_interrupts();
+    let target = current_thread();
+    let registration = ThreadWakeRegistration::new(Arc::clone(&target.wake_target));
+    // ThreadWaker sets its latch before firing the registration.
+    let awoken = AtomicBool::new(true);
+    assert!(registration.wake());
+    target.park_registration(Arc::clone(&registration));
+    assert!(resume_registered_if_awoken(target, &registration, &awoken));
+    assert_eq!(target.state(), ThreadState::Running);
+    if restore { enable_interrupts(); }
+}
+
+static REGISTERED_TARGET_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn registered_target(_arg: usize) -> ! {
+    REGISTERED_TARGET_RUNS.fetch_add(1, Ordering::Release);
+    terminate_thread!();
+}
+
+fn test_active_invocation_retains_inner_park() {
+    use alloc::sync::Arc;
+    use crate::sched::block::ThreadWakeRegistration;
+
+    REGISTERED_TARGET_RUNS.store(0, Ordering::Release);
+    let ptr = create_tcb(registered_target as *const () as usize, 0,
+        ThreadPriority::HIGH, KERNEL_PROCESS.clone()).expect("create park target");
+    // The target has never been enqueued. Its first dispatch represents
+    // resumption of the protected invocation after its inner wait completes.
+    let (outer, inner) = unsafe {
+        let target = &*ptr;
+        target.set_assigned_core(current_core_id());
+        target.set_state(ThreadState::Running);
+        target.user_kernel_active.store(true, Ordering::Release);
+        let outer = ThreadWakeRegistration::new(Arc::clone(&target.wake_target));
+        let inner = ThreadWakeRegistration::new(Arc::clone(&target.wake_target));
+        target.park_registration(Arc::clone(&inner));
+
+        assert!(outer.wake());
+        assert!(outer.fired());
+        target.request_cancel();
+        assert!(target.cancel_requested());
+        assert_eq!(target.state(), ThreadState::Blocked);
+        assert!(inner.is_active());
+        assert!(!try_wake_thread(ptr));
+        assert!(target.block_state.lock().as_ref()
+            .is_some_and(|installed| Arc::ptr_eq(installed, &inner)));
+        (outer, inner)
+    };
+
+    assert!(!outer.wake());
+    assert!(inner.wake());
+    assert!(!inner.wake());
+    for _ in 0..SMP_TEST_WAIT_ITERATIONS {
+        if REGISTERED_TARGET_RUNS.load(Ordering::Acquire) != 0 { break; }
+        test_yield();
+    }
+    assert_eq!(REGISTERED_TARGET_RUNS.load(Ordering::Acquire), 1);
+}
+
+extern "C" fn kill_at_user_return(_arg: usize) -> ! {
+    disable_interrupts();
+    crate::sched::dispatch::run_user_kernel_entry(|| {
+        current_thread().request_cancel();
+    });
+
+    panic!("a thread with a pending kill returned from its kernel entry");
+}
+
+fn test_thread_kill_retires_at_user_return() {
+    let ptr = create_tcb(
+        kill_at_user_return as *const () as usize,
+        0,
+        ThreadPriority::HIGH,
+        KERNEL_PROCESS.clone(),
+    ).expect("create user-return test thread");
+    let pin = KERNEL_PROCESS.pinned_thread_snapshot().into_iter()
+        .find(|pin| pin.as_ptr() == ptr)
+        .expect("pin user-return test thread");
+
+    crate::sched::dispatch::enqueue_ready_thread(ptr);
+    for _ in 0..SMP_TEST_WAIT_ITERATIONS {
+        if unsafe { (*pin.as_ptr()).state() } == ThreadState::Terminated {
+            return;
+        }
+        test_yield();
+    }
+
+    panic!("thread kill did not retire the test thread");
+}
+
 pub fn run_concurrency_tests() {
+    crate::klogln!(Info, "Test/Scheduler", "Thread kill retires at user return");
+    test_thread_kill_retires_at_user_return();
+    test_registered_wake_before_park();
+    crate::klogln!(Info, "Test/Scheduler", "Termination preserves nested park");
+    test_active_invocation_retains_inner_park();
     crate::klogln!(Info, "Test/Scheduler", "Early timer preserves quantum");
     test_early_timer_event_preserves_quantum();
     crate::klogln!(Info, "Test/Scheduler", "Priority validation");

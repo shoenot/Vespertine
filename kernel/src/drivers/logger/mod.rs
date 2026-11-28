@@ -25,7 +25,7 @@ use super::serial::{
     log_to_serial,
 };
 use crate::object::help::RightsWrapper;
-use crate::object::invoke::InvocationError;
+use crate::object::invoke::{InvocationError, InvokeContext};
 use crate::object::obj::KernelObject;
 use crate::sync::{
     KernelOnceCell,
@@ -190,7 +190,7 @@ pub struct ScreenWriter {}
 impl KernelObject for ScreenWriter {
     fn type_name(&self) -> &'static str { "ScreenWriter" }
 
-    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights, _ctx: InvokeContext<'_>) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Write { offset: _, buffer_ptr, len }) => {
                 calling_rights.err_if_no(AccessRights::WRITE)?;
